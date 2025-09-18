@@ -30,6 +30,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # 初始化扩展
 db = SQLAlchemy(app)
 CORS(app, supports_credentials=True)
+with app.app_context():
+    db.create_all()
 
 # 配置Gemini API - 支持多Key轮询
 GEMINI_API_KEYS_STR = os.getenv('GEMINI_API_KEYS')
@@ -84,7 +86,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     qq_id = db.Column(db.String(20), unique=True, nullable=False)  # QQ号
     username = db.Column(db.String(50), unique=True, nullable=False)  # 用户名
-    password_hash = db.Column(db.String(128))  # 密码哈希
+    password_hash = db.Column(db.String(256))  # 密码哈希
     theme = db.Column(db.String(20), default='pure')  # 主题：pure, cute, dreamy
     custom_color = db.Column(db.String(7), default='#6366f1')  # 自定义颜色
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -767,12 +769,6 @@ def health_check():
     """健康检查"""
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
-# 初始化数据库
-@app.before_first_request
-def create_tables():
-    """创建数据库表"""
-    db.create_all()
-    print("✅ 数据库表创建完成")
 
 if __name__ == '__main__':
     # 创建数据库表
