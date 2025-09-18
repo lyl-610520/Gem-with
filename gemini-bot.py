@@ -706,6 +706,61 @@ def parse_frames_from_stream(stream_url, title, frame_interval_seconds=10, max_f
 
 # ... 粘贴到 send_reply 函数的上方 ...
 
+def sync_data_to_companion_space(qq_id, session_id):
+    """同步人设和记忆数据到陪伴空间"""
+    try:
+        # 获取陪伴空间后端URL（需要配置）
+        companion_backend_url = os.getenv('COMPANION_BACKEND_URL', 'https://your-backend-app.onrender.com')
+        
+        # 同步人设数据
+        persona_text = personas.get(str(session_id), "")
+        if persona_text:
+            persona_data = {
+                'persona': persona_text,
+                'qq_id': qq_id
+            }
+            try:
+                response = requests.post(
+                    f"{companion_backend_url}/api/sync/persona",
+                    json=persona_data,
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    print(f"✅ 成功同步用户 {qq_id} 的人设到陪伴空间")
+                else:
+                    print(f"⚠️ 同步人设失败: {response.status_code}")
+            except Exception as e:
+                print(f"❌ 同步人设到陪伴空间失败: {e}")
+        
+        # 同步记忆数据
+        memory_file = os.path.join("memory_data", f"memory_{session_id}.json")
+        if os.path.exists(memory_file):
+            try:
+                with open(memory_file, 'r', encoding='utf-8') as f:
+                    memories = json.load(f)
+                
+                memory_data = {
+                    'memories': memories,
+                    'qq_id': qq_id
+                }
+                
+                response = requests.post(
+                    f"{companion_backend_url}/api/sync/memory",
+                    json=memory_data,
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    print(f"✅ 成功同步用户 {qq_id} 的记忆到陪伴空间")
+                else:
+                    print(f"⚠️ 同步记忆失败: {response.status_code}")
+            except Exception as e:
+                print(f"❌ 同步记忆到陪伴空间失败: {e}")
+        else:
+            print(f"ℹ️ 用户 {qq_id} 没有记忆文件")
+            
+    except Exception as e:
+        print(f"❌ 同步数据到陪伴空间失败: {e}")
+
 def get_forwarded_msg_content(msg_id):
     """通过 NapCat HTTP API 获取并格式化转发的聊天记录"""
     if not NAPCAT_HTTP_URL:
@@ -1040,6 +1095,10 @@ def main_message_handler(ws, data):
         if raw_text in ["#陪伴空间", "#进入陪伴空间", "#陪伴"]:
             # 生成专属链接（这里使用示例URL，实际部署时需要替换为真实URL）
             companion_url = f"https://your-render-app.onrender.com/login?qq={user_id}"
+            
+            # 同步人设和记忆到陪伴空间
+            sync_data_to_companion_space(user_id, session_id)
+            
             reply_text = f"""🌟 欢迎来到陪伴空间！
 
 在这里，我们可以一起：

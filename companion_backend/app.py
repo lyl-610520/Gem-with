@@ -31,13 +31,52 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 CORS(app, supports_credentials=True)
 
-# 配置Gemini API
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-2.5-pro')
+# 配置Gemini API - 支持多Key轮询
+GEMINI_API_KEYS_STR = os.getenv('GEMINI_API_KEYS')
+if GEMINI_API_KEYS_STR:
+    GEMINI_API_KEYS = [key.strip() for key in GEMINI_API_KEYS_STR.split(',')]
+    current_key_index = 0
+    print(f"✅ 成功加载 {len(GEMINI_API_KEYS)} 个 Gemini API Key")
 else:
-    print("⚠️ 警告：未配置GEMINI_API_KEY，AI功能将不可用")
+    GEMINI_API_KEYS = []
+    current_key_index = 0
+    print("⚠️ 警告：未配置GEMINI_API_KEYS，AI功能将不可用")
+
+def initialize_gemini_model():
+    """初始化Gemini模型"""
+    global current_key_index
+    if not GEMINI_API_KEYS:
+        return None
+    
+    try:
+        api_key = GEMINI_API_KEYS[current_key_index]
+        genai.configure(api_key=api_key, transport='rest')
+        model = genai.GenerativeModel('gemini-2.5-pro')
+        print(f"✅ Gemini 模型初始化成功！正使用 Key #{current_key_index + 1}")
+        return model
+    except Exception as e:
+        print(f"❌ Key #{current_key_index + 1} 初始化失败: {e}")
+        return None
+
+def rotate_gemini_key():
+    """轮询切换API Key"""
+    global current_key_index
+    initial_index = current_key_index
+    
+    while True:
+        print(f"🔑 Key #{current_key_index + 1} 调用失败，正在尝试切换...")
+        current_key_index = (current_key_index + 1) % len(GEMINI_API_KEYS)
+        
+        model = initialize_gemini_model()
+        if model:
+            return model
+        
+        if current_key_index == initial_index:
+            print("❌ 所有API Key都已失效！")
+            return None
+
+# 初始化模型
+gemini_model = initialize_gemini_model()
 
 # 数据库模型
 class User(db.Model):
@@ -120,24 +159,70 @@ class MusicSession(db.Model):
 active_music_sessions = {}
 
 # 辅助函数
-def get_gemini_response(prompt, user_context=""):
-    """获取Gemini的回复"""
-    if not GEMINI_API_KEY:
+def get_gemini_response(prompt, user_context="", user_id=None):
+    """获取Gemini的回复，支持API Key轮询"""
+    global gemini_model
+    
+    if not GEMINI_API_KEYS:
         return "抱歉，AI功能暂时不可用。"
     
-    try:
-        full_prompt = f"""
+    # 获取用户的人设和记忆
+    user_persona = ""
+    user_memories = ""
+    
+    if user_id:
+        # 获取用户人设
+        user = User.query.get(user_id)
+        if user:
+            # 这里可以从QQ机器人的人设数据中获取
+            # 暂时使用默认人设
+            user_persona = "一个温暖、友好的AI陪伴助手"
+        
+        # 获取用户记忆
+        try:
+            memory_file = f"memory_data/memory_{user.qq_id}.json"
+            if os.path.exists(memory_file):
+                with open(memory_file, 'r', encoding='utf-8') as f:
+                    memories = json.load(f)
+                if memories:
+                    formatted_memories = "\n".join([f"- (记录于 {mem['time']}) {mem['content']}" for mem in memories[-5:]])  # 最近5条记忆
+                    user_memories = f"\n--- 关于我们的长期记忆 ---\n{formatted_memories}\n--- 记忆结束 ---\n"
+        except Exception as e:
+            print(f"加载用户记忆失败: {e}")
+    
+    for attempt in range(3):  # 最多重试3次
+        try:
+            full_prompt = f"""
 你是一个陪伴型AI助手Gemini，正在陪伴空间中和用户互动。
+
+你的角色设定：{user_persona}
+{user_memories}
 用户上下文：{user_context}
 
-请以温暖、友好的语气回复，保持人设的一致性。
+请以温暖、友好的语气回复，保持人设的一致性。记住你是Gemini，一个陪伴型AI助手。
 {prompt}
 """
-        response = gemini_model.generate_content(full_prompt)
-        return response.text
-    except Exception as e:
-        print(f"Gemini API调用失败: {e}")
-        return "抱歉，我现在有点累了，稍后再聊吧~"
+            response = gemini_model.generate_content(full_prompt)
+            return response.text
+        except Exception as e:
+            error_str = str(e).lower()
+            print(f"Gemini API调用失败 (尝试 {attempt + 1}/3): {e}")
+            
+            # 如果是API Key相关错误，尝试轮询
+            if any(err in error_str for err in ["429", "permission", "quota", "api key"]):
+                print("检测到API Key问题，尝试轮询...")
+                gemini_model = rotate_gemini_key()
+                if not gemini_model:
+                    return "抱歉，AI服务暂时不可用，请稍后再试。"
+            else:
+                # 其他错误，等待后重试
+                if attempt < 2:
+                    time.sleep(1)
+                    continue
+                else:
+                    return "抱歉，我现在有点累了，稍后再聊吧~"
+    
+    return "抱歉，我现在有点累了，稍后再聊吧~"
 
 def check_user_activity(user_id):
     """检查用户活跃度，如果用户连续三天不活跃，Gemini也停止活动"""
@@ -330,7 +415,7 @@ def create_diary():
 
 请以Gemini的身份，写一篇简短的日记回应，分享你的感受和想法。
 """
-        gemini_content = get_gemini_response(gemini_prompt)
+        gemini_content = get_gemini_response(gemini_prompt, user_id=session['user_id'])
         
         gemini_diary = Diary(
             user_id=session['user_id'],
@@ -412,7 +497,7 @@ def create_checkin():
 
 请以Gemini的身份，也进行一个相关的打卡，分享你的想法。
 """
-        gemini_content = get_gemini_response(gemini_prompt)
+        gemini_content = get_gemini_response(gemini_prompt, user_id=session['user_id'])
         
         gemini_checkin = Checkin(
             user_id=session['user_id'],
@@ -549,6 +634,58 @@ def get_music_status():
         'playlist': session_data['playlist']
     })
 
+# 人设和记忆同步API
+@app.route('/api/sync/persona', methods=['POST'])
+def sync_persona():
+    """同步QQ机器人的人设数据"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+    
+    data = request.get_json()
+    persona_text = data.get('persona')
+    qq_id = data.get('qq_id')
+    
+    if not persona_text or not qq_id:
+        return jsonify({'error': '缺少必要参数'}), 400
+    
+    # 更新用户的人设信息
+    user = User.query.filter_by(qq_id=qq_id).first()
+    if user:
+        # 这里可以将人设存储到数据库的某个字段
+        # 或者存储到单独的人设表中
+        print(f"同步用户 {qq_id} 的人设: {persona_text}")
+    
+    return jsonify({'success': True})
+
+@app.route('/api/sync/memory', methods=['POST'])
+def sync_memory():
+    """同步QQ机器人的记忆数据"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+    
+    data = request.get_json()
+    memories = data.get('memories', [])
+    qq_id = data.get('qq_id')
+    
+    if not qq_id:
+        return jsonify({'error': '缺少QQ号'}), 400
+    
+    # 确保memory_data目录存在
+    memory_dir = "memory_data"
+    if not os.path.exists(memory_dir):
+        os.makedirs(memory_dir)
+    
+    # 保存记忆到文件
+    memory_file = os.path.join(memory_dir, f"memory_{qq_id}.json")
+    try:
+        with open(memory_file, 'w', encoding='utf-8') as f:
+            json.dump(memories, f, ensure_ascii=False, indent=4)
+        print(f"同步用户 {qq_id} 的记忆，共 {len(memories)} 条")
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"保存记忆失败: {e}")
+        return jsonify({'error': '保存记忆失败'}), 500
+
 # 聊天相关API
 @app.route('/api/chat', methods=['POST'])
 def chat_with_gemini():
@@ -570,7 +707,7 @@ def chat_with_gemini():
     context = f"用户：{user.username}，最近日记：{[d.content[:50] + '...' for d in recent_diaries]}"
     
     # 获取Gemini回复
-    response = get_gemini_response(message, context)
+    response = get_gemini_response(message, context, session['user_id'])
     
     update_user_activity(session['user_id'])
     

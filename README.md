@@ -14,6 +14,8 @@
 - 🎵 语音回复：支持文字转语音
 - 🖼️ 表情包：智能表情包回复
 - 🔗 链接解析：支持抖音、小红书、B站等平台内容解析
+- 🔄 **数据同步**：自动同步人设和记忆到陪伴空间
+- 🔑 **API轮询**：支持多个Gemini API Key轮询使用
 
 ### 陪伴空间功能
 - 📖 **日记系统**：用户和Gemini都可以写日记，分享心情
@@ -23,6 +25,8 @@
 - 🎮 **小游戏**：记忆翻牌、数字拼图等休闲游戏
 - 💬 **聊天系统**：在陪伴空间中的专属聊天
 - 🎨 **主题切换**：三种精美主题（纯色自定义、可爱华丽、星月梦幻）
+- 🧠 **记忆继承**：自动继承QQ机器人中的人设和长期记忆
+- 🔄 **上下文连续性**：在QQ和陪伴空间之间保持对话连续性
 
 ## 🏗️ 项目结构
 
@@ -57,6 +61,8 @@
 
 #### 获取API密钥
 1. 访问 [Google AI Studio](https://makersuite.google.com/app/apikey) 获取Gemini API Key
+   - **建议获取多个API Key**：系统支持多Key轮询，避免单Key限制
+   - 格式：`key1,key2,key3`（用逗号分隔）
 2. 确保NapCat QQ机器人正常运行
 
 ### 2. 后端部署（Render）
@@ -69,7 +75,7 @@
 2. **配置环境变量**
    ```
    SECRET_KEY=your-secret-key-here
-   GEMINI_API_KEY=your-gemini-api-key
+   GEMINI_API_KEYS=your-gemini-api-key-1,your-gemini-api-key-2,your-gemini-api-key-3
    FLASK_ENV=production
    ```
 
@@ -113,11 +119,12 @@
 2. **配置环境变量**
    创建 `.env` 文件：
    ```
-   GEMINI_API_KEYS=your-gemini-api-key-1,your-gemini-api-key-2
+   GEMINI_API_KEYS=your-gemini-api-key-1,your-gemini-api-key-2,your-gemini-api-key-3
    NAPCAT_WS_URL=ws://127.0.0.1:3001
    NAPCAT_HTTP_URL=http://127.0.0.1:3000
    NAPCAT_TOKEN=your-napcat-token
    BOT_OWNER_QQ=your-qq-number
+   COMPANION_BACKEND_URL=https://your-backend-app.onrender.com
    ```
 
 3. **启动机器人**

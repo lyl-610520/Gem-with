@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import axios from 'axios';
+import { getQQIdFromURL, shouldSyncData, markDataSynced } from '../utils/syncData';
 
 const LoginContainer = styled.div`
   display: flex;
@@ -140,6 +141,14 @@ function Login({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // 从URL获取QQ号
+  useEffect(() => {
+    const qqId = getQQIdFromURL(window.location.href);
+    if (qqId) {
+      setFormData(prev => ({ ...prev, qq_id: qqId }));
+    }
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
