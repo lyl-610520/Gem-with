@@ -710,7 +710,7 @@ def sync_data_to_companion_space(qq_id, session_id):
     """同步人设和记忆数据到陪伴空间"""
     try:
         # 获取陪伴空间后端URL（需要配置）
-        companion_backend_url = os.getenv('COMPANION_BACKEND_URL', 'https://your-backend-app.onrender.com')
+        companion_backend_url = os.getenv('COMPANION_BACKEND_URL', 'https://gem-withpei-ban-kong-jian-hou-duan.onrender.com')
         
         # 同步人设数据
         persona_text = personas.get(str(session_id), "")
