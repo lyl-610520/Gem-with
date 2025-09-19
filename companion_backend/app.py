@@ -32,6 +32,13 @@ db = SQLAlchemy(app)
 CORS(app, supports_credentials=True)
 with app.app_context():
     db.create_all()
+# ------------------- VVVV 在这里添加 VVVV -------------------
+# 诊断魔法：在程序启动时，打印所有已注册的API地址
+print("--- 诊断信息：检查已注册的API路由 ---")
+for rule in app.url_map.iter_rules():
+    print(f"Endpoint: {rule.endpoint}, Path: {rule.rule}, Methods: {list(rule.methods)}")
+print("---------------------------------")
+# ------------------- ^^^^ 添加结束 ^^^^ -------------------
 
 # 配置Gemini API - 支持多Key轮询
 GEMINI_API_KEYS_STR = os.getenv('GEMINI_API_KEYS')
