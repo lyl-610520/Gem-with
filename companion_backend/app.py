@@ -29,7 +29,19 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 初始化扩展
 db = SQLAlchemy(app)
-CORS(app, supports_credentials=True)
+# ------------------- VVVV 从这里开始复制 VVVV -------------------
+# 从环境变量中获取前端URL白名单，并配置CORS
+frontend_url = os.getenv('FRONTEND_URL')
+if frontend_url:
+    # 如果在Render环境变量里找到了前端URL，就只允许它访问
+    CORS(app, supports_credentials=True, origins=[frontend_url])
+    print(f"✅ CORS已配置，明确允许来自 {frontend_url} 的跨域请求。")
+else:
+    # 如果没有配置（比如在本地测试时），为了方便，允许所有来源
+    # 注意：在生产环境中，强烈建议配置FRONTEND_URL
+    CORS(app, supports_credentials=True)
+    print("⚠️ 警告：未配置FRONTEND_URL环境变量，CORS已设置为允许所有来源，这在生产环境中存在安全风险。")
+# ------------------- ^^^^ 复制到这里结束 ^^^^ -------------------
 with app.app_context():
     db.create_all()
 # 配置Gemini API - 支持多Key轮询
