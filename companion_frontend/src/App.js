@@ -95,9 +95,7 @@ const ContentArea = styled.div`
   overflow-y: auto;
 `;
 
-// API配置
-axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-axios.defaults.withCredentials = true;
+
 
 function App() {
   const [user, setUser] = useState(null);
