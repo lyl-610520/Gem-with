@@ -71,7 +71,7 @@ const Message = styled(motion.div)`
   gap: 12px;
   margin-bottom: 20px;
   
-  ${props => props.isGemini ? 'flex-direction: row-reverse;' : ''}
+  ${props => !props.isGemini ? 'flex-direction: row-reverse;' : ''}
 `;
 
 const Avatar = styled.div`
