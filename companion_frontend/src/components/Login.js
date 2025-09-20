@@ -168,11 +168,11 @@ function Login({ onLogin }) {
 
     try {
       if (isLogin) {
-        const response = await axios.post('/api/auth/login', formData);
+        const response = await axios.post('/auth/login', formData);
         onLogin(response.data);
         setSuccess('登录成功！');
       } else {
-        const response = await axios.post('/api/auth/register', formData);
+        const response = await axios.post('/auth/register', formData);
         onLogin(response.data);
         setSuccess('注册成功！');
       }
