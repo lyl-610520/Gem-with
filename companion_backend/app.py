@@ -49,8 +49,6 @@ else:
     CORS(app, supports_credentials=True)
     print("⚠️ 警告：未配置FRONTEND_URL环境变量，CORS已设置为允许所有来源，这在生产环境中存在安全风险。")
 # ------------------- ^^^^ 复制到这里结束 ^^^^ -------------------
-with app.app_context():
-    db.create_all()
 # 配置Gemini API - 支持多Key轮询
 GEMINI_API_KEYS_STR = os.getenv('GEMINI_API_KEYS')
 if GEMINI_API_KEYS_STR:
@@ -174,6 +172,9 @@ class MusicSession(db.Model):
     is_playing = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+with app.app_context():
+    db.create_all()
 
 # 全局变量存储活跃的音乐会话
 active_music_sessions = {}
