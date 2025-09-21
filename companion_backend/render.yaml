@@ -7,7 +7,7 @@ services:
     # 移除 rootDir 设置，我们从项目根目录开始操作
     buildCommand: pip install -r companion_backend/requirements.txt
     # 使用从根目录开始的、完整的模块路径来启动应用
-    startCommand: gunicorn companion_backend.app:app
+    startCommand: gunicorn --timeout 120 companion_backend.app:app
     envVars:
       - key: SECRET_KEY
         sync: false
