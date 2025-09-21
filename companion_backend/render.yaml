@@ -1,24 +1,20 @@
-# Render部署配置文件 (修正版)
+# Render部署配置文件 (最终版)
 services:
   - type: web
     name: companion-backend
     env: python
     plan: free
-    # 告诉Render我们的代码在哪个文件夹
-    rootDir: companion_backend
-    buildCommand: pip install -r requirements.txt
-    # 使用正确的启动命令
-    startCommand: gunicorn app:app
+    # 移除 rootDir 设置，我们从项目根目录开始操作
+    buildCommand: pip install -r companion_backend/requirements.txt
+    # 使用从根目录开始的、完整的模块路径来启动应用
+    startCommand: gunicorn companion_backend.app:app
     envVars:
-      # 告诉Render，SECRET_KEY的值从你在网站上设置的环境变量里读取
       - key: SECRET_KEY
         sync: false
-      # 告诉Render，GEMINI_API_KEYS的值也从网站环境变量读取 (修正了Key的名字)
       - key: GEMINI_API_KEYS
         sync: false
       - key: FLASK_ENV
         value: production
-      # 告诉Render，FRONTEND_URL的值也从网站环境变量读取
       - key: FRONTEND_URL
         sync: false
     healthCheckPath: /api/health
