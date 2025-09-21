@@ -109,15 +109,32 @@ class User(db.Model):
     password_hash = db.Column(db.String(256))  # 密码哈希
     theme = db.Column(db.String(20), default='pure')  # 主题：pure, cute, dreamy
     custom_color = db.Column(db.String(7), default='#6366f1')  # 自定义颜色
+    
+    # [新增] 人设字段，使用Text类型可以存储很长的文本
+    persona = db.Column(db.Text, default='一个乐于助人的AI助手')
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_active = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     # 关联关系
     diaries = db.relationship('Diary', backref='user', lazy=True, cascade='all, delete-orphan')
     checkins = db.relationship('Checkin', backref='user', lazy=True, cascade='all, delete-orphan')
     annotations = db.relationship('Annotation', backref='user', lazy=True, cascade='all, delete-orphan')
     game_scores = db.relationship('GameScore', backref='user', lazy=True, cascade='all, delete-orphan')
+    
+    # [新增] 与长期记忆的关联关系
+    memories = db.relationship('LongTermMemory', backref='user', lazy=True, cascade='all, delete-orphan')
 
+# [新增] 长期记忆模型
+class LongTermMemory(db.Model):
+    """长期记忆模型"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow) # 使用数据库时间
+    # [新增] QQ机器人同步时会传来一个字符串格式的时间，我们把它也存起来
+    memory_time_str = db.Column(db.String(50)) 
+    
 class Diary(db.Model):
     """日记模型"""
     id = db.Column(db.Integer, primary_key=True)
@@ -185,67 +202,60 @@ active_music_sessions = {}
 
 # 辅助函数
 def get_gemini_response(prompt, user_context="", user_id=None):
-    """获取Gemini的回复，支持API Key轮询"""
+    """[改造版] 获取Gemini的回复，从数据库读取人设和记忆"""
     global gemini_model
-    
     if not GEMINI_API_KEYS:
         return "抱歉，AI功能暂时不可用。"
-    
-    # 获取用户的人设和记忆
-    user_persona = ""
-    user_memories = ""
-    
+
+    user_persona = "一个温暖、友好的AI陪伴助手" # 默认人设
+    user_memories_prompt = ""
+
     if user_id:
-        # 获取用户人设
         user = User.query.get(user_id)
         if user:
-            # 这里可以从QQ机器人的人设数据中获取
-            # 暂时使用默认人设
-            user_persona = "一个温暖、友好的AI陪伴助手"
-        
-        # 获取用户记忆
-        try:
-            memory_file = f"memory_data/memory_{user.qq_id}.json"
-            if os.path.exists(memory_file):
-                with open(memory_file, 'r', encoding='utf-8') as f:
-                    memories = json.load(f)
-                if memories:
-                    formatted_memories = "\n".join([f"- (记录于 {mem['time']}) {mem['content']}" for mem in memories[-5:]])  # 最近5条记忆
-                    user_memories = f"\n--- 关于我们的长期记忆 ---\n{formatted_memories}\n--- 记忆结束 ---\n"
-        except Exception as e:
-            print(f"加载用户记忆失败: {e}")
-    
-    for attempt in range(3):  # 最多重试3次
+            # 从数据库直接读取人设
+            user_persona = user.persona
+            
+            # 从数据库读取最新的50条长期记忆
+            recent_memories = LongTermMemory.query.filter_by(user_id=user.id)\
+                .order_by(LongTermMemory.id.desc()).limit(50).all()
+            
+            if recent_memories:
+                # 为了让记忆倒序显示（最新的在最下面），我们先反转列表
+                recent_memories.reverse()
+                formatted_memories = "\n".join([f"- (记录于 {mem.memory_time_str}) {mem.content}" for mem in recent_memories])
+                user_memories_prompt = f"\n--- 关于我们的长期记忆 (请遵守和利用) ---\n{formatted_memories}\n--- 记忆结束 ---\n"
+
+    for attempt in range(len(GEMINI_API_KEYS) + 1):
         try:
             full_prompt = f"""
-你是一个陪伴型AI助手Gemini，正在陪伴空间中和用户互动。
+你的角色设定是：{user_persona}
+{user_memories_prompt}
+---
+用户当前在陪伴空间中的上下文：{user_context}
+---
+现在，请针对用户的以下问题或行为，以温暖、友好的语气进行回应。请记住，你是Gemini，一个陪伴型AI助手。
 
-你的角色设定：{user_persona}
-{user_memories}
-用户上下文：{user_context}
-
-请以温暖、友好的语气回复，保持人设的一致性。记住你是Gemini，一个陪伴型AI助手。
-{prompt}
+用户说："{prompt}"
 """
-            response = gemini_model.generate_content(full_prompt)
+            if not gemini_model:
+                raise Exception("Model is not initialized.")
+            
+            response = gemini_model.generate_content(full_prompt, request_options={"timeout": 120})
             return response.text
         except Exception as e:
             error_str = str(e).lower()
-            print(f"Gemini API调用失败 (尝试 {attempt + 1}/3): {e}")
+            print(f"Gemini API调用失败 (尝试 {attempt + 1}): {e}")
             
-            # 如果是API Key相关错误，尝试轮询
-            if any(err in error_str for err in ["429", "permission", "quota", "api key"]):
-                print("检测到API Key问题，尝试轮询...")
+            # 任何API Key相关错误，都直接轮询
+            if any(err in error_str for err in ["429", "permission", "quota", "api key", "deadline", "resource_exhausted"]):
+                print("检测到API Key或服务问题，尝试轮询...")
                 gemini_model = rotate_gemini_key()
                 if not gemini_model:
-                    return "抱歉，AI服务暂时不可用，请稍后再试。"
-            else:
-                # 其他错误，等待后重试
-                if attempt < 2:
-                    time.sleep(1)
-                    continue
-                else:
-                    return "抱歉，我现在有点累了，稍后再聊吧~"
+                    return "抱歉，AI服务暂时不可用，所有能量核心都已过载。"
+            elif attempt < 2: # 其他网络类错误，重试2次
+                time.sleep(1)
+                continue
     
     return "抱歉，我现在有点累了，稍后再聊吧~"
 
@@ -660,58 +670,111 @@ def get_music_status():
     })
 
 # 人设和记忆同步API
+# --- [核心改造] 人设和记忆同步API (数据库版) ---
+
+# 这是一个辅助函数，用来查找或创建用户，避免代码重复
+def find_or_create_user_by_qq(qq_id):
+    user = User.query.filter_by(qq_id=qq_id).first()
+    if not user:
+        # 如果陪伴空间里还没有这个QQ用户，就自动为他创建一个
+        # 用户名和密码是临时的，用户可以在网页端自行修改
+        temp_username = f"user_{qq_id}"
+        # 检查临时用户名是否已存在
+        if User.query.filter_by(username=temp_username).first():
+            temp_username = f"user_{qq_id}_{secrets.token_hex(4)}"
+            
+        user = User(
+            qq_id=qq_id,
+            username=temp_username,
+            password_hash=generate_password_hash(secrets.token_hex(16)) # 生成一个随机的临时密码
+        )
+        db.session.add(user)
+        # 我们这里直接提交，以获取user.id
+        db.session.commit()
+        print(f"ℹ️ 用户 {qq_id} 不存在，已自动创建新用户。")
+    return user
+
 @app.route('/api/sync/persona', methods=['POST'])
 def sync_persona():
-    """同步QQ机器人的人设数据"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
+    """[改造版] 同步QQ机器人的人设数据到数据库"""
     data = request.get_json()
     persona_text = data.get('persona')
     qq_id = data.get('qq_id')
+
+    if not qq_id:
+        return jsonify({'error': '缺少qq_id参数'}), 400
+
+    user = find_or_create_user_by_qq(qq_id)
     
-    if not persona_text or not qq_id:
-        return jsonify({'error': '缺少必要参数'}), 400
+    # 如果传来的人设为空，则恢复默认人设
+    user.persona = persona_text if persona_text else '一个乐于助人的AI助手'
+    db.session.commit()
     
-    # 更新用户的人设信息
-    user = User.query.filter_by(qq_id=qq_id).first()
-    if user:
-        # 这里可以将人设存储到数据库的某个字段
-        # 或者存储到单独的人设表中
-        print(f"同步用户 {qq_id} 的人设: {persona_text}")
-    
-    return jsonify({'success': True})
+    print(f"✅ [数据库] 已同步用户 {qq_id} 的人设。")
+    return jsonify({'success': True, 'message': f'Persona for {qq_id} updated.'})
 
 @app.route('/api/sync/memory', methods=['POST'])
 def sync_memory():
-    """同步QQ机器人的记忆数据"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
+    """[改造版] 同步QQ机器人的记忆数据到数据库"""
     data = request.get_json()
     memories = data.get('memories', [])
     qq_id = data.get('qq_id')
-    
+
     if not qq_id:
-        return jsonify({'error': '缺少QQ号'}), 400
+        return jsonify({'error': '缺少qq_id参数'}), 400
+
+    user = find_or_create_user_by_qq(qq_id)
+
+    # 1. 为了保证完全同步，先删除该用户的所有旧记忆
+    LongTermMemory.query.filter_by(user_id=user.id).delete()
     
-    # 确保memory_data目录存在
-    memory_dir = "memory_data"
-    if not os.path.exists(memory_dir):
-        os.makedirs(memory_dir)
+    # 2. 遍历从机器人发来的新记忆列表，并存入数据库
+    for mem_item in memories:
+        if 'content' in mem_item and 'time' in mem_item:
+            new_memory = LongTermMemory(
+                user_id=user.id,
+                content=mem_item['content'],
+                memory_time_str=mem_item['time']
+            )
+            db.session.add(new_memory)
     
-    # 保存记忆到文件
-    memory_file = os.path.join(memory_dir, f"memory_{qq_id}.json")
-    try:
-        with open(memory_file, 'w', encoding='utf-8') as f:
-            json.dump(memories, f, ensure_ascii=False, indent=4)
-        print(f"同步用户 {qq_id} 的记忆，共 {len(memories)} 条")
-        return jsonify({'success': True})
-    except Exception as e:
-        print(f"保存记忆失败: {e}")
-        return jsonify({'error': '保存记忆失败'}), 500
+    db.session.commit()
+    
+    print(f"✅ [数据库] 已同步用户 {qq_id} 的记忆，共 {len(memories)} 条。")
+    return jsonify({'success': True, 'message': f'Memories for {qq_id} synced.'})
 
 # 聊天相关API
+# --- [新增] 双向同步核心API ---
+
+@app.route('/api/fetch/data/<string:qq_id>', methods=['GET'])
+def fetch_data_for_bot(qq_id):
+    """
+    [新增] 为QQ机器人提供一个拉取最新数据的接口。
+    这是实现双向同步的关键。
+    """
+    user = User.query.filter_by(qq_id=qq_id).first()
+    
+    if not user:
+        return jsonify({'error': '该QQ用户在陪伴空间无记录'}), 404
+
+    # 1. 获取人设
+    persona_data = user.persona
+
+    # 2. 获取所有长期记忆
+    memories = LongTermMemory.query.filter_by(user_id=user.id).order_by(LongTermMemory.id.asc()).all()
+    memory_data = [
+        {"time": mem.memory_time_str, "content": mem.content} 
+        for mem in memories
+    ]
+    
+    print(f"🔄 QQ机器人 {qq_id} 正在从云端拉取最新数据...")
+    
+    return jsonify({
+        'success': True,
+        'qq_id': qq_id,
+        'persona': persona_data,
+        'memories': memory_data
+    })
 @app.route('/api/chat', methods=['POST'])
 def chat_with_gemini():
     """与Gemini聊天"""
