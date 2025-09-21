@@ -24,6 +24,10 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
+# vvvv 在这里添加下面这两行 vvvv
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+app.config['SESSION_COOKIE_SECURE'] = True
+# ^^^^ 添加到这里结束 ^^^^
 # 智能数据库连接配置
 database_url = os.getenv('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
