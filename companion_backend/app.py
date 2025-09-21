@@ -793,3 +793,27 @@ def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
 
+# =======================================================
+# VVVVVV  请把下面的测试代码粘贴到你后端文件的最底部  VVVVVV
+# =======================================================
+
+@app.route('/api/test/set')
+def set_session_test():
+    """测试写入Session"""
+    session['test_data'] = 'hello_world_12345'
+    print("Session Set Attempted: ", session.get('test_data'))
+    return jsonify({'message': '已尝试向session写入 "hello_world_12345"'})
+
+@app.route('/api/test/get')
+def get_session_test():
+    """测试读取Session"""
+    test_data = session.get('test_data')
+    print("Session Get Attempted. Found data: ", test_data)
+    if test_data == 'hello_world_12345':
+        return jsonify({'status': '成功', 'data': test_data})
+    else:
+        return jsonify({'status': '失败', 'data': test_data}), 401
+
+# =======================================================
+# ^^^^^^  粘贴到这里结束  ^^^^^^
+# =======================================================
