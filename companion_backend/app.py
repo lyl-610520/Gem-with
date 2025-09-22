@@ -8,7 +8,6 @@ from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
-from models import db, User
 import json
 import os
 import re
@@ -974,27 +973,28 @@ def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
 
-# =======================================================
-# VVVVVV  请把下面的测试代码粘贴到你后端文件的最底部  VVVVVV
-# =======================================================
+# ==========================================================
+# [新增] 定时任务的“秘密开关” (Cron Job "Secret Switch")
+# ==========================================================
 
-@app.route('/api/test/set')
-def set_session_test():
-    """测试写入Session"""
-    session['test_data'] = 'hello_world_12345'
-    print("Session Set Attempted: ", session.get('test_data'))
-    return jsonify({'message': '已尝试向session写入 "hello_world_12345"'})
+# 导入 scheduler.py 中的函数
+import scheduler
 
-@app.route('/api/test/get')
-def get_session_test():
-    """测试读取Session"""
-    test_data = session.get('test_data')
-    print("Session Get Attempted. Found data: ", test_data)
-    if test_data == 'hello_world_12345':
-        return jsonify({'status': '成功', 'data': test_data})
-    else:
-        return jsonify({'status': '失败', 'data': test_data}), 401
+@app.route('/run-daily-job/<path:secret_key>', methods=['POST'])
+def trigger_daily_job_from_cron(secret_key):
+    expected_secret = os.environ.get('CRON_SECRET_KEY')
+    if not expected_secret or secret_key != expected_secret:
+        print("定时任务触发失败：密钥无效。")
+        return 'Unauthorized', 403
 
-# =======================================================
-# ^^^^^^  粘贴到这里结束  ^^^^^^
-# =======================================================
+    print("收到合法的定时任务触发请求，开始执行任务...")
+    try:
+        # 在后台线程中执行耗时任务，并立即返回响应
+        # 这样可以防止 cron-job.org 因为等待太久而超时
+        job_thread = threading.Thread(target=scheduler.run_daily_job)
+        job_thread.start()
+        print("任务已在后台启动。")
+        return 'Daily job triggered in background successfully.', 202 # 202 Accepted
+    except Exception as e:
+        print(f"启动定时任务线程时发生错误: {e}")
+        return 'Internal Server Error during job trigger.', 500
