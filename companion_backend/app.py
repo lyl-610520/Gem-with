@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 import requests
 import threading
 import time
+import pytz
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import func
 
@@ -405,28 +406,39 @@ def update_profile():
 # 日记相关API
 # --- [核心重构] 日记相关API (V2) ---
 
+# companion_backend/app.py
+
 @app.route('/api/diary', methods=['GET'])
 def get_diaries():
-    """[改造版] 获取指定日期的日记列表"""
+    """[时区修正版] 获取指定日期的日记列表"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
     
-    # [新增] 从前端接收日期参数，格式如 '2025-09-22'
     date_str = request.args.get('date')
     if not date_str:
         return jsonify({'error': '需要提供日期参数'}), 400
 
     try:
-        # 将字符串日期转换为 datetime 对象，并确定当天的起止时间
+        # [新增] 定义我们的目标时区为北京时间
+        beijing_tz = pytz.timezone('Asia/Shanghai')
+        
+        # 将前端传来的日期字符串解析为一个“天”
         target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        start_of_day = datetime.combine(target_date, datetime.min.time())
-        end_of_day = datetime.combine(target_date, datetime.max.time())
 
-        # [新增] 筛选指定用户在指定时间范围内的日记
+        # [改造] 创建一个基于“北京时间”的当天的开始时间 (例如: 2025-09-25 00:00:00+08:00)
+        start_of_day_local = beijing_tz.localize(datetime.combine(target_date, datetime.min.time()))
+        # [改造] 创建一个基于“北京时间”的当天的结束时间 (例如: 2025-09-25 23:59:59+08:00)
+        end_of_day_local = beijing_tz.localize(datetime.combine(target_date, datetime.max.time()))
+
+        # [关键] 因为数据库存的是UTC时间，所以我们需要把“北京时间范围”转换成“UTC时间范围”来进行查询
+        start_of_day_utc = start_of_day_local.astimezone(pytz.utc)
+        end_of_day_utc = end_of_day_local.astimezone(pytz.utc)
+
         diaries_query = Diary.query.filter(
             Diary.user_id == session['user_id'],
-            Diary.created_at >= start_of_day,
-            Diary.created_at <= end_of_day
+            # [改造] 现在使用UTC时间范围进行精确查询
+            Diary.created_at >= start_of_day_utc,
+            Diary.created_at <= end_of_day_utc
         ).order_by(Diary.created_at.desc()).all()
 
         diaries_data = [{
@@ -439,8 +451,8 @@ def get_diaries():
         
         return jsonify({'diaries': diaries_data})
 
-    except ValueError:
-        return jsonify({'error': '无效的日期格式'}), 400
+    except (ValueError, pytz.UnknownTimeZoneError):
+        return jsonify({'error': '无效的日期或时区格式'}), 400
 
 @app.route('/api/diary', methods=['POST'])
 def create_diary():
@@ -604,28 +616,37 @@ def delete_diary(diary_id):
 # ==========================================================
 # V V V  用下面的代码块替换你原来的 get_checkins 函数 V V V
 # ==========================================================
+# companion_backend/app.py
+
 @app.route('/api/checkin', methods=['GET'])
 def get_checkins():
-    """[改造版] 获取指定日期的打卡记录"""
+    """[时区修正版] 获取指定日期的打卡记录"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
     
-    # 像日记一样，接收日期参数
     date_str = request.args.get('date')
     if not date_str:
         return jsonify({'error': '需要提供日期参数'}), 400
 
     try:
-        # 计算指定日期的开始和结束时间
+        # [新增] 同样使用北京时间
+        beijing_tz = pytz.timezone('Asia/Shanghai')
+        
         target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        start_of_day = datetime.combine(target_date, datetime.min.time())
-        end_of_day = datetime.combine(target_date, datetime.max.time())
 
-        # 筛选指定用户在指定时间范围内的打卡记录
+        # [改造] 创建北京时间的日始末
+        start_of_day_local = beijing_tz.localize(datetime.combine(target_date, datetime.min.time()))
+        end_of_day_local = beijing_tz.localize(datetime.combine(target_date, datetime.max.time()))
+
+        # [改造] 转换为UTC时间范围
+        start_of_day_utc = start_of_day_local.astimezone(pytz.utc)
+        end_of_day_utc = end_of_day_local.astimezone(pytz.utc)
+
         checkins_query = Checkin.query.filter(
             Checkin.user_id == session['user_id'],
-            Checkin.created_at >= start_of_day,
-            Checkin.created_at <= end_of_day
+            # [改造] 使用UTC时间范围查询
+            Checkin.created_at >= start_of_day_utc,
+            Checkin.created_at <= end_of_day_utc
         ).order_by(Checkin.created_at.desc()).all()
 
         checkins_data = [{
@@ -633,14 +654,13 @@ def get_checkins():
             'checkin_type': checkin.checkin_type,
             'content': checkin.content,
             'is_gemini_checkin': checkin.is_gemini_checkin,
-            # [修正] 加上 'Z' 解决8小时时差问题
             'created_at': checkin.created_at.isoformat() + 'Z'
         } for checkin in checkins_query]
         
         return jsonify({'checkins': checkins_data})
 
-    except ValueError:
-        return jsonify({'error': '无效的日期格式'}), 400
+    except (ValueError, pytz.UnknownTimeZoneError):
+        return jsonify({'error': '无效的日期或时区格式'}), 400
 
 # ==========================================================
 # V V V  用下面的代码块替换你原来的 create_checkin 函数 V V V
