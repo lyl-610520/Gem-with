@@ -1,519 +1,221 @@
-import React, { useState, useEffect } from 'react';
-import styled from 'styled-components';
-import { motion, AnimatePresence } from 'framer-motion';
-import { FaPlus, FaEdit, FaTrash, FaHeart, FaSmile, FaFrown, FaMeh } from 'react-icons/fa';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
-const DiaryContainer = styled.div`
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 20px;
-`;
+// [核心改造] 从MUI和MUI图标库导入所需组件
+import {
+  Container, Box, Typography, Button, CircularProgress, Alert,
+  Card, CardContent, CardActions, IconButton, Chip, Fab,
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField,
+  ToggleButtonGroup, ToggleButton, Snackbar
+} from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import MoodIcon from '@mui/icons-material/Mood'; // 开心
+import SentimentVeryDissatisfiedIcon from '@mui/icons-material/SentimentVeryDissatisfied'; // 难过
+import WhatshotIcon from '@mui/icons-material/Whatshot'; // 兴奋
+import SpaIcon from '@mui/icons-material/Spa'; // 平静
+import SmartToyIcon from '@mui/icons-material/SmartToy'; // Gemini
+import PersonIcon from '@mui/icons-material/Person'; // 我
 
-const Header = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
-`;
+// 心情选项配置
+const moodOptions = {
+  happy: { label: '开心', icon: <MoodIcon />, color: 'success' },
+  sad: { label: '难过', icon: <SentimentVeryDissatisfiedIcon />, color: 'error' },
+  excited: { label: '兴奋', icon: <WhatshotIcon />, color: 'warning' },
+  calm: { label: '平静', icon: <SpaIcon />, color: 'info' },
+};
 
-const Title = styled.h1`
-  font-size: 2rem;
-  font-weight: 700;
-  color: ${props => props.theme.text};
-`;
-
-const AddButton = styled(motion.button)`
-  background: ${props => props.theme.primary};
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 12px 24px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
-  }
-`;
-
-const DiaryList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-`;
-
-const DiaryCard = styled(motion.div)`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 25px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-`;
-
-const DiaryHeader = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-`;
-
-const DiaryDate = styled.div`
-  font-size: 0.9rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const DiaryActions = styled.div`
-  display: flex;
-  gap: 10px;
-`;
-
-const ActionButton = styled.button`
-  background: none;
-  border: none;
-  color: ${props => props.theme.textLight};
-  cursor: pointer;
-  font-size: 1rem;
-  padding: 6px;
-  border-radius: 4px;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    background: rgba(99, 102, 241, 0.1);
-    color: ${props => props.theme.primary};
-  }
-`;
-
-const DiaryContent = styled.div`
-  font-size: 1rem;
-  line-height: 1.6;
-  color: ${props => props.theme.text};
-  margin-bottom: 15px;
-`;
-
-const DiaryMood = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const MoodIcon = styled.div`
-  font-size: 1.1rem;
-  color: ${props => {
-    switch(props.mood) {
-      case 'happy': return '#10b981';
-      case 'sad': return '#ef4444';
-      case 'excited': return '#f59e0b';
-      case 'calm': return '#6366f1';
-      default: return props.theme.textLight;
-    }
-  }};
-`;
-
-const AuthorTag = styled.span`
-  background: ${props => props.isGemini ? '#8b5cf6' : '#6366f1'};
-  color: white;
-  font-size: 0.7rem;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-weight: 500;
-`;
-
-const ModalOverlay = styled(motion.div)`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-`;
-
-const ModalContent = styled(motion.div)`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 30px;
-  width: 90%;
-  max-width: 600px;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-`;
-
-const ModalTitle = styled.h2`
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: ${props => props.theme.text};
-  margin-bottom: 20px;
-`;
-
-const FormGroup = styled.div`
-  margin-bottom: 20px;
-`;
-
-const Label = styled.label`
-  display: block;
-  font-weight: 500;
-  color: ${props => props.theme.text};
-  margin-bottom: 8px;
-`;
-
-const TextArea = styled.textarea`
-  width: 100%;
-  min-height: 200px;
-  padding: 12px;
-  border: 2px solid ${props => props.theme.border};
-  border-radius: 8px;
-  font-size: 1rem;
-  font-family: inherit;
-  background: rgba(255, 255, 255, 0.8);
-  color: ${props => props.theme.text};
-  resize: vertical;
-  
-  &:focus {
-    outline: none;
-    border-color: ${props => props.theme.primary};
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-  }
-`;
-
-const MoodSelector = styled.div`
-  display: flex;
-  gap: 15px;
-  margin-top: 10px;
-`;
-
-const MoodOption = styled.button`
-  background: ${props => props.selected ? props.theme.primary : 'transparent'};
-  color: ${props => props.selected ? 'white' : props.theme.textLight};
-  border: 2px solid ${props => props.selected ? props.theme.primary : props.theme.border};
-  border-radius: 8px;
-  padding: 10px 15px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    border-color: ${props => props.theme.primary};
-    color: ${props => props.theme.primary};
-  }
-`;
-
-const ButtonGroup = styled.div`
-  display: flex;
-  gap: 15px;
-  justify-content: flex-end;
-  margin-top: 20px;
-`;
-
-const Button = styled.button`
-  padding: 12px 24px;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  
-  ${props => props.primary ? `
-    background: ${props.theme.primary};
-    color: white;
-    
-    &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
-    }
-  ` : `
-    background: transparent;
-    color: ${props.theme.textLight};
-    border: 2px solid ${props.theme.border};
-    
-    &:hover {
-      border-color: ${props.theme.primary};
-      color: ${props.theme.primary};
-    }
-  `}
-`;
-
-const LoadingSpinner = styled.div`
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 200px;
-  font-size: 1.2rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const EmptyState = styled.div`
-  text-align: center;
-  padding: 60px 20px;
-  color: ${props => props.theme.textLight};
-`;
-
-const EmptyIcon = styled.div`
-  font-size: 4rem;
-  margin-bottom: 20px;
-  opacity: 0.5;
-`;
-
-const EmptyText = styled.div`
-  font-size: 1.2rem;
-  margin-bottom: 10px;
-`;
-
-const EmptySubtext = styled.div`
-  font-size: 0.9rem;
-`;
-
-function Diary({ user }) {
+function Diary() {
   const [diaries, setDiaries] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const [editingDiary, setEditingDiary] = useState(null);
-  const [formData, setFormData] = useState({
-    content: '',
-    mood: ''
-  });
+  const [formData, setFormData] = useState({ content: '', mood: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '' });
 
-  useEffect(() => {
-    fetchDiaries();
-  }, []);
-
-  const fetchDiaries = async () => {
+  // 使用 useCallback 优化性能，防止不必要的重渲染
+  const fetchDiaries = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/diary?per_page=20');
+      setError('');
+      const response = await axios.get('/diary?per_page=50'); // 一次加载更多
       setDiaries(response.data.diaries);
-    } catch (error) {
-      console.error('获取日记失败:', error);
+    } catch (err) {
+      setError('获取日记失败，请稍后刷新重试。');
+      console.error(err);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    fetchDiaries();
+  }, [fetchDiaries]);
+
+  const handleOpenModal = () => {
+    setFormData({ content: '', mood: '' });
+    setShowModal(true);
+  };
+
+  const handleCloseModal = () => {
+    if (isSubmitting) return;
+    setShowModal(false);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
+    setError('');
     try {
-      if (editingDiary) {
-        // 编辑日记的逻辑
-        console.log('编辑日记:', editingDiary.id, formData);
-      } else {
-        // 创建新日记
-        await axios.post('/diary', formData);
-        await fetchDiaries();
-        setShowModal(false);
-        setFormData({ content: '', mood: '' });
+      const response = await axios.post('/diary', formData);
+      // [关键逻辑] 直接使用后端返回的新日记数据，实现即时更新
+      const { user_diary, gemini_diary } = response.data;
+      const newDiaries = [user_diary];
+      if (gemini_diary) {
+        newDiaries.unshift(gemini_diary); // Gemini的日记放最前面
       }
-    } catch (error) {
-      console.error('保存日记失败:', error);
+      // 将新日记添加到列表顶部，而不是重新请求整个列表
+      setDiaries(prevDiaries => [...newDiaries, ...prevDiaries]);
+      
+      handleCloseModal();
+      setSnackbar({ open: true, message: '日记发布成功！' });
+    } catch (err) {
+      setError(err.response?.data?.error || '发布失败，请重试。');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleDelete = async (diaryId) => {
-    if (window.confirm('确定要删除这篇日记吗？')) {
-      try {
-        await axios.delete(`/diary/${diaryId}`);
-        await fetchDiaries();
-      } catch (error) {
-        console.error('删除日记失败:', error);
-      }
+    // 乐观更新：先从UI上移除，如果失败再加回来
+    const originalDiaries = [...diaries];
+    setDiaries(diaries.filter(d => d.id !== diaryId));
+    setSnackbar({ open: true, message: '正在删除...' });
+
+    try {
+      await axios.delete(`/diary/${diaryId}`);
+      setSnackbar({ open: true, message: '删除成功！' });
+    } catch (err) {
+      // 如果删除失败，恢复原来的列表并提示用户
+      setDiaries(originalDiaries);
+      setSnackbar({ open: true, message: '删除失败，请重试。' });
+      console.error(err);
     }
   };
 
-  const openModal = (diary = null) => {
-    setEditingDiary(diary);
-    if (diary) {
-      setFormData({
-        content: diary.content,
-        mood: diary.mood || ''
-      });
-    } else {
-      setFormData({ content: '', mood: '' });
-    }
-    setShowModal(true);
-  };
-
-  const closeModal = () => {
-    setShowModal(false);
-    setEditingDiary(null);
-    setFormData({ content: '', mood: '' });
-  };
-
-  const getMoodIcon = (mood) => {
-    switch (mood) {
-      case 'happy': return <FaSmile />;
-      case 'sad': return <FaFrown />;
-      case 'excited': return <FaHeart />;
-      case 'calm': return <FaMeh />;
-      default: return <FaMeh />;
-    }
-  };
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  if (loading) {
-    return (
-      <DiaryContainer>
-        <LoadingSpinner>正在加载日记...</LoadingSpinner>
-      </DiaryContainer>
-    );
-  }
+  const formatDate = (dateString) => new Date(dateString).toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' });
 
   return (
-    <DiaryContainer>
-      <Header>
-        <Title>📖 我的日记</Title>
-        <AddButton
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => openModal()}
-        >
-          <FaPlus />
-          写日记
-        </AddButton>
-      </Header>
+    <Container maxWidth="md">
+      {/* 页面头部 */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', my: 4 }}>
+        <Typography variant="h4" component="h1" fontWeight="bold">
+          📖 我的日记
+        </Typography>
+        {/* Fab 是悬浮操作按钮，更适合移动端 */}
+        <Fab color="primary" aria-label="add" onClick={handleOpenModal}>
+          <AddIcon />
+        </Fab>
+      </Box>
 
-      {diaries.length === 0 ? (
-        <EmptyState>
-          <EmptyIcon>📝</EmptyIcon>
-          <EmptyText>还没有日记呢</EmptyText>
-          <EmptySubtext>点击"写日记"按钮，开始记录你的美好时光吧</EmptySubtext>
-        </EmptyState>
-      ) : (
-        <DiaryList>
-          <AnimatePresence>
-            {diaries.map((diary) => (
-              <DiaryCard
-                key={diary.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-              >
-                <DiaryHeader>
-                  <DiaryDate>{formatDate(diary.created_at)}</DiaryDate>
-                  <DiaryActions>
-                    <AuthorTag isGemini={diary.is_gemini_written}>
-                      {diary.is_gemini_written ? 'Gemini' : '我'}
-                    </AuthorTag>
-                    {!diary.is_gemini_written && (
-                      <>
-                        <ActionButton onClick={() => openModal(diary)}>
-                          <FaEdit />
-                        </ActionButton>
-                        <ActionButton onClick={() => handleDelete(diary.id)}>
-                          <FaTrash />
-                        </ActionButton>
-                      </>
-                    )}
-                  </DiaryActions>
-                </DiaryHeader>
-                
-                <DiaryContent>{diary.content}</DiaryContent>
-                
-                {diary.mood && (
-                  <DiaryMood>
-                    <MoodIcon mood={diary.mood}>
-                      {getMoodIcon(diary.mood)}
-                    </MoodIcon>
-                    <span>心情：{diary.mood}</span>
-                  </DiaryMood>
-                )}
-              </DiaryCard>
-            ))}
-          </AnimatePresence>
-        </DiaryList>
+      {/* 加载与错误提示 */}
+      {loading && <Box sx={{ display: 'flex', justifyContent: 'center', my: 5 }}><CircularProgress /></Box>}
+      {error && !loading && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {/* 日记列表 */}
+      {!loading && diaries.length === 0 && (
+        <Typography align="center" color="text.secondary" sx={{ mt: 10 }}>
+          📝 还没有日记呢，点击右下角按钮开始记录吧！
+        </Typography>
       )}
+      
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {diaries.map(diary => (
+          <Card key={diary.id} elevation={2}>
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                <Chip
+                  icon={diary.is_gemini_written ? <SmartToyIcon /> : <PersonIcon />}
+                  label={diary.is_gemini_written ? 'Gemini' : '我'}
+                  color={diary.is_gemini_written ? "secondary" : "primary"}
+                  size="small"
+                />
+                <Typography variant="caption" color="text.secondary">
+                  {formatDate(diary.created_at)}
+                </Typography>
+              </Box>
+              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', my: 2 }}>
+                {diary.content}
+              </Typography>
+            </CardContent>
+            <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
+              {diary.mood && moodOptions[diary.mood] ? (
+                <Chip
+                  icon={moodOptions[diary.mood].icon}
+                  label={moodOptions[diary.mood].label}
+                  color={moodOptions[diary.mood].color}
+                  variant="outlined"
+                />
+              ) : <div />}
+              {!diary.is_gemini_written && (
+                <IconButton size="small" onClick={() => handleDelete(diary.id)}>
+                  <DeleteIcon />
+                </IconButton>
+              )}
+            </CardActions>
+          </Card>
+        ))}
+      </Box>
 
-      <AnimatePresence>
-        {showModal && (
-          <ModalOverlay
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={closeModal}
+      {/* 新建/编辑日记的对话框 */}
+      <Dialog open={showModal} onClose={handleCloseModal} fullWidth maxWidth="sm" disableEscapeKeyDown={isSubmitting}>
+        <DialogTitle>写新日记</DialogTitle>
+        <DialogContent>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          <TextField
+            autoFocus
+            margin="dense"
+            label="今天发生了什么..."
+            type="text"
+            fullWidth
+            multiline
+            rows={8}
+            value={formData.content}
+            onChange={(e) => setFormData(prev => ({ ...prev, content: e.target.value }))}
+            disabled={isSubmitting}
+          />
+          <Typography variant="subtitle1" sx={{ mt: 2, mb: 1 }}>选择心情</Typography>
+          <ToggleButtonGroup
+            value={formData.mood}
+            exclusive
+            onChange={(e, newMood) => setFormData(prev => ({ ...prev, mood: newMood }))}
+            disabled={isSubmitting}
           >
-            <ModalContent
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ModalTitle>
-                {editingDiary ? '编辑日记' : '写新日记'}
-              </ModalTitle>
-              
-              <form onSubmit={handleSubmit}>
-                <FormGroup>
-                  <Label>日记内容</Label>
-                  <TextArea
-                    value={formData.content}
-                    onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                    placeholder="记录今天的心情和想法..."
-                    required
-                  />
-                </FormGroup>
-                
-                <FormGroup>
-                  <Label>心情</Label>
-                  <MoodSelector>
-                    {[
-                      { value: 'happy', label: '开心', icon: <FaSmile /> },
-                      { value: 'sad', label: '难过', icon: <FaFrown /> },
-                      { value: 'excited', label: '兴奋', icon: <FaHeart /> },
-                      { value: 'calm', label: '平静', icon: <FaMeh /> }
-                    ].map((mood) => (
-                      <MoodOption
-                        key={mood.value}
-                        type="button"
-                        selected={formData.mood === mood.value}
-                        onClick={() => setFormData({ ...formData, mood: mood.value })}
-                      >
-                        {mood.icon}
-                        {mood.label}
-                      </MoodOption>
-                    ))}
-                  </MoodSelector>
-                </FormGroup>
-                
-                <ButtonGroup>
-                  <Button type="button" onClick={closeModal}>
-                    取消
-                  </Button>
-                  <Button type="submit" primary>
-                    {editingDiary ? '保存修改' : '发布日记'}
-                  </Button>
-                </ButtonGroup>
-              </form>
-            </ModalContent>
-          </ModalOverlay>
-        )}
-      </AnimatePresence>
-    </DiaryContainer>
+            {Object.entries(moodOptions).map(([key, { label, icon }]) => (
+              <ToggleButton key={key} value={key}>
+                {icon} &nbsp; {label}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseModal} disabled={isSubmitting}>取消</Button>
+          <Button onClick={handleSubmit} variant="contained" disabled={isSubmitting}>
+            {isSubmitting ? <CircularProgress size={24} /> : '发布'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* 全局提示条 */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        message={snackbar.message}
+      />
+    </Container>
   );
 }
 
