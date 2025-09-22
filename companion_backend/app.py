@@ -8,7 +8,7 @@ from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
-from .models import db, User
+from models import db, User
 import json
 import os
 import re
