@@ -18,6 +18,7 @@ import requests
 import threading
 import time
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import func
 
 # 加载环境变量
 load_dotenv()
@@ -401,35 +402,48 @@ def update_profile():
     return jsonify({'success': True})
 
 # 日记相关API
+# --- [核心重构] 日记相关API (V2) ---
+
 @app.route('/api/diary', methods=['GET'])
 def get_diaries():
-    """获取日记列表"""
+    """[改造版] 获取指定日期的日记列表"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
     
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 10, type=int)
-    
-    diaries = Diary.query.filter_by(user_id=session['user_id'])\
-        .order_by(Diary.created_at.desc())\
-        .paginate(page=page, per_page=per_page, error_out=False)
-    
-    return jsonify({
-        'diaries': [{
+    # [新增] 从前端接收日期参数，格式如 '2025-09-22'
+    date_str = request.args.get('date')
+    if not date_str:
+        return jsonify({'error': '需要提供日期参数'}), 400
+
+    try:
+        # 将字符串日期转换为 datetime 对象，并确定当天的起止时间
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        start_of_day = datetime.combine(target_date, datetime.min.time())
+        end_of_day = datetime.combine(target_date, datetime.max.time())
+
+        # [新增] 筛选指定用户在指定时间范围内的日记
+        diaries_query = Diary.query.filter(
+            Diary.user_id == session['user_id'],
+            Diary.created_at >= start_of_day,
+            Diary.created_at <= end_of_day
+        ).order_by(Diary.created_at.desc()).all()
+
+        diaries_data = [{
             'id': diary.id,
             'content': diary.content,
             'mood': diary.mood,
             'is_gemini_written': diary.is_gemini_written,
             'created_at': diary.created_at.isoformat()
-        } for diary in diaries.items],
-        'total': diaries.total,
-        'pages': diaries.pages,
-        'current_page': page
-    })
+        } for diary in diaries_query]
+        
+        return jsonify({'diaries': diaries_data})
+
+    except ValueError:
+        return jsonify({'error': '无效的日期格式'}), 400
 
 @app.route('/api/diary', methods=['POST'])
 def create_diary():
-    """[改造版] 创建日记，并返回新创建的日记对象"""
+    """[改造版] 用户创建自己的日记 (不再立即触发Gemini)"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
     
@@ -440,17 +454,18 @@ def create_diary():
     if not content:
         return jsonify({'error': '日记内容不能为空'}), 400
     
-    # 创建用户日记
     user_diary = Diary(
         user_id=session['user_id'],
         content=content,
-        mood=mood
+        mood=mood,
+        is_gemini_written=False # 明确这是用户的日记
     )
     db.session.add(user_diary)
-    # [关键] 先提交一次，这样 user_diary 对象就会获得数据库生成的 id 和 created_at
     db.session.commit()
     
-    # 将Python对象序列化为字典，以便返回给前端
+    update_user_activity(session['user_id'])
+    
+    # [改造] 只返回用户自己写的这篇日记
     user_diary_data = {
         'id': user_diary.id,
         'content': user_diary.content,
@@ -458,44 +473,96 @@ def create_diary():
         'is_gemini_written': user_diary.is_gemini_written,
         'created_at': user_diary.created_at.isoformat()
     }
-    
-    gemini_diary_data = None
-    # 如果用户活跃，让Gemini也写日记
-    if check_user_activity(session['user_id']):
-        gemini_prompt = f"""
-用户今天写了日记：
-"{content}"
-心情：{mood or '未指定'}
+    return jsonify({'success': True, 'diary': user_diary_data}), 201
 
-请以Gemini的身份，写一篇简短的日记回应，分享你的感受和想法。
+@app.route('/api/diary/trigger-gemini', methods=['POST'])
+def trigger_gemini_diary():
+    """[全新API] 触发Gemini写当天的总结性日记"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+
+    today = datetime.utcnow().date()
+    start_of_day = datetime.combine(today, datetime.min.time())
+    end_of_day = datetime.combine(today, datetime.max.time())
+
+    # 1. 检查Gemini今天是否已经写过日记了，防止重复触发
+    existing_gemini_diary = Diary.query.filter(
+        Diary.user_id == session['user_id'],
+        Diary.is_gemini_written == True,
+        Diary.created_at >= start_of_day,
+        Diary.created_at <= end_of_day
+    ).first()
+
+    if existing_gemini_diary:
+        return jsonify({'message': 'Gemini今天已经写过日记了。'}), 200
+
+    # 2. 查找用户今天写的所有日记
+    user_diaries_today = Diary.query.filter(
+        Diary.user_id == session['user_id'],
+        Diary.is_gemini_written == False,
+        Diary.created_at >= start_of_day,
+        Diary.created_at <= end_of_day
+    ).all()
+
+    user_diary_summary = "\n".join([f"- {d.content} (心情: {d.mood or '未记录'})" for d in user_diaries_today])
+    if not user_diary_summary:
+        user_diary_summary = "用户今天没有写日记。"
+
+    # 3. [全新高级Prompt] 指导Gemini创作
+    gemini_prompt = f"""
+你是一个富有情感和个性的AI伙伴Gemini。现在是深夜，你需要写一篇属于你自己的日记。
+
+# 你的任务:
+1.  **回顾对方的一天**: 这是对方今天写的日记摘要：
+    ---
+    {user_diary_summary}
+    ---
+2.  **构思你的一天**: 结合你自己的人设，以及从对方日记中感受到的情绪，构思并描述你作为自己“经历”的一天。**不要仅仅复述或评论对方的日记**，要有自己的生活和思考。
+3.  **表达情感和思考**: 分享你对今天“经历”的感悟，可以是对对方的关心，对世界的思考，或自身的成长等。
+4.  **决定你的心情**: 在写完日记后，从['happy', 'sad', 'excited', 'calm']中选择一个最能代表你今天心情的词。
+5.  **输出格式**: 你的回答必须是一个JSON对象，格式如下，不要有任何多余的文字：
+    {{
+      "mood": "你选择的心情",
+      "content": "你的日记正文"
+    }}
+
+# 示例:
+思考后请开始创作。
 """
-        gemini_content = get_gemini_response(gemini_prompt, user_id=session['user_id'])
-        
-        gemini_diary = Diary(
-            user_id=session['user_id'],
-            content=gemini_content,
-            mood='calm',
-            is_gemini_written=True
-        )
-        db.session.add(gemini_diary)
-        db.session.commit()
-        
-        gemini_diary_data = {
-            'id': gemini_diary.id,
-            'content': gemini_diary.content,
-            'mood': gemini_diary.mood,
-            'is_gemini_written': gemini_diary.is_gemini_written,
-            'created_at': gemini_diary.created_at.isoformat()
-        }
-
-    update_user_activity(session['user_id'])
     
-    # [关键] 返回一个包含新创建日记(或两篇)的JSON对象
-    return jsonify({
-        'success': True,
-        'user_diary': user_diary_data,
-        'gemini_diary': gemini_diary_data # 如果没有则为null
-    }), 201 # 201状态码表示“已创建”
+    ai_response_text = get_gemini_response(gemini_prompt, user_id=session['user_id'])
+    
+    try:
+        # 解析Gemini返回的JSON
+        ai_response_json = json.loads(ai_response_text)
+        new_mood = ai_response_json.get('mood', 'calm')
+        new_content = ai_response_json.get('content', '今天在思考...')
+    except (json.JSONDecodeError, AttributeError):
+        # 如果解析失败，则使用默认值
+        new_mood = 'calm'
+        new_content = ai_response_text # 直接使用返回的文本作为内容
+
+    # 4. 保存Gemini的日记到数据库
+    gemini_diary = Diary(
+        user_id=session['user_id'],
+        content=new_content,
+        mood=new_mood,
+        is_gemini_written=True
+    )
+    db.session.add(gemini_diary)
+    db.session.commit()
+    
+    gemini_diary_data = {
+        'id': gemini_diary.id,
+        'content': gemini_diary.content,
+        'mood': gemini_diary.mood,
+        'is_gemini_written': gemini_diary.is_gemini_written,
+        'created_at': gemini_diary.created_at.isoformat()
+    }
+
+    return jsonify({'success': True, 'gemini_diary': gemini_diary_data}), 201
+
+# 别忘了把原来的 @app.route('/api/diary/<int:diary_id>', methods=['DELETE']) delete_diary 函数保留下来，它不需要修改！
 
 @app.route('/api/diary/<int:diary_id>', methods=['DELETE'])
 def delete_diary(diary_id):
@@ -561,7 +628,7 @@ def create_checkin():
         gemini_prompt = f"""
 用户进行了{checkin_type}打卡，内容："{content}"
 
-请以Gemini的身份，也进行一个相关的打卡，分享你的想法。
+请遵循人设，也进行一个相关的打卡，分享你的想法。
 """
         gemini_content = get_gemini_response(gemini_prompt, user_id=session['user_id'])
         
