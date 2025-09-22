@@ -526,7 +526,7 @@ def trigger_gemini_diary():
       "content": "你的日记正文"
     }}
 
-# 示例:
+
 思考后请开始创作。
 """
     
