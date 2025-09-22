@@ -420,7 +420,7 @@ def get_diaries():
 
 @app.route('/api/diary', methods=['POST'])
 def create_diary():
-    """创建日记"""
+    """[改造版] 创建日记，并返回新创建的日记对象"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
     
@@ -432,15 +432,25 @@ def create_diary():
         return jsonify({'error': '日记内容不能为空'}), 400
     
     # 创建用户日记
-    diary = Diary(
+    user_diary = Diary(
         user_id=session['user_id'],
         content=content,
         mood=mood
     )
-    
-    db.session.add(diary)
+    db.session.add(user_diary)
+    # [关键] 先提交一次，这样 user_diary 对象就会获得数据库生成的 id 和 created_at
     db.session.commit()
     
+    # 将Python对象序列化为字典，以便返回给前端
+    user_diary_data = {
+        'id': user_diary.id,
+        'content': user_diary.content,
+        'mood': user_diary.mood,
+        'is_gemini_written': user_diary.is_gemini_written,
+        'created_at': user_diary.created_at.isoformat()
+    }
+    
+    gemini_diary_data = None
     # 如果用户活跃，让Gemini也写日记
     if check_user_activity(session['user_id']):
         gemini_prompt = f"""
@@ -458,13 +468,25 @@ def create_diary():
             mood='calm',
             is_gemini_written=True
         )
-        
         db.session.add(gemini_diary)
         db.session.commit()
-    
+        
+        gemini_diary_data = {
+            'id': gemini_diary.id,
+            'content': gemini_diary.content,
+            'mood': gemini_diary.mood,
+            'is_gemini_written': gemini_diary.is_gemini_written,
+            'created_at': gemini_diary.created_at.isoformat()
+        }
+
     update_user_activity(session['user_id'])
     
-    return jsonify({'success': True, 'diary_id': diary.id})
+    # [关键] 返回一个包含新创建日记(或两篇)的JSON对象
+    return jsonify({
+        'success': True,
+        'user_diary': user_diary_data,
+        'gemini_diary': gemini_diary_data # 如果没有则为null
+    }), 201 # 201状态码表示“已创建”
 
 @app.route('/api/diary/<int:diary_id>', methods=['DELETE'])
 def delete_diary(diary_id):
