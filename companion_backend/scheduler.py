@@ -1,31 +1,34 @@
 # companion_backend/scheduler.py
 
-# 直接导入 app 对象，而不是 create_app 函数
-from app import app, db, User, generate_gemini_diary_for_user 
+# 从 app.py 文件中导入我们需要的变量和函数
+from app import app, db, User, generate_gemini_diary_for_user
 
 def run_daily_job():
     """
     为数据库中所有用户执行生成Gemini日记的任务。
     """
-    # 这里不再需要 create_app()，直接使用导入的 app
+    # 必须在 app context 中执行数据库操作
     with app.app_context():
         try:
+            # 找到所有注册的用户
             users = User.query.all()
             if not users:
-                print("数据库中没有找到任何用户。")
+                print("定时任务：数据库中没有找到任何用户。")
                 return
 
-            print(f"任务开始：将为 {len(users)} 位用户生成日记。")
+            print(f"定时任务开始：将为 {len(users)} 位用户生成日记。")
             
+            # 依次为每个用户生成日记
             for user in users:
                 print(f"--- 正在处理用户ID: {user.id} ---")
                 generate_gemini_diary_for_user(user.id)
             
-            print("所有用户的日记生成任务已完成。")
+            print("定时任务：所有用户的日记生成任务已完成。")
 
         except Exception as e:
-            print(f"执行定时任务时发生错误: {e}")
+            print(f"执行定时任务时发生严重错误: {e}")
 
+# 这个部分可以让你在本地测试时直接运行 python scheduler.py
 if __name__ == "__main__":
     print("手动执行每日定时任务...")
     run_daily_job()
