@@ -37,6 +37,15 @@ if database_url and database_url.startswith("postgres://"):
 # 使用处理过的新地址，或者在没有配置时退回使用本地SQLite文件
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///companion.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# [新增] 数据库连接池优化，解决SSL/OperationalError瞬时错误
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    # "强制退休"机制：任何闲置超过280秒的连接，在下次使用前都会被自动丢弃并重新建立。
+    # 这个值略小于云平台通常的300秒（5分钟）空闲超时，能有效避免使用“打盹”的连接。
+    'pool_recycle': 280,
+    # "定期体检"机制：在每次从连接池中获取连接时，都发送一个简单的 "SELECT 1" 来测试连接是否依然有效。
+    # 这会增加极小的性能开销，但能最大程度地保证连接的稳定性。
+    'pool_pre_ping': True
+}
 
 # 初始化扩展
 db = SQLAlchemy(app)
