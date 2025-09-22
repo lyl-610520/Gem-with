@@ -1,274 +1,25 @@
-import React, { useState, useEffect } from 'react';
-import styled from 'styled-components';
-import { motion, AnimatePresence } from 'framer-motion';
-import { FaPlus, FaCheckCircle, FaCalendarAlt, FaTrophy, FaFire } from 'react-icons/fa';
+// Checkin.js (全新升级版)
+
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
+import { format } from 'date-fns';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import zhCN from 'date-fns/locale/zh-CN';
 
-const CheckinContainer = styled.div`
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 20px;
-`;
+// [新增] 引入MUI组件，和日记页面保持风格统一
+import {
+  Container, Box, Typography, Button, CircularProgress, Alert,
+  Card, CardContent, Chip, Fab, Skeleton,
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, Select, MenuItem, FormControl, InputLabel,
+  Tabs, Tab, Snackbar
+} from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
+import PersonIcon from '@mui/icons-material/Person';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 
-const Header = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
-`;
-
-const Title = styled.h1`
-  font-size: 2rem;
-  font-weight: 700;
-  color: ${props => props.theme.text};
-`;
-
-const AddButton = styled(motion.button)`
-  background: ${props => props.theme.primary};
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 12px 24px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
-  }
-`;
-
-const StatsSection = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
-  margin-bottom: 30px;
-`;
-
-const StatCard = styled(motion.div)`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 20px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-  text-align: center;
-`;
-
-const StatIcon = styled.div`
-  font-size: 2rem;
-  color: ${props => props.theme.primary};
-  margin-bottom: 10px;
-`;
-
-const StatValue = styled.div`
-  font-size: 2rem;
-  font-weight: 700;
-  color: ${props => props.theme.text};
-  margin-bottom: 5px;
-`;
-
-const StatLabel = styled.div`
-  font-size: 0.9rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const CheckinList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-`;
-
-const CheckinCard = styled(motion.div)`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 20px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-`;
-
-const CheckinHeader = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-`;
-
-const CheckinType = styled.div`
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: ${props => props.theme.text};
-`;
-
-const CheckinDate = styled.div`
-  font-size: 0.9rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const CheckinContent = styled.div`
-  font-size: 0.95rem;
-  color: ${props => props.theme.text};
-  line-height: 1.5;
-  margin-bottom: 10px;
-`;
-
-const AuthorTag = styled.span`
-  background: ${props => props.isGemini ? '#8b5cf6' : '#6366f1'};
-  color: white;
-  font-size: 0.7rem;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-weight: 500;
-`;
-
-const ModalOverlay = styled(motion.div)`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-`;
-
-const ModalContent = styled(motion.div)`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 30px;
-  width: 90%;
-  max-width: 500px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-`;
-
-const ModalTitle = styled.h2`
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: ${props => props.theme.text};
-  margin-bottom: 20px;
-`;
-
-const FormGroup = styled.div`
-  margin-bottom: 20px;
-`;
-
-const Label = styled.label`
-  display: block;
-  font-weight: 500;
-  color: ${props => props.theme.text};
-  margin-bottom: 8px;
-`;
-
-const Select = styled.select`
-  width: 100%;
-  padding: 12px;
-  border: 2px solid ${props => props.theme.border};
-  border-radius: 8px;
-  font-size: 1rem;
-  background: rgba(255, 255, 255, 0.8);
-  color: ${props => props.theme.text};
-  
-  &:focus {
-    outline: none;
-    border-color: ${props => props.theme.primary};
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-  }
-`;
-
-const TextArea = styled.textarea`
-  width: 100%;
-  min-height: 100px;
-  padding: 12px;
-  border: 2px solid ${props => props.theme.border};
-  border-radius: 8px;
-  font-size: 1rem;
-  font-family: inherit;
-  background: rgba(255, 255, 255, 0.8);
-  color: ${props => props.theme.text};
-  resize: vertical;
-  
-  &:focus {
-    outline: none;
-    border-color: ${props => props.theme.primary};
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-  }
-`;
-
-const ButtonGroup = styled.div`
-  display: flex;
-  gap: 15px;
-  justify-content: flex-end;
-  margin-top: 20px;
-`;
-
-const Button = styled.button`
-  padding: 12px 24px;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  
-  ${props => props.primary ? `
-    background: ${props.theme.primary};
-    color: white;
-    
-    &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
-    }
-  ` : `
-    background: transparent;
-    color: ${props.theme.textLight};
-    border: 2px solid ${props.theme.border};
-    
-    &:hover {
-      border-color: ${props.theme.primary};
-      color: ${props.theme.primary};
-    }
-  `}
-`;
-
-const LoadingSpinner = styled.div`
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 200px;
-  font-size: 1.2rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const EmptyState = styled.div`
-  text-align: center;
-  padding: 60px 20px;
-  color: ${props => props.theme.textLight};
-`;
-
-const EmptyIcon = styled.div`
-  font-size: 4rem;
-  margin-bottom: 20px;
-  opacity: 0.5;
-`;
-
-const EmptyText = styled.div`
-  font-size: 1.2rem;
-  margin-bottom: 10px;
-`;
-
-const EmptySubtext = styled.div`
-  font-size: 0.9rem;
-`;
-
+// 打卡类型定义
 const checkinTypes = [
   { value: 'study', label: '学习' },
   { value: 'exercise', label: '运动' },
@@ -280,234 +31,191 @@ const checkinTypes = [
   { value: 'health', label: '健康' }
 ];
 
-function Checkin({ user }) {
+function Checkin() {
   const [checkins, setCheckins] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const [formData, setFormData] = useState({
-    checkin_type: '',
-    content: ''
-  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '' });
 
+  // [新增] 表单数据状态
+  const [formData, setFormData] = useState({ checkin_type: '', content: '' });
+
+  // [新增] UI状态：当前选择的标签页和日期
+  const [selectedTab, setSelectedTab] = useState(0); // 0 for User, 1 for Gemini
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  // [改造] 当日期变化时，重新获取打卡记录
   useEffect(() => {
+    const fetchCheckins = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const dateStr = format(selectedDate, 'yyyy-MM-dd');
+        // [改造] API请求现在会带上日期
+        const response = await axios.get(`/checkin?date=${dateStr}`);
+        setCheckins(response.data.checkins);
+      } catch (err) {
+        setError('获取打卡记录失败，请稍后刷新重试。');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
     fetchCheckins();
-  }, []);
+  }, [selectedDate]);
 
-  const fetchCheckins = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get('/checkin');
-      setCheckins(response.data.checkins);
-    } catch (error) {
-      console.error('获取打卡记录失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // [改造] 提交打卡的函数
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
-      await axios.post('/checkin', formData);
-      await fetchCheckins();
-      setShowModal(false);
-      setFormData({ checkin_type: '', content: '' });
-    } catch (error) {
-      console.error('保存打卡失败:', error);
+      // [改造] 后端现在会返回新创建的打卡记录
+      const response = await axios.post('/checkin', formData);
+      const { user_checkin, gemini_checkin } = response.data;
+      
+      const newCheckins = [];
+      if (gemini_checkin) newCheckins.push(gemini_checkin);
+      if (user_checkin) newCheckins.push(user_checkin);
+
+      // [改造] 直接将新记录添加到列表顶部，避免重新请求整个列表
+      setCheckins(prev => [...newCheckins, ...prev]);
+      
+      setShowModal(false); // [改造] 只在成功后关闭弹窗
+      setSnackbar({ open: true, message: '打卡成功！' });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.response?.data?.error || '打卡失败' });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const openModal = () => {
+  const handleOpenModal = () => {
     setFormData({ checkin_type: '', content: '' });
     setShowModal(true);
   };
-
-  const closeModal = () => {
+  
+  const handleCloseModal = () => {
     setShowModal(false);
-    setFormData({ checkin_type: '', content: '' });
   };
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('zh-CN', {
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  // [改造] 使用 useMemo 进行性能优化
+  const filteredCheckins = useMemo(() => {
+    return checkins.filter(c => c.is_gemini_checkin === (selectedTab === 1));
+  }, [checkins, selectedTab]);
 
+  // [改造] 修正了获取打卡类型标签的逻辑
   const getCheckinTypeLabel = (type) => {
     const found = checkinTypes.find(t => t.value === type);
     return found ? found.label : type;
   };
-
-  // 计算统计数据
-  const todayCheckins = checkins.filter(checkin => {
-    const today = new Date().toDateString();
-    const checkinDate = new Date(checkin.created_at).toDateString();
-    return today === checkinDate;
-  }).length;
-
-  const totalCheckins = checkins.length;
-  const streak = Math.floor(Math.random() * 7) + 1; // 模拟连续打卡天数
-
-  if (loading) {
-    return (
-      <CheckinContainer>
-        <LoadingSpinner>正在加载打卡记录...</LoadingSpinner>
-      </CheckinContainer>
-    );
-  }
-
+  
   return (
-    <CheckinContainer>
-      <Header>
-        <Title>✅ 打卡记录</Title>
-        <AddButton
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={openModal}
-        >
-          <FaPlus />
-          新打卡
-        </AddButton>
-      </Header>
+    <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
+      <Container maxWidth="md">
+        {/* 和日记页面一样的头部 */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', my: 4, flexWrap: 'wrap', gap: 2 }}>
+          <Typography variant="h4" component="h1" fontWeight="bold">
+            ✅ 打卡记录
+          </Typography>
+          <DatePicker
+            label="选择日期"
+            value={selectedDate}
+            onChange={(newValue) => setSelectedDate(newValue)}
+            format="yyyy年MM月dd日"
+          />
+        </Box>
 
-      <StatsSection>
-        <StatCard
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-        >
-          <StatIcon><FaCheckCircle /></StatIcon>
-          <StatValue>{todayCheckins}</StatValue>
-          <StatLabel>今日打卡</StatLabel>
-        </StatCard>
+        {/* 和日记页面一样的Tabs */}
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+          <Tabs value={selectedTab} onChange={(e, newValue) => setSelectedTab(newValue)} centered>
+            <Tab icon={<PersonIcon />} label="我的打卡" />
+            <Tab icon={<SmartToyIcon />} label="Gemini的打卡" />
+          </Tabs>
+        </Box>
         
-        <StatCard
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-        >
-          <StatIcon><FaCalendarAlt /></StatIcon>
-          <StatValue>{totalCheckins}</StatValue>
-          <StatLabel>总打卡数</StatLabel>
-        </StatCard>
-        
-        <StatCard
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-        >
-          <StatIcon><FaFire /></StatIcon>
-          <StatValue>{streak}</StatValue>
-          <StatLabel>连续天数</StatLabel>
-        </StatCard>
-        
-        <StatCard
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
-        >
-          <StatIcon><FaTrophy /></StatIcon>
-          <StatValue>{Math.floor(totalCheckins / 7)}</StatValue>
-          <StatLabel>完成周数</StatLabel>
-        </StatCard>
-      </StatsSection>
-
-      {checkins.length === 0 ? (
-        <EmptyState>
-          <EmptyIcon>📅</EmptyIcon>
-          <EmptyText>还没有打卡记录</EmptyText>
-          <EmptySubtext>点击"新打卡"按钮，开始记录你的进步吧</EmptySubtext>
-        </EmptyState>
-      ) : (
-        <CheckinList>
-          <AnimatePresence>
-            {checkins.map((checkin) => (
-              <CheckinCard
-                key={checkin.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-              >
-                <CheckinHeader>
-                  <CheckinType>{getCheckinTypeLabel(checkin.checkin_type)}</CheckinType>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <CheckinDate>{formatDate(checkin.created_at)}</CheckinDate>
-                    <AuthorTag isGemini={checkin.is_gemini_checkin}>
-                      {checkin.is_gemini_checkin ? 'Gemini' : '我'}
-                    </AuthorTag>
-                  </div>
-                </CheckinHeader>
-                
-                {checkin.content && (
-                  <CheckinContent>{checkin.content}</CheckinContent>
-                )}
-              </CheckinCard>
+        {/* 内容区域 */}
+        {loading ? (
+            <Box><Skeleton variant="rectangular" height={120} sx={{ mb: 2 }} /><Skeleton variant="rectangular" height={120} /></Box>
+        ) : filteredCheckins.length === 0 ? (
+          <Typography align="center" color="text.secondary" sx={{ mt: 10, p: 3 }}>
+            {selectedTab === 0 ? "今天还没有打卡哦，点击右下角的加号记录一下吧！" : "Gemini今天还没有为你打卡呢。"}
+          </Typography>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {filteredCheckins.map(checkin => (
+              <Card key={checkin.id}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                    <Chip label={getCheckinTypeLabel(checkin.checkin_type)} color="primary" />
+                    <Typography variant="caption" color="text.secondary">
+                      {format(new Date(checkin.created_at), 'HH:mm')}
+                    </Typography>
+                  </Box>
+                  {checkin.content && (
+                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', mt: 2 }}>
+                      {checkin.content}
+                    </Typography>
+                  )}
+                </CardContent>
+              </Card>
             ))}
-          </AnimatePresence>
-        </CheckinList>
-      )}
-
-      <AnimatePresence>
-        {showModal && (
-          <ModalOverlay
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={closeModal}
-          >
-            <ModalContent
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ModalTitle>新打卡</ModalTitle>
-              
-              <form onSubmit={handleSubmit}>
-                <FormGroup>
-                  <Label>打卡类型</Label>
-                  <Select
-                    value={formData.checkin_type}
-                    onChange={(e) => setFormData({ ...formData, checkin_type: e.target.value })}
-                    required
-                  >
-                    <option value="">请选择打卡类型</option>
-                    {checkinTypes.map((type) => (
-                      <option key={type.value} value={type.value}>
-                        {type.label}
-                      </option>
-                    ))}
-                  </Select>
-                </FormGroup>
-                
-                <FormGroup>
-                  <Label>打卡内容（可选）</Label>
-                  <TextArea
-                    value={formData.content}
-                    onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                    placeholder="记录一下今天的感受或收获..."
-                  />
-                </FormGroup>
-                
-                <ButtonGroup>
-                  <Button type="button" onClick={closeModal}>
-                    取消
-                  </Button>
-                  <Button type="submit" primary>
-                    完成打卡
-                  </Button>
-                </ButtonGroup>
-              </form>
-            </ModalContent>
-          </ModalOverlay>
+          </Box>
         )}
-      </AnimatePresence>
-    </CheckinContainer>
+        
+        {/* 只在“我的打卡”标签页显示添加按钮 */}
+        {selectedTab === 0 && (
+          <Fab color="primary" sx={{ position: 'fixed', bottom: 32, right: 32 }} onClick={handleOpenModal}>
+            <AddIcon />
+          </Fab>
+        )}
+
+        {/* 新建打卡的对话框 */}
+        <Dialog open={showModal} onClose={handleCloseModal} fullWidth maxWidth="sm" disableEscapeKeyDown={isSubmitting}>
+          <DialogTitle>新打卡</DialogTitle>
+          <DialogContent>
+            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            <FormControl fullWidth margin="dense" required disabled={isSubmitting}>
+              <InputLabel>打卡类型</InputLabel>
+              <Select
+                value={formData.checkin_type}
+                label="打卡类型"
+                onChange={(e) => setFormData(prev => ({ ...prev, checkin_type: e.target.value }))}
+              >
+                {checkinTypes.map(type => (
+                  <MenuItem key={type.value} value={type.value}>{type.label}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              margin="dense"
+              label="今天发生了什么... (可选)"
+              type="text"
+              fullWidth
+              multiline
+              rows={4}
+              value={formData.content}
+              onChange={(e) => setFormData(prev => ({ ...prev, content: e.target.value }))}
+              disabled={isSubmitting}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseModal} disabled={isSubmitting}>取消</Button>
+            <Button onClick={handleSubmit} variant="contained" disabled={isSubmitting}>
+              {isSubmitting ? <CircularProgress size={24} /> : '完成打卡'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={4000}
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          message={snackbar.message}
+        />
+      </Container>
+    </LocalizationProvider>
   );
 }
 
