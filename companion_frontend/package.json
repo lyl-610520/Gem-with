@@ -6,6 +6,10 @@
   "dependencies": {
     "@emotion/react": "^11.11.4",
     "@emotion/styled": "^11.11.5",
+    "@fontsource/long-cang": "^5.0.8",
+    "@fontsource/noto-sans-sc": "^5.0.13",
+    "@fontsource/roboto": "^5.0.13",
+    "@fontsource/zcool-kuai-le": "^5.0.8",
     "@mui/icons-material": "^5.15.20",
     "@mui/material": "^5.15.20",
     "@testing-library/jest-dom": "^5.16.4",
