@@ -70,7 +70,7 @@ function Diary() {
     setIsSubmitting(true);
     setSnackbar({ open: true, message: '正在呼唤Gemini...' });
     try {
-        const response = await axios.post('/api/diary/trigger-gemini');
+        const response = await axios.post('/diary/trigger-gemini');
         if (response.data.gemini_diary) {
             // 如果成功创建了新日记，将其加入列表
             setDiaries(prev => [...prev, response.data.gemini_diary]);
