@@ -527,8 +527,6 @@ def trigger_gemini_diary():
       "content": "你的日记正文"
     }}
 
-
-思考后请开始创作你的日记。
 """
     
     ai_response_text = get_gemini_response(gemini_prompt, user_id=session['user_id'])
@@ -547,10 +545,10 @@ def trigger_gemini_diary():
        else:
            raise ValueError("在Gemini的回复中没有找到JSON对象")
 
-   except (json.JSONDecodeError, AttributeError, ValueError):
+      except (json.JSONDecodeError, AttributeError, ValueError):
        # 如果解析仍然失败，则将原始文本（清理掉常见标记后）作为内容
-       new_mood = 'calm'
-       new_content = ai_response_text.strip().lstrip('`json').lstrip('`').rstrip('`')
+          new_mood = 'calm'
+          new_content = ai_response_text.strip().lstrip('`json').lstrip('`').rstrip('`')
 
    # --- 粘贴到这里结束 ---
 
