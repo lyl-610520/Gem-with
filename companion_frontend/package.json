@@ -4,10 +4,10 @@
   "description": "陪伴空间前端应用",
   "private": true,
   "dependencies": {
-    "@emotion/react": "^11.11.4",  // [新增] MUI的核心样式引擎
-    "@emotion/styled": "^11.11.5", // [新增] MUI的样式引擎
-    "@mui/icons-material": "^5.15.20", // [新增] MUI官方图标库
-    "@mui/material": "^5.15.20", // [新增] MUI核心组件库
+    "@emotion/react": "^11.11.4",  # [新增] MUI的核心样式引擎
+    "@emotion/styled": "^11.11.5", # [新增] MUI的样式引擎
+    "@mui/icons-material": "^5.15.20", # [新增] MUI官方图标库
+    "@mui/material": "^5.15.20", # [新增] MUI核心组件库
     "@testing-library/jest-dom": "^5.16.4",
     "@testing-library/react": "^13.3.0",
     "@testing-library/user-event": "^13.5.0",
