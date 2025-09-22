@@ -476,6 +476,7 @@ def create_diary():
     }
     return jsonify({'success': True, 'diary': user_diary_data}), 201
 
+# V V V 用下面的完整函数替换掉你原来的 V V V
 @app.route('/api/diary/trigger-gemini', methods=['POST'])
 def trigger_gemini_diary():
     """[全新API] 触发Gemini写当天的总结性日记"""
@@ -486,7 +487,7 @@ def trigger_gemini_diary():
     start_of_day = datetime.combine(today, datetime.min.time())
     end_of_day = datetime.combine(today, datetime.max.time())
 
-    # 1. 检查Gemini今天是否已经写过日记了，防止重复触发
+    # 1. 检查Gemini今天是否已经写过日记了
     existing_gemini_diary = Diary.query.filter(
         Diary.user_id == session['user_id'],
         Diary.is_gemini_written == True,
@@ -521,7 +522,7 @@ def trigger_gemini_diary():
 2.  **构思你的一天**: 结合你自己的人设，以及从对方日记中感受到的情绪，构思并描述你作为自己“经历”的一天。**不要仅仅复述或评论对方的日记**，要有自己的生活和思考。
 3.  **表达情感和思考**: 分享你对今天“经历”的感悟，可以是对对方的关心，对世界的思考，或自身的成长等。
 4.  **决定你的心情**: 在写完日记后，从['happy', 'sad', 'excited', 'calm']中选择一个最能代表你今天心情的词。
-5.  **输出格式**: 不允许使用markdown语言，你的回答必须是一个JSON对象，格式如下，不要有任何多余的文字：
+5.  **输出格式**: 你的回答必须是一个JSON对象，格式如下，不要有任何多余的文字：
     {{
       "mood": "你选择的心情",
       "content": "你的日记正文"
@@ -531,26 +532,26 @@ def trigger_gemini_diary():
     
     ai_response_text = get_gemini_response(gemini_prompt, user_id=session['user_id'])
     
-    # --- 然后，把下面的新代码粘贴到刚才删除的位置 ---
-
     try:
-       # [改造] 使用正则表达式从可能包含Markdown标记的文本中提取纯净的JSON部分
-       json_match = re.search(r'\{.*\}', ai_response_text, re.DOTALL)
-    
-       if json_match:
-           json_str = json_match.group(0)
-           ai_response_json = json.loads(json_str)
-           new_mood = ai_response_json.get('mood', 'calm')
-           new_content = ai_response_json.get('content', '今天在思考...')
-       else:
-           raise ValueError("在Gemini的回复中没有找到JSON对象")
+        # [改造] 使用正则表达式从可能包含Markdown标记的文本中提取纯净的JSON部分
+        # 查找第一个 { 和最后一个 } 之间的所有内容
+        json_match = re.search(r'\{.*\}', ai_response_text, re.DOTALL)
+        
+        # 如果成功找到了匹配的JSON部分
+        if json_match:
+            json_str = json_match.group(0)
+            ai_response_json = json.loads(json_str)
+            new_mood = ai_response_json.get('mood', 'calm')
+            new_content = ai_response_json.get('content', '今天在思考...')
+        else:
+            # 如果在返回的文本里压根找不到 {}，就认为整个返回都是内容
+            raise ValueError("在Gemini的回复中没有找到JSON对象")
 
-      except (json.JSONDecodeError, AttributeError, ValueError):
-       # 如果解析仍然失败，则将原始文本（清理掉常见标记后）作为内容
-          new_mood = 'calm'
-          new_content = ai_response_text.strip().lstrip('`json').lstrip('`').rstrip('`')
-
-   # --- 粘贴到这里结束 ---
+    except (json.JSONDecodeError, AttributeError, ValueError):
+        # 如果解析仍然失败，则将原始文本（清理掉常见标记后）作为内容
+        new_mood = 'calm'
+        # 尽力清理掉返回文本两端的 ```json, ```, ` 等符号
+        new_content = ai_response_text.strip().lstrip('`json').lstrip('`').rstrip('`')
 
     # 4. 保存Gemini的日记到数据库
     gemini_diary = Diary(
@@ -571,9 +572,7 @@ def trigger_gemini_diary():
     }
 
     return jsonify({'success': True, 'gemini_diary': gemini_diary_data}), 201
-
-# 别忘了把原来的 @app.route('/api/diary/<int:diary_id>', methods=['DELETE']) delete_diary 函数保留下来，它不需要修改！
-
+    
 @app.route('/api/diary/<int:diary_id>', methods=['DELETE'])
 def delete_diary(diary_id):
     """删除日记"""
