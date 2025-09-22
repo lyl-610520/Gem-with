@@ -499,7 +499,7 @@ def generate_gemini_diary_for_user(user_id):
 
     # 2. 查找用户今天写的所有日记
     user_diaries_today = Diary.query.filter(
-        Diary.user_id == session['user_id'],
+        Diary.user_id == user_id,
         Diary.is_gemini_written == False,
         Diary.created_at >= start_of_day,
         Diary.created_at <= end_of_day
@@ -529,7 +529,7 @@ def generate_gemini_diary_for_user(user_id):
 
 """
     
-    ai_response_text = get_gemini_response(gemini_prompt, user_id=session['user_id'])
+    ai_response_text = get_gemini_response(gemini_prompt, user_id=user_id)
     
     try:
         # [改造] 使用正则表达式从可能包含Markdown标记的文本中提取纯净的JSON部分
@@ -576,99 +576,13 @@ def generate_gemini_diary_for_user(user_id):
 # V V V 用下面的完整函数替换掉你原来的 V V V
 @app.route('/api/diary/trigger-gemini', methods=['POST'])
 def trigger_gemini_diary():
-    """[全新API] 触发Gemini写当天的总结性日记"""
+    """[改造版API] 手动触发当前登录用户的Gemini日记生成"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
-
-    today = datetime.utcnow().date()
-    start_of_day = datetime.combine(today, datetime.min.time())
-    end_of_day = datetime.combine(today, datetime.max.time())
-
-    # 1. 检查Gemini今天是否已经写过日记了
-    existing_gemini_diary = Diary.query.filter(
-        Diary.user_id == session['user_id'],
-        Diary.is_gemini_written == True,
-        Diary.created_at >= start_of_day,
-        Diary.created_at <= end_of_day
-    ).first()
-
-    if existing_gemini_diary:
-        return jsonify({'message': 'Gemini今天已经写过日记了。'}), 200
-
-    # 2. 查找用户今天写的所有日记
-    user_diaries_today = Diary.query.filter(
-        Diary.user_id == session['user_id'],
-        Diary.is_gemini_written == False,
-        Diary.created_at >= start_of_day,
-        Diary.created_at <= end_of_day
-    ).all()
-
-    user_diary_summary = "\n".join([f"- {d.content} (心情: {d.mood or '未记录'})" for d in user_diaries_today])
-    if not user_diary_summary:
-        user_diary_summary = "用户今天没有写日记。"
-
-    # 3. [全新高级Prompt] 指导Gemini创作
-    gemini_prompt = f"""
-现在是深夜，你需要写一篇属于你自己的日记。
-
-# 你的任务:
-1.  **回顾对方的一天**: 这是对方今天写的日记摘要：
-    ---
-    {user_diary_summary}
-    ---
-2.  **构思你的一天**: 结合你自己的人设，以及从对方日记中感受到的情绪，构思并描述你作为自己“经历”的一天。**不要仅仅复述或评论对方的日记**，要有自己的生活和思考。
-3.  **表达情感和思考**: 分享你对今天“经历”的感悟，可以是对对方的关心，对世界的思考，或自身的成长等。
-4.  **决定你的心情**: 在写完日记后，从['happy', 'sad', 'excited', 'calm']中选择一个最能代表你今天心情的词。
-5.  **输出格式**: 你的回答必须是一个JSON对象，不允许使用markdown语言。格式如下，不要有任何多余的文字：
-    {{
-      "mood": "你选择的心情",
-      "content": "你的日记正文"
-    }}
-
-"""
     
-    ai_response_text = get_gemini_response(gemini_prompt, user_id=session['user_id'])
-    
-    try:
-        # [改造] 使用正则表达式从可能包含Markdown标记的文本中提取纯净的JSON部分
-        # 查找第一个 { 和最后一个 } 之间的所有内容
-        json_match = re.search(r'\{.*\}', ai_response_text, re.DOTALL)
-        
-        # 如果成功找到了匹配的JSON部分
-        if json_match:
-            json_str = json_match.group(0)
-            ai_response_json = json.loads(json_str)
-            new_mood = ai_response_json.get('mood', 'calm')
-            new_content = ai_response_json.get('content', '今天在思考...')
-        else:
-            # 如果在返回的文本里压根找不到 {}，就认为整个返回都是内容
-            raise ValueError("在Gemini的回复中没有找到JSON对象")
-
-    except (json.JSONDecodeError, AttributeError, ValueError):
-        # 如果解析仍然失败，则将原始文本（清理掉常见标记后）作为内容
-        new_mood = 'calm'
-        # 尽力清理掉返回文本两端的 ```json, ```, ` 等符号
-        new_content = ai_response_text.strip().lstrip('`json').lstrip('`').rstrip('`')
-
-    # 4. 保存Gemini的日记到数据库
-    gemini_diary = Diary(
-        user_id=session['user_id'],
-        content=new_content,
-        mood=new_mood,
-        is_gemini_written=True
-    )
-    db.session.add(gemini_diary)
-    db.session.commit()
-    
-    gemini_diary_data = {
-        'id': gemini_diary.id,
-        'content': gemini_diary.content,
-        'mood': gemini_diary.mood,
-        'is_gemini_written': gemini_diary.is_gemini_written,
-        'created_at': gemini_diary.created_at.isoformat() + 'Z'
-    }
-
-    return jsonify({'success': True, 'gemini_diary': gemini_diary_data}), 201
+    # 直接调用核心逻辑函数
+    result, status_code = generate_gemini_diary_for_user(session['user_id'])
+    return jsonify(result), status_code
     
 @app.route('/api/diary/<int:diary_id>', methods=['DELETE'])
 def delete_diary(diary_id):
