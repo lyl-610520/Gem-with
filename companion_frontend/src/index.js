@@ -14,7 +14,7 @@ import '@fontsource/roboto/700.css';
 import '@fontsource/noto-sans-sc/300.css'; // 可爱/纯色主题中文字体
 import '@fontsource/noto-sans-sc/400.css';
 import '@fontsource/noto-sans-sc/500.css';
-import '@fontsource/zcool-kuai-le/400.css'; // 可爱主题艺术字体
+import '@fontsource/zcool-kuaile/400.css'; // 可爱主题艺术字体
 import '@fontsource/long-cang/400.css';     // 梦幻主题手写字体
 
 
