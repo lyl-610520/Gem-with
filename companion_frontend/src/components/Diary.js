@@ -234,6 +234,7 @@ function Diary() {
         message={snackbar.message}
       />
     </Container>
+    </LocalizationProvider>
   );
 }
 
