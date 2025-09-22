@@ -1,135 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import styled from 'styled-components';
 import axios from 'axios';
-import { getQQIdFromURL, shouldSyncData, markDataSynced } from '../utils/syncData';
+import { getQQIdFromURL } from '../utils/syncData'; // 你的工具函数保持不变
 
-const LoginContainer = styled.div`
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  background: ${props => props.theme.background};
-  padding: 20px;
-`;
+// [核心改造] 从MUI导入我们需要的所有UI组件
+import {
+  Container,
+  Box,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  CircularProgress,
+  Alert,
+  Link
+} from '@mui/material';
 
-const LoginCard = styled.div`
-  background: ${props => props.theme.cardBg};
-  padding: 40px;
-  border-radius: ${props => props.theme.borderRadius};
-  box-shadow: ${props => props.theme.shadow};
-  width: 100%;
-  max-width: 400px;
-  backdrop-filter: blur(10px);
-  border: 1px solid ${props => props.theme.border};
-`;
-
-const Title = styled.h1`
-  text-align: center;
-  margin-bottom: 30px;
-  color: ${props => props.theme.text};
-  font-size: 2rem;
-  font-weight: 600;
-`;
-
-const Subtitle = styled.p`
-  text-align: center;
-  margin-bottom: 30px;
-  color: ${props => props.theme.textLight};
-  font-size: 1rem;
-`;
-
-const Form = styled.form`
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-`;
-
-const InputGroup = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`;
-
-const Label = styled.label`
-  color: ${props => props.theme.text};
-  font-weight: 500;
-  font-size: 0.9rem;
-`;
-
-const Input = styled.input`
-  padding: 12px 16px;
-  border: 2px solid ${props => props.theme.border};
-  border-radius: 8px;
-  font-size: 1rem;
-  background: rgba(255, 255, 255, 0.8);
-  color: ${props => props.theme.text};
-  transition: all 0.3s ease;
-  
-  &:focus {
-    outline: none;
-    border-color: ${props => props.theme.primary};
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-  }
-  
-  &::placeholder {
-    color: ${props => props.theme.textLight};
-  }
-`;
-
-const Button = styled.button`
-  padding: 12px 24px;
-  background: ${props => props.theme.primary};
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
-  }
-  
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-  }
-`;
-
-const ToggleButton = styled.button`
-  background: none;
-  border: none;
-  color: ${props => props.theme.primary};
-  cursor: pointer;
-  font-size: 0.9rem;
-  text-decoration: underline;
-  margin-top: 10px;
-  
-  &:hover {
-    color: ${props => props.theme.secondary};
-  }
-`;
-
-const ErrorMessage = styled.div`
-  background: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
-  padding: 12px;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-`;
-
-const SuccessMessage = styled.div`
-  background: rgba(34, 197, 94, 0.1);
-  color: #16a34a;
-  padding: 12px;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  border: 1px solid rgba(34, 197, 94, 0.2);
-`;
+// [新增] 导入一个MUI图标，增加趣味性
+import LockOpenIcon from '@mui/icons-material/LockOpen';
 
 function Login({ onLogin }) {
   const [isLogin, setIsLogin] = useState(true);
@@ -142,7 +29,7 @@ function Login({ onLogin }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // 从URL获取QQ号
+  // 从URL获取QQ号 (逻辑保持不变)
   useEffect(() => {
     const qqId = getQQIdFromURL(window.location.href);
     if (qqId) {
@@ -167,15 +54,13 @@ function Login({ onLogin }) {
     setSuccess('');
 
     try {
-      if (isLogin) {
-        const response = await axios.post('/auth/login', formData);
+      const endpoint = isLogin ? '/auth/login' : '/auth/register';
+      const response = await axios.post(endpoint, formData);
+      setSuccess(`${isLogin ? '登录' : '注册'}成功！正在进入空间...`);
+      // 延迟一点时间让用户看到成功信息，然后调用onLogin切换页面
+      setTimeout(() => {
         onLogin(response.data);
-        setSuccess('登录成功！');
-      } else {
-        const response = await axios.post('/auth/register', formData);
-        onLogin(response.data);
-        setSuccess('注册成功！');
-      }
+      }, 1000);
     } catch (error) {
       setError(error.response?.data?.error || '操作失败，请重试');
     } finally {
@@ -184,63 +69,98 @@ function Login({ onLogin }) {
   };
 
   return (
-    <LoginContainer>
-      <LoginCard>
-        <Title>🌟 陪伴空间</Title>
-        <Subtitle>
-          {isLogin ? '欢迎回来，与Gemini一起度过美好时光' : '创建账户，开始你的陪伴之旅'}
-        </Subtitle>
-        
-        {error && <ErrorMessage>{error}</ErrorMessage>}
-        {success && <SuccessMessage>{success}</SuccessMessage>}
-        
-        <Form onSubmit={handleSubmit}>
-          <InputGroup>
-            <Label>QQ号</Label>
-            <Input
-              type="text"
+    // Container组件会自动处理居中和最大宽度，实现响应式
+    <Container component="main" maxWidth="xs">
+      <Box
+        sx={{
+          marginTop: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
+        {/* Paper组件自带阴影和主题背景色，替代了原来的LoginCard */}
+        <Paper 
+          elevation={6} // 阴影深度
+          sx={{ 
+            p: 4, // p代表padding, 4代表 4 * 8px = 32px
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            backdropFilter: 'blur(10px)', // 保留你的毛玻璃效果
+            backgroundColor: (theme) => 
+              theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.7)',
+          }}
+        >
+          <Typography component="h1" variant="h4" gutterBottom sx={{ fontWeight: 'bold' }}>
+            🌟 陪伴空间
+          </Typography>
+          <Typography component="p" variant="subtitle1" color="text.secondary" align="center" sx={{ mb: 3 }}>
+            {isLogin ? '欢迎回来，与Gemini一起度过美好时光' : '创建账户，开始你的陪伴之旅'}
+          </Typography>
+
+          {/* Alert组件比div好看得多 */}
+          {error && <Alert severity="error" sx={{ width: '100%', mb: 2 }}>{error}</Alert>}
+          {success && <Alert severity="success" sx={{ width: '100%', mb: 2 }}>{success}</Alert>}
+
+          <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1, width: '100%' }}>
+            {/* TextField是MUI的输入框，集成了Label、Input和各种样式 */}
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              id="qq_id"
+              label="QQ号"
               name="qq_id"
               value={formData.qq_id}
               onChange={handleInputChange}
-              placeholder="请输入你的QQ号"
-              required
+              autoFocus
             />
-          </InputGroup>
-          
-          <InputGroup>
-            <Label>用户名</Label>
-            <Input
-              type="text"
+            <TextField
+              margin="normal"
+              required
+              fullWidth
               name="username"
+              label="用户名"
+              id="username"
               value={formData.username}
               onChange={handleInputChange}
-              placeholder="请输入用户名"
-              required
             />
-          </InputGroup>
-          
-          <InputGroup>
-            <Label>密码</Label>
-            <Input
-              type="password"
+            <TextField
+              margin="normal"
+              required
+              fullWidth
               name="password"
+              label="密码"
+              type="password"
+              id="password"
               value={formData.password}
               onChange={handleInputChange}
-              placeholder="请输入密码"
-              required
             />
-          </InputGroup>
-          
-          <Button type="submit" disabled={loading}>
-            {loading ? '处理中...' : (isLogin ? '登录' : '注册')}
-          </Button>
-          
-          <ToggleButton type="button" onClick={() => setIsLogin(!isLogin)}>
-            {isLogin ? '还没有账户？点击注册' : '已有账户？点击登录'}
-          </ToggleButton>
-        </Form>
-      </LoginCard>
-    </LoginContainer>
+            
+            {/* MUI的Button组件，自带加载中状态 */}
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained" // "contained"是实心按钮样式
+              size="large"
+              disabled={loading}
+              sx={{ mt: 3, mb: 2, py: 1.5 }} // mt=marginTop, mb=marginBottom, py=padding-top/bottom
+              startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <LockOpenIcon />}
+            >
+              {loading ? '处理中...' : (isLogin ? '登录' : '注册')}
+            </Button>
+            
+            <Box sx={{ textAlign: 'center' }}>
+                <Link href="#" variant="body2" onClick={(e) => { e.preventDefault(); setIsLogin(!isLogin); }}>
+                  {isLogin ? '还没有账户？点击注册' : '已有账户？点击登录'}
+                </Link>
+            </Box>
+          </Box>
+        </Paper>
+      </Box>
+    </Container>
   );
 }
 
