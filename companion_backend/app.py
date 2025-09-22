@@ -245,7 +245,7 @@ def get_gemini_response(prompt, user_context="", user_id=None):
 ---
 用户当前在陪伴空间中的上下文：{user_context}
 ---
-现在，请针对用户的以下问题或行为，以温暖、友好的语气进行回应。请记住，你是Gemini，一个陪伴型AI助手。
+现在，请针对用户的以下问题或行为，以温暖、友好的语气进行符合人设的回应。请记住，你是Gem。
 
 用户说："{prompt}"
 """
@@ -599,29 +599,55 @@ def delete_diary(diary_id):
     return jsonify({'success': True})
 
 # 打卡相关API
+# companion_backend/app.py
+
+# ==========================================================
+# V V V  用下面的代码块替换你原来的 get_checkins 函数 V V V
+# ==========================================================
 @app.route('/api/checkin', methods=['GET'])
 def get_checkins():
-    """获取打卡记录"""
+    """[改造版] 获取指定日期的打卡记录"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
     
-    checkins = Checkin.query.filter_by(user_id=session['user_id'])\
-        .order_by(Checkin.created_at.desc())\
-        .limit(30).all()
-    
-    return jsonify({
-        'checkins': [{
+    # 像日记一样，接收日期参数
+    date_str = request.args.get('date')
+    if not date_str:
+        return jsonify({'error': '需要提供日期参数'}), 400
+
+    try:
+        # 计算指定日期的开始和结束时间
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        start_of_day = datetime.combine(target_date, datetime.min.time())
+        end_of_day = datetime.combine(target_date, datetime.max.time())
+
+        # 筛选指定用户在指定时间范围内的打卡记录
+        checkins_query = Checkin.query.filter(
+            Checkin.user_id == session['user_id'],
+            Checkin.created_at >= start_of_day,
+            Checkin.created_at <= end_of_day
+        ).order_by(Checkin.created_at.desc()).all()
+
+        checkins_data = [{
             'id': checkin.id,
             'checkin_type': checkin.checkin_type,
             'content': checkin.content,
             'is_gemini_checkin': checkin.is_gemini_checkin,
-            'created_at': checkin.created_at.isoformat()
-        } for checkin in checkins]
-    })
+            # [修正] 加上 'Z' 解决8小时时差问题
+            'created_at': checkin.created_at.isoformat() + 'Z'
+        } for checkin in checkins_query]
+        
+        return jsonify({'checkins': checkins_data})
 
+    except ValueError:
+        return jsonify({'error': '无效的日期格式'}), 400
+
+# ==========================================================
+# V V V  用下面的代码块替换你原来的 create_checkin 函数 V V V
+# ==========================================================
 @app.route('/api/checkin', methods=['POST'])
 def create_checkin():
-    """创建打卡"""
+    """[改造版] 创建打卡并返回新记录"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
     
@@ -632,39 +658,59 @@ def create_checkin():
     if not checkin_type:
         return jsonify({'error': '打卡类型不能为空'}), 400
     
-    # 创建用户打卡
-    checkin = Checkin(
+    # 1. 创建用户打卡
+    user_checkin = Checkin(
         user_id=session['user_id'],
         checkin_type=checkin_type,
-        content=content
+        content=content,
+        is_gemini_checkin=False # 明确这是用户的打卡
     )
-    
-    db.session.add(checkin)
+    db.session.add(user_checkin)
     db.session.commit()
     
-    # 如果用户活跃，让Gemini也打卡
-    if check_user_activity(session['user_id']):
-        gemini_prompt = f"""
-用户进行了{checkin_type}打卡，内容："{content}"
+    # 准备好用户打卡的数据用于返回
+    user_checkin_data = {
+        'id': user_checkin.id,
+        'checkin_type': user_checkin.checkin_type,
+        'content': user_checkin.content,
+        'is_gemini_checkin': user_checkin.is_gemini_checkin,
+        'created_at': user_checkin.created_at.isoformat() + 'Z'
+    }
 
-请遵循人设，也进行一个相关的打卡，分享你的想法。
-"""
+    gemini_checkin_data = None
+    # 2. 如果用户活跃，让Gemini也打卡
+    if check_user_activity(session['user_id']):
+        gemini_prompt = f"用户进行了'{checkin_type}'打卡，内容：'{content}'。请遵循你的人设，也进行一个相关的打卡，分享你的想法或鼓励。"
         gemini_content = get_gemini_response(gemini_prompt, user_id=session['user_id'])
         
         gemini_checkin = Checkin(
             user_id=session['user_id'],
-            checkin_type=f"gemini_{checkin_type}",
+            # [修正] Gemini的打卡类型也用原始类型，通过 is_gemini_checkin 来区分
+            checkin_type=checkin_type, 
             content=gemini_content,
             is_gemini_checkin=True
         )
-        
         db.session.add(gemini_checkin)
         db.session.commit()
-    
+        
+        # 准备好Gemini打卡的数据用于返回
+        gemini_checkin_data = {
+            'id': gemini_checkin.id,
+            'checkin_type': gemini_checkin.checkin_type,
+            'content': gemini_checkin.content,
+            'is_gemini_checkin': gemini_checkin.is_gemini_checkin,
+            'created_at': gemini_checkin.created_at.isoformat() + 'Z'
+        }
+
     update_user_activity(session['user_id'])
     
-    return jsonify({'success': True, 'checkin_id': checkin.id})
-
+    # [改造] 将新创建的打卡记录返回给前端
+    return jsonify({
+        'success': True, 
+        'user_checkin': user_checkin_data,
+        'gemini_checkin': gemini_checkin_data # 如果没有则为 null
+    }), 201
+    
 # 音乐相关API
 @app.route('/api/music/session', methods=['POST'])
 def create_music_session():
