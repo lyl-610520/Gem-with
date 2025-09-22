@@ -1,12 +1,13 @@
 # companion_backend/scheduler.py
 
-from app import create_app, db, User, generate_gemini_diary_for_user
+# 直接导入 app 对象，而不是 create_app 函数
+from app import app, db, User, generate_gemini_diary_for_user 
 
 def run_daily_job():
     """
     为数据库中所有用户执行生成Gemini日记的任务。
     """
-    app = create_app()
+    # 这里不再需要 create_app()，直接使用导入的 app
     with app.app_context():
         try:
             users = User.query.all()
