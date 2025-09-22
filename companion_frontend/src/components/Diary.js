@@ -113,6 +113,13 @@ function Diary() {
       setSnackbar({ open: true, message: '删除失败，请重试。' });
     }
   };
+
+    // V V V 在这里添加下面的函数 V V V
+  const handleCloseModal = () => {
+    setShowModal(false);
+    // 可选：关闭时清空表单，防止下次打开还保留着上次输入的内容
+    setFormData({ content: '', mood: '' }); 
+  };
   
   // [改造] 使用 useMemo 进行性能优化，在 diaries 或 selectedTab 变化时才重新计算
   const filteredDiaries = useMemo(() => {
