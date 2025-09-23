@@ -1,7 +1,7 @@
-// src/components/Reader.js (最终布局严格受控版 - 阅读器)
+// src/components/Reader.js (最终Base64版 - 完整代码)
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
 import { useSwipeable } from 'react-swipeable';
 import {
@@ -12,53 +12,76 @@ import MenuIcon from '@mui/icons-material/Menu';
 import HomeIcon from '@mui/icons-material/Home';
 
 function Reader() {
+  const { bookId } = useParams(); // 从URL中获取书籍ID
   const location = useLocation();
-  const { epubUrl, title } = location.state || {}; // 从Link state中获取数据
-  
+  const { title } = location.state || {}; // 从书架页接收书名
+
   const [rendition, setRendition] = useState(null);
-  const [toc, setToc] = useState([]); // Table of Contents (目录)
+  const [toc, setToc] = useState([]);
   const [progress, setProgress] = useState(0);
   const [showToc, setShowToc] = useState(false);
   const [error, setError] = useState('');
-  const viewerRef = useRef(null); // Ref for the rendition container
+  const [isLoading, setIsLoading] = useState(true); // [新增] 统一的加载状态
+  const viewerRef = useRef(null);
 
   useEffect(() => {
-    if (!epubUrl) {
-      setError("无法加载书籍，未找到书籍文件地址。");
-      return;
-    }
+    let book; // 把 book 实例放在 effect 作用域内，方便在卸载时销毁
     
-    // [核心] 确保 viewerRef.current 存在再进行渲染
-    if (viewerRef.current) {
-      const book = Epub(epubUrl);
-      const rendition = book.renderTo(viewerRef.current, {
-        width: '100%',
-        height: '100%',
-        flow: "paginated", // 明确告诉epubjs要分页
-        spread: "auto",
-      });
+    const loadBook = async () => {
+      try {
+        setIsLoading(true);
+        setError('');
+        
+        // 1. 先去请求书籍的Base64内容
+        const response = await axios.get(`/books/${bookId}/content`);
+        const base64Data = response.data.epub_data_base64;
+        
+        if (!base64Data) {
+          setError("这本书没有内容。");
+          setIsLoading(false);
+          return;
+        }
 
-      rendition.on('relocated', (loc) => {
-        // [核心] 确保locations加载完成后再计算百分比
-        book.ready.then(() => {
-            const percent = book.locations.percentageFromCfi(loc.start.cfi);
-            setProgress(Math.round(percent * 100));
-        });
-      });
-      
-      book.ready.then(() => {
-        book.navigation.load().then(nav => setToc(nav.toc));
-      });
+        // 2. epub.js 可以直接加载Base64数据！
+        book = Epub(`data:application/epub+zip;base64,${base64Data}`);
+        
+        // 3. 确保渲染容器已经准备好
+        if (viewerRef.current) {
+          const rendition = book.renderTo(viewerRef.current, {
+            width: '100%',
+            height: '100%',
+            flow: "paginated",
+            spread: "auto",
+          });
 
-      rendition.display();
-      setRendition(rendition);
-      
-      // 组件卸载时销毁书籍实例，防止内存泄漏
-      return () => {
-        book.destroy();
-      };
-    }
-  }, [epubUrl]);
+          rendition.on('relocated', (loc) => {
+            book.ready.then(() => {
+                const percent = book.locations.percentageFromCfi(loc.start.cfi);
+                setProgress(Math.round(percent * 100));
+            });
+          });
+          
+          book.ready.then(() => {
+            book.navigation.load().then(nav => setToc(nav.toc));
+          });
+
+          await rendition.display();
+          setRendition(rendition);
+          setIsLoading(false); // [核心] 渲染完成后才停止加载
+        }
+      } catch (err) {
+        setError("加载书籍内容失败，请刷新重试。");
+        setIsLoading(false);
+      }
+    };
+    
+    loadBook();
+    
+    // 4. 组件卸载时销毁书籍实例，防止内存泄漏
+    return () => {
+      book?.destroy();
+    };
+  }, [bookId]);
 
   const goToNextPage = () => rendition?.next();
   const goToPrevPage = () => rendition?.prev();
@@ -84,13 +107,13 @@ function Reader() {
       </Box>
 
       <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }} {...swipeHandlers}>
-        {error && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
-        {!rendition && !error && (
+        {isLoading && (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
                 <CircularProgress />
             </Box>
         )}
-        <Box ref={viewerRef} sx={{ position: 'absolute', top: 0, left: 0, height: '100%', width: '100%' }} />
+        {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
+        <Box ref={viewerRef} sx={{ position: 'absolute', top: 0, left: 0, height: '100%', width: '100%', visibility: isLoading ? 'hidden' : 'visible' }} />
       </Box>
 
       <Box sx={{ p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: '0 -2px 5px rgba(0,0,0,0.1)' }}>
