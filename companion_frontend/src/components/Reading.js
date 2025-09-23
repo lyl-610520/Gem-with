@@ -1,15 +1,15 @@
-// src/components/Reading.js (改造后成为书架 Bookshelf)
+// src/components/Reading.js (最终严谨版)
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Link } from 'react-router-dom'; // 用于点击书本后跳转
+import { Link } from 'react-router-dom';
 import {
   Container, Box, Typography, Grid, Card, CardActionArea, CardContent,
-  Fab, Modal, TextField, Button, CircularProgress, Alert, Snackbar
+  Fab, Modal, TextField, Button, CircularProgress, Alert, Snackbar, IconButton
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
-import DeleteIcon from '@mui/icons-material/Delete';
+import DeleteIcon from '@mui/icons-material/Delete'; // 确保导入删除图标
 
 // Modal 弹窗的样式 (MUI风格)
 const modalStyle = {
@@ -17,43 +17,25 @@ const modalStyle = {
   top: '50%',
   left: '50%',
   transform: 'translate(-50%, -50%)',
-  width: { xs: '90%', sm: 400 }, // 在小屏幕上宽度为90%，大屏幕为400px
+  width: { xs: '90%', sm: 400 },
   bgcolor: 'background.paper',
   borderRadius: 2,
   boxShadow: 24,
   p: 4,
 };
 
-// [重要] 把组件名从 Bookshelf 改为 Reading，以匹配你的 App.js
-function Reading({ user }) { 
+function Reading({ user }) {
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
-  
+
   // 上传表单的状态
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [file, setFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
-  // V V V  [新增] 删除书籍的函数 V V V
-  const handleDeleteBook = async (e, bookId) => {
-    e.preventDefault(); // 阻止点击删除按钮时触发 Link 跳转
-    e.stopPropagation(); // 阻止事件冒泡
-
-    if (window.confirm('确定要删除这本书吗？这本书的所有批注也会被一并删除。')) {
-      try {
-        await axios.delete(`/books/${bookId}`);
-        setSnackbar({ open: true, message: '书籍已删除' });
-      // 从当前列表中移除这本书，避免刷新整个页面
-        setBooks(prevBooks => prevBooks.filter(b => b.id !== bookId));
-      } catch (err) {
-        setSnackbar({ open: true, message: '删除失败，请重试' });
-      }
-    }
-  };
-// ^ ^ ^  [新增] 删除书籍的函数 ^ ^
 
   useEffect(() => {
     fetchBooks();
@@ -73,6 +55,20 @@ function Reading({ user }) {
     }
   };
 
+  const handleDeleteBook = async (e, bookId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (window.confirm('确定要删除这本书吗？这本书的所有批注也会被一并删除。')) {
+      try {
+        await axios.delete(`/books/${bookId}`);
+        setSnackbar({ open: true, message: '书籍已删除' });
+        setBooks(prevBooks => prevBooks.filter(b => b.id !== bookId));
+      } catch (err) {
+        setSnackbar({ open: true, message: '删除失败，请重试' });
+      }
+    }
+  };
+
   const handleUpload = async (e) => {
     e.preventDefault();
     if (!file) {
@@ -80,12 +76,10 @@ function Reading({ user }) {
       return;
     }
     setIsUploading(true);
-
     const formData = new FormData();
     formData.append('file', file);
     formData.append('title', title || '未命名书籍');
     formData.append('author', author || '未知作者');
-
     try {
       await axios.post('/books', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -93,96 +87,83 @@ function Reading({ user }) {
       setSnackbar({ open: true, message: '上传成功！' });
       setShowUploadModal(false);
       resetForm();
-      fetchBooks(); // 上传成功后，重新加载书架
+      fetchBooks();
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.error || '上传失败' });
     } finally {
       setIsUploading(false);
     }
   };
-  
+
   const resetForm = () => {
-      setTitle('');
-      setAuthor('');
-      setFile(null);
+    setTitle('');
+    setAuthor('');
+    setFile(null);
   };
 
-  if (loading) return <Container sx={{textAlign: 'center', mt: 10}}><CircularProgress /></Container>;
-  if (error) return <Container><Alert severity="error" sx={{mt: 4}}>{error}</Alert></Container>;
+  if (loading) return <Container sx={{ textAlign: 'center', mt: 10 }}><CircularProgress /></Container>;
+  if (error) return <Container><Alert severity="error" sx={{ mt: 4 }}>{error}</Alert></Container>;
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-        <Typography variant="h4" component="h1" fontWeight="bold">
-          📚 我的书架
-        </Typography>
-      </Box>
+    <>
+      <Container maxWidth="lg" sx={{ mt: 4, pb: 10 /* 为悬浮按钮留出空间 */ }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+          <Typography variant="h4" component="h1" fontWeight="bold">
+            📚 我的书架
+          </Typography>
+        </Box>
 
-      {books.length === 0 ? (
-        <Typography align="center" color="text.secondary" sx={{ mt: 10 }}>
-          你的书架空空如也，点击右下角的加号添加第一本书吧！
-        </Typography>
-      ) : (
-        <Grid container spacing={4}>
-          {books.map((book) => (
-            <Grid item key={book.id} xs={12} sm={6} md={4} lg={3}>
-              <Link to={`/reading/${book.id}`} style={{ textDecoration: 'none' }}>
+        {books.length === 0 ? (
+          <Typography align="center" color="text.secondary" sx={{ mt: 10 }}>
+            你的书架空空如也，点击右下角的加号添加第一本书吧！
+          </Typography>
+        ) : (
+          <Grid container spacing={4}>
+            {books.map((book) => (
+              <Grid item key={book.id} xs={12} sm={6} md={4} lg={3}>
                 <Card
                   sx={{
-                    position: 'relative', // 为了让删除按钮可以相对于它定位
+                    position: 'relative',
                     height: 200,
                     display: 'flex',
                     flexDirection: 'column',
                     transition: '0.2s',
-                    '&:hover': { transform: 'scale(1.03)' },
+                    '&:hover': { transform: 'scale(1.03)', boxShadow: 6 },
                   }}
                 >
-                  {/* [新增] 删除按钮 */}
                   <IconButton
                     onClick={(e) => handleDeleteBook(e, book.id)}
                     sx={{
-                      position: 'absolute',
-                      top: 8,
-                      right: 8,
-                      zIndex: 2, // 确保在最上层
-                      backgroundColor: 'rgba(255,255,255,0.7)',
-                      '&:hover': { backgroundColor: 'rgba(255,255,255,1)' },
+                      position: 'absolute', top: 8, right: 8, zIndex: 2,
+                      backgroundColor: 'rgba(0,0,0,0.1)', '&:hover': { backgroundColor: 'rgba(0,0,0,0.3)' },
+                      color: 'white',
                     }}
                     size="small"
                   >
-                    <DeleteIcon fontSize="small" />
+                    <DeleteIcon fontSize="inherit" />
                   </IconButton>
-
-                  {/* 卡片的可点击区域 */}
-                  <CardActionArea
-                    sx={{
-                      flexGrow: 1,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      p: 2,
-                    }}
-                  >
-                    <MenuBookIcon sx={{ fontSize: 40, color: 'primary.main', mb: 2 }} />
-                    <Typography
-                      gutterBottom
-                      variant="h6"
-                      component="div"
-                      noWrap
-                      sx={{ width: '100%', textAlign: 'center' }}
+                  <Link to={`/reading/${book.id}`} style={{ textDecoration: 'none', flexGrow: 1, display: 'flex' }}>
+                    <CardActionArea
+                      sx={{
+                        flexGrow: 1, display: 'flex', flexDirection: 'column',
+                        justifyContent: 'center', alignItems: 'center', p: 2,
+                      }}
                     >
-                      {book.title}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {book.author}
-                    </Typography>
-                  </CardActionArea>
+                      <MenuBookIcon sx={{ fontSize: 40, color: 'primary.main', mb: 2 }} />
+                      <Typography gutterBottom variant="h6" component="div" noWrap sx={{ width: '100%', textAlign: 'center', color: 'text.primary' }}>
+                        {book.title}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {book.author}
+                      </Typography>
+                    </CardActionArea>
+                  </Link>
                 </Card>
-              </Link>
-            </Grid>
-          ))}
-        </Grid>
+              </Grid>
+            ))}
+          </Grid>
+        )}
+      </Container>
 
       <Fab color="primary" sx={{ position: 'fixed', bottom: 32, right: 32 }} onClick={() => setShowUploadModal(true)}>
         <AddIcon />
@@ -210,16 +191,15 @@ function Reading({ user }) {
           </form>
         </Box>
       </Modal>
-      
+
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         message={snackbar.message}
       />
-    </Container>
+    </>
   );
 }
 
-// [重要] 确保导出的组件名是 Reading
 export default Reading;
