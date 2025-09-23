@@ -21,6 +21,10 @@ import time
 import pytz
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import func
+import ebooklib
+from ebooklib import epub
+import base64
+from werkzeug.utils import secure_filename
 
 # 加载环境变量
 load_dotenv()
@@ -49,6 +53,11 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     # 这会增加极小的性能开销，但能最大程度地保证连接的稳定性。
     'pool_pre_ping': True
 }
+
+UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
 # 初始化扩展
 db = SQLAlchemy(app)
@@ -165,16 +174,19 @@ class Checkin(db.Model):
     is_gemini_checkin = db.Column(db.Boolean, default=False)  # 是否为Gemini的打卡
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+# companion_backend/app.py
+
 class Book(db.Model):
-    """书籍模型"""
+    """[EPUB版] 书籍模型"""
     id = db.Column(db.Integer, primary_key=True)
-    # [新增] 每本书都属于一个用户
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     title = db.Column(db.String(200), nullable=False)
     author = db.Column(db.String(100))
-    # [改造] 我们将把书籍内容存储为一个非常长的Text字段
-    content = db.Column(db.Text, nullable=False)
-    cover_url = db.Column(db.String(500))
+    # [改造] 我们不再存储书籍的全文内容，只存储文件名，让前端去加载
+    # 这样可以极大地减轻数据库和API的负担
+    epub_filename = db.Column(db.String(255), nullable=False, unique=True)
+    # [改造] cover_image_data 用于存储Base64编码的封面图片
+    cover_image_data = db.Column(db.Text) 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     annotations = db.relationship('Annotation', backref='book', lazy=True, cascade='all, delete-orphan')
 
@@ -743,7 +755,7 @@ def create_checkin():
 
 @app.route('/api/books', methods=['POST'])
 def upload_book():
-    """上传新书 (目前仅支持txt)"""
+    """[EPUB版] 上传并解析新书"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
     
@@ -751,47 +763,87 @@ def upload_book():
         return jsonify({'error': '没有找到文件'}), 400
     
     file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': '没有选择文件'}), 400
+    if file.filename == '' or not file.filename.endswith('.epub'):
+        return jsonify({'error': '请选择一个.epub文件'}), 400
 
-    # 简单验证一下文件名和内容
-    if file and file.filename.endswith('.txt'):
-        try:
-            # 以UTF-8格式读取文件内容
-            content = file.read().decode('utf-8')
-            
-            # 从表单数据中获取书名和作者
-            title = request.form.get('title', '未命名书籍')
-            author = request.form.get('author', '未知作者')
+    try:
+        # [核心] 解析EPUB文件
+        # 为了安全，我们先保存文件再解析
+        # 使用 secure_filename 防止恶意文件名
+        # 为了避免重名，我们在文件名前加上用户ID和时间戳
+        filename = f"{session['user_id']}_{int(time.time())}_{secure_filename(file.filename)}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
 
-            new_book = Book(
-                user_id=session['user_id'],
-                title=title,
-                author=author,
-                content=content
-            )
-            db.session.add(new_book)
-            db.session.commit()
-            
-            return jsonify({'success': True, 'book_id': new_book.id}), 201
-        except Exception as e:
-            return jsonify({'error': f'处理文件失败: {e}'}), 500
+        # 使用 EbookLib 解析文件
+        book_epub = epub.read_epub(filepath)
+        
+        # 提取元数据 (书名, 作者)
+        title = book_epub.get_metadata('DC', 'title')
+        title = title[0][0] if title else '未命名书籍'
+        
+        author = book_epub.get_metadata('DC', 'creator')
+        author = author[0][0] if author else '未知作者'
+        
+        # 提取封面图片
+        cover_image_data = None
+        cover_items = book_epub.get_items_of_type(ebooklib.ITEM_COVER)
+        for item in cover_items:
+            # 将图片内容编码为Base64字符串，方便在JSON和HTML中传输
+            cover_image_data = base64.b64encode(item.get_content()).decode('utf-8')
+            break # 通常只有一张封面
+
+        # 将书籍信息存入数据库
+        new_book = Book(
+            user_id=session['user_id'],
+            title=title,
+            author=author,
+            epub_filename=filename,
+            cover_image_data=cover_image_data
+        )
+        db.session.add(new_book)
+        db.session.commit()
+        
+        # [改造] 返回更丰富的书籍信息
+        return jsonify({
+            'success': True,
+            'book': {
+                'id': new_book.id,
+                'title': new_book.title,
+                'author': new_book.author,
+                'cover_image_data': new_book.cover_image_data
+            }
+        }), 201
+        
+    except Exception as e:
+        # 如果出错了，清理掉已上传的垃圾文件
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        print(f"EPUB处理失败: {e}")
+        return jsonify({'error': 'EPUB文件解析失败，可能文件已损坏或格式不标准。'}), 500
+
+from flask import send_from_directory
+
+@app.route('/uploads/<path:filename>')
+def serve_book(filename):
+    """提供EPUB文件的静态访问"""
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
     
-    return jsonify({'error': '不支持的文件格式，请上传.txt文件'}), 400
-
 @app.route('/api/books', methods=['GET'])
 def get_books():
-    """获取用户的书架列表"""
+    """[EPUB版] 获取用户的书架列表"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
-        
+    
     books = Book.query.filter_by(user_id=session['user_id']).order_by(Book.created_at.desc()).all()
     
     books_data = [{
         'id': book.id,
         'title': book.title,
         'author': book.author,
-        'cover_url': book.cover_url # 封面图我们未来可以再实现
+        # [改造] 返回封面数据和书籍文件的URL
+        'cover_image_data': book.cover_image_data,
+        'epub_url': f"/uploads/{book.epub_filename}"
     } for book in books]
     
     return jsonify({'books': books_data})
