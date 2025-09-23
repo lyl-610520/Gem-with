@@ -168,13 +168,14 @@ class Checkin(db.Model):
 class Book(db.Model):
     """书籍模型"""
     id = db.Column(db.Integer, primary_key=True)
+    # [新增] 每本书都属于一个用户
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     title = db.Column(db.String(200), nullable=False)
     author = db.Column(db.String(100))
-    content = db.Column(db.Text)  # 书籍内容
-    cover_url = db.Column(db.String(500))  # 封面图片URL
+    # [改造] 我们将把书籍内容存储为一个非常长的Text字段
+    content = db.Column(db.Text, nullable=False)
+    cover_url = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # 关联关系
     annotations = db.relationship('Annotation', backref='book', lazy=True, cascade='all, delete-orphan')
 
 class Annotation(db.Model):
@@ -182,9 +183,13 @@ class Annotation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     book_id = db.Column(db.Integer, db.ForeignKey('book.id'), nullable=False)
+    # [改造] 批注的内容
     content = db.Column(db.Text, nullable=False)
-    position = db.Column(db.Integer)  # 在书中的位置
-    is_gemini_annotation = db.Column(db.Boolean, default=False)  # 是否为Gemini的批注
+    # [新增] 用户划重点的原文
+    highlighted_text = db.Column(db.Text)
+    # [新增] 批注所在的页码
+    page_number = db.Column(db.Integer, nullable=False)
+    is_gemini_annotation = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class GameScore(db.Model):
@@ -730,6 +735,214 @@ def create_checkin():
         'user_checkin': user_checkin_data,
         'gemini_checkin': gemini_checkin_data # 如果没有则为 null
     }), 201
+    
+
+# ==========================================================
+# [全新] 阅读功能 API (Reading Feature APIs)
+# ==========================================================
+
+@app.route('/api/books', methods=['POST'])
+def upload_book():
+    """上传新书 (目前仅支持txt)"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+    
+    if 'file' not in request.files:
+        return jsonify({'error': '没有找到文件'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': '没有选择文件'}), 400
+
+    # 简单验证一下文件名和内容
+    if file and file.filename.endswith('.txt'):
+        try:
+            # 以UTF-8格式读取文件内容
+            content = file.read().decode('utf-8')
+            
+            # 从表单数据中获取书名和作者
+            title = request.form.get('title', '未命名书籍')
+            author = request.form.get('author', '未知作者')
+
+            new_book = Book(
+                user_id=session['user_id'],
+                title=title,
+                author=author,
+                content=content
+            )
+            db.session.add(new_book)
+            db.session.commit()
+            
+            return jsonify({'success': True, 'book_id': new_book.id}), 201
+        except Exception as e:
+            return jsonify({'error': f'处理文件失败: {e}'}), 500
+    
+    return jsonify({'error': '不支持的文件格式，请上传.txt文件'}), 400
+
+@app.route('/api/books', methods=['GET'])
+def get_books():
+    """获取用户的书架列表"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+        
+    books = Book.query.filter_by(user_id=session['user_id']).order_by(Book.created_at.desc()).all()
+    
+    books_data = [{
+        'id': book.id,
+        'title': book.title,
+        'author': book.author,
+        'cover_url': book.cover_url # 封面图我们未来可以再实现
+    } for book in books]
+    
+    return jsonify({'books': books_data})
+
+@app.route('/api/books/<int:book_id>', methods=['GET'])
+def get_book_details(book_id):
+    """获取单本书的详细内容和所有批注"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+    
+    book = Book.query.filter_by(id=book_id, user_id=session['user_id']).first_or_404()
+    
+    annotations = Annotation.query.filter_by(book_id=book.id).order_by(Annotation.page_number.asc()).all()
+    
+    annotations_data = [{
+        'id': anno.id,
+        'user_id': anno.user_id,
+        'content': anno.content,
+        'highlighted_text': anno.highlighted_text,
+        'page_number': anno.page_number,
+        'is_gemini_annotation': anno.is_gemini_annotation,
+        'created_at': anno.created_at.isoformat() + 'Z'
+    } for anno in annotations]
+    
+    return jsonify({
+        'id': book.id,
+        'title': book.title,
+        'author': book.author,
+        'content': book.content,
+        'annotations': annotations_data
+    })
+
+@app.route('/api/books/<int:book_id>/annotations', methods=['POST'])
+def add_annotation(book_id):
+    """为书籍添加一条新批注（用户或Gemini）"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+    
+    data = request.get_json()
+    content = data.get('content')
+    highlighted_text = data.get('highlighted_text')
+    page_number = data.get('page_number')
+    
+    if not all([content, page_number is not None]):
+        return jsonify({'error': '缺少必要参数'}), 400
+
+    new_annotation = Annotation(
+        user_id=session['user_id'],
+        book_id=book_id,
+        content=content,
+        highlighted_text=highlighted_text,
+        page_number=page_number,
+        is_gemini_annotation=False # 默认为用户批注
+    )
+    db.session.add(new_annotation)
+    db.session.commit()
+    
+    # 将新创建的批注返回给前端
+    anno_data = {
+        'id': new_annotation.id,
+        'user_id': new_annotation.user_id,
+        'content': new_annotation.content,
+        'highlighted_text': new_annotation.highlighted_text,
+        'page_number': new_annotation.page_number,
+        'is_gemini_annotation': new_annotation.is_gemini_annotation,
+        'created_at': new_annotation.created_at.isoformat() + 'Z'
+    }
+    
+    return jsonify({'success': True, 'annotation': anno_data}), 201
+
+@app.route('/api/books/<int:book_id>/chat', methods=['POST'])
+def chat_about_book(book_id):
+    """[核心] 在阅读时与Gemini聊天"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+    
+    book = Book.query.filter_by(id=book_id, user_id=session['user_id']).first_or_404()
+    
+    data = request.get_json()
+    user_message = data.get('message')
+    page_content = data.get('page_content') # 前端需要把当前页的内容发过来
+
+    if not user_message or not page_content:
+        return jsonify({'error': '缺少消息或页面上下文'}), 400
+
+    prompt = f"""
+你正在和用户一起阅读一本书。
+书名：《{book.title}》
+作者：{book.author}
+
+--- 当前页面的内容如下 ---
+{page_content}
+--- 页面内容结束 ---
+
+现在，请针对用户提出的问题进行回答。你的回答应该简洁、专注，并紧密结合当前页面的内容。
+
+用户问："{user_message}"
+"""
+    
+    gemini_response = get_gemini_response(prompt, user_id=session['user_id'])
+    
+    return jsonify({'response': gemini_response})
+
+@app.route('/api/books/<int:book_id>/generate-gemini-annotation', methods=['POST'])
+def generate_gemini_annotation(book_id):
+    """[核心] 触发Gemini为当前页面写批注"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+        
+    book = Book.query.filter_by(id=book_id, user_id=session['user_id']).first_or_404()
+    data = request.get_json()
+    page_content = data.get('page_content')
+    page_number = data.get('page_number')
+
+    if not page_content or page_number is None:
+        return jsonify({'error': '缺少页面内容或页码'}), 400
+
+    prompt = f"""
+你是一位深刻的读者，你正在阅读《{book.title}》这本书。
+请仔细阅读下面这一页的内容，并结合你的人设写下一条有见地的、简洁的批注。
+
+--- 页面内容 ---
+{page_content}
+--- 页面内容结束 ---
+
+你的批注内容：
+"""
+    gemini_annotation_content = get_gemini_response(prompt, user_id=session['user_id'])
+    
+    # 将Gemini的批注存入数据库
+    new_annotation = Annotation(
+        user_id=session['user_id'],
+        book_id=book_id,
+        content=gemini_annotation_content,
+        page_number=page_number,
+        is_gemini_annotation=True # 标记为Gemini的批注
+    )
+    db.session.add(new_annotation)
+    db.session.commit()
+    
+    anno_data = {
+        'id': new_annotation.id,
+        'user_id': new_annotation.user_id,
+        'content': new_annotation.content,
+        'highlighted_text': new_annotation.highlighted_text,
+        'page_number': new_annotation.page_number,
+        'is_gemini_annotation': new_annotation.is_gemini_annotation,
+        'created_at': new_annotation.created_at.isoformat() + 'Z'
+    }
+    
+    return jsonify({'success': True, 'annotation': anno_data}), 201
     
 # 音乐相关API
 @app.route('/api/music/session', methods=['POST'])
