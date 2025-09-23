@@ -25,6 +25,8 @@ from sqlalchemy import func
 import ebooklib
 from ebooklib import epub
 import base64
+import tempfile
+import traceback
 
 # 加载环境变量
 load_dotenv()
@@ -760,24 +762,16 @@ def create_checkin():
 
 @app.route('/api/books', methods=['POST'])
 def upload_book():
-    """[Base64+限额版] 上传并解析新书，存入数据库"""
+    """[最终健壮版] 上传并解析新书，使用临时文件"""
     if 'user_id' not in session: return jsonify({'error': '未登录'}), 401
     
-    # ==========================================================
-    # V V V  [新增] 上传限额安检程序 V V V
-    # ==========================================================
+    # ... (上传限额的安检程序，保持不变) ...
     try:
-        # 1. 查询当前用户已经拥有多少本书
         book_count = Book.query.filter_by(user_id=session['user_id']).count()
-        
-        # 2. 检查是否达到或超过5本的限额
         if book_count >= 5:
-            return jsonify({'error': '书架已满！每个用户最多保留5本书，请删除旧书后重试。'}), 403 # 403 Forbidden
+            return jsonify({'error': '书架已满！请删除旧书后重试。'}), 403
     except Exception as e:
         return jsonify({'error': f'查询书籍数量失败: {e}'}), 500
-    # ==========================================================
-    # ^ ^ ^  安检结束 ^ ^ ^
-    # ==========================================================
     
     if 'file' not in request.files: return jsonify({'error': '没有找到文件'}), 400
     
@@ -785,20 +779,30 @@ def upload_book():
     if file.filename == '' or not file.filename.endswith('.epub'):
         return jsonify({'error': '请选择一个.epub文件'}), 400
 
+    temp_filepath = None # 先初始化一个变量
     try:
-        file_content = file.read()
+        # [核心改造] 创建一个安全的临时文件来接收上传内容
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.epub') as temp_file:
+            file.save(temp_file)
+            temp_filepath = temp_file.name # 获取这个临时文件的真实路径
+
+        # [核心改造] 使用文件路径来让 EbookLib 读取
+        book_epub = epub.read_epub(temp_filepath)
         
-        # [新增] 文件大小限制 (例如：10MB)
+        # 重新打开临时文件，读取其内容用于Base64编码
+        with open(temp_filepath, 'rb') as f:
+            file_content = f.read()
+        
+        # 文件大小限制
         MAX_FILE_SIZE = 10 * 1024 * 1024 # 10 MB
         if len(file_content) > MAX_FILE_SIZE:
-            return jsonify({'error': '文件过大，请上传小于10MB的EPUB文件。'}), 413 # 413 Payload Too Large
+            return jsonify({'error': '文件过大，请上传小于10MB的EPUB文件。'}), 413
 
         epub_base64_data = base64.b64encode(file_content).decode('utf-8')
         
-        book_epub = epub.read_epub(io.BytesIO(file_content))
+        # ... (提取 title, author, cover_image_data 的逻辑，和之前完全一样) ...
         title = book_epub.get_metadata('DC', 'title')[0][0] if book_epub.get_metadata('DC', 'title') else '未命名书籍'
         author = book_epub.get_metadata('DC', 'creator')[0][0] if book_epub.get_metadata('DC', 'creator') else '未知作者'
-        
         cover_image_data = None
         cover_items = book_epub.get_items_of_type(ebooklib.ITEM_COVER)
         for item in cover_items:
@@ -815,15 +819,21 @@ def upload_book():
         db.session.commit()
 
         return jsonify({'success': True, 'book': {
-            'id': new_book.id,
-            'title': new_book.title,
-            'author': new_book.author,
+            'id': new_book.id, 'title': new_book.title, 'author': new_book.author,
             'cover_image_data': new_book.cover_image_data
         }}), 201
 
     except Exception as e:
+        # 使用 traceback 来打印更详细的错误信息，方便我们调试
         print(f"Base64或EPUB处理失败: {e}")
+        traceback.print_exc()
         return jsonify({'error': '文件处理失败，可能文件已损坏或格式不标准。'}), 500
+        
+    finally:
+        # [核心改造] 无论成功还是失败，都必须清理掉临时文件
+        if temp_filepath and os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+            print(f"已清理临时文件: {temp_filepath}")
 
 @app.route('/api/books', methods=['GET'])
 def get_books():
