@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { ArrowBackIosNew, ArrowForwardIos } from '@mui/icons-material';
 import HomeIcon from '@mui/icons-material/Home'; // 用于返回书架的图标
+import { useSwipeable } from 'react-swipeable';
 
 function Reader() {
   const { bookId } = useParams(); // 从URL中获取书籍ID
@@ -17,6 +18,14 @@ function Reader() {
   const [currentPage, setCurrentPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // V V V  [新增] 滑动翻页的逻辑 V V V
+  const swipeHandlers = useSwipeable({
+    onSwipedLeft: () => goToNextPage(), // 向左滑 -> 下一页
+    onSwipedRight: () => goToPrevPage(), // 向右滑 -> 上一页
+    preventScrollOnSwipe: true, // 防止滑动时页面滚动
+    trackMouse: true // 允许在电脑上用鼠标拖动来模拟滑动
+  });
+// ^ ^ ^  [新增] 滑动翻页的逻辑 ^ ^ ^
 
   // [核心魔法] 创建一个Ref来引用显示页面内容的那个div
   // 这样我们就能在它渲染后，测量它的实际高度和宽度
@@ -129,18 +138,19 @@ function Reader() {
 
       {/* 阅读器核心区域 */}
       <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, gap: 1 }}>
-        <IconButton onClick={goToPrevPage} disabled={currentPage === 0}>
+        <IconButton onClick={goToPrevPage} disabled={currentPage === 0} sx={{ display: { xs: 'none', md: 'inline-flex' } }}>
           <ArrowBackIosNew />
         </IconButton>
         
         {/* 这就是我们的“书页” */}
-        <Paper ref={pageContentRef} elevation={4} sx={{
+        <Paper {...swipeHandlers} ref={pageContentRef} elevation={4} sx={{
           flexGrow: 1,
           height: '100%',
-          p: { xs: 3, sm: 4, md: 5 }, // 内边距随屏幕变大
-          overflow: 'hidden', // 隐藏超出部分
-          backgroundColor: '#FDFCF7', // 类似羊皮纸的舒适颜色
+          p: { xs: 3, sm: 4, md: 5 },
+          overflow: 'hidden',
+          backgroundColor: '#FDFCF7',
           color: '#3C3C3C',
+          touchAction: 'pan-y', // 优化移动端触摸行为
         }}>
           {loading ? (
             <Box sx={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%'}}>
@@ -151,13 +161,14 @@ function Reader() {
               fontSize: '1.1rem',
               lineHeight: 1.8,
               textAlign: 'justify', // 两端对齐，更像书
+              whiteSpace: 'pre-wrap',
             }}>
               {pages[currentPage]}
             </Typography>
           )}
         </Paper>
         
-        <IconButton onClick={goToNextPage} disabled={currentPage === pages.length - 1}>
+        <IconButton onClick={goToNextPage} disabled={currentPage === pages.length - 1} sx={{ display: { xs: 'none', md: 'inline-flex' } }}>
           <ArrowForwardIos />
         </IconButton>
       </Box>
