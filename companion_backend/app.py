@@ -944,6 +944,23 @@ def generate_gemini_annotation(book_id):
     
     return jsonify({'success': True, 'annotation': anno_data}), 201
     
+@app.route('/api/books/<int:book_id>', methods=['DELETE'])
+def delete_book(book_id):
+    """删除一本书"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+    
+    book = Book.query.filter_by(id=book_id, user_id=session['user_id']).first()
+    
+    if not book:
+        return jsonify({'error': '书籍不存在或无权删除'}), 404
+    
+    db.session.delete(book)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': '书籍已删除'})
+
+    
 # 音乐相关API
 @app.route('/api/music/session', methods=['POST'])
 def create_music_session():
