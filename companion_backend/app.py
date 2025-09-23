@@ -1251,6 +1251,43 @@ def health_check():
     """健康检查"""
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
+# companion_backend/app.py
+
+# ... (你的 trigger_daily_job_from_cron 函数代码) ...
+
+
+# ==========================================================
+# [临时核武器] - 用完就删！！！
+# ==========================================================
+@app.route('/api/database/reset-book-table-please-work', methods=['GET'])
+def reset_book_table():
+    """
+    一个临时的、危险的API，用于删除并重建book表。
+    """
+    if 'user_id' not in session:
+        return jsonify({'error': '请先登录'}), 401
+    
+    try:
+        print("⚠️ [核武器] 收到 book 表重建请求！")
+        with app.app_context():
+            # 关键：直接命令数据库引擎删除 book 表
+            Book.__table__.drop(db.engine)
+            print("✅ 旧的 book 表已成功删除。")
+            
+            # 关键：再命令数据库引擎按照最新的模型创建 book 表
+            Book.__table__.create(db.engine)
+            print("✅ 全新的 book 表已成功创建！")
+            
+        return jsonify({'success': True, 'message': 'Book table has been successfully reset.'})
+    except Exception as e:
+        print(f"❌ [核武器] 执行失败: {e}")
+        return jsonify({'error': str(e)}), 500
+# ==========================================================
+# [新增] 定时任务的“秘密开关” (Cron Job "Secret Switch")
+# ==========================================================
+
+# import scheduler  (你已有的代码)
+# @app.route('/run-daily-job/...) (你已有的代码)
 
 # ==========================================================
 # [新增] 定时任务的“秘密开关” (Cron Job "Secret Switch")
