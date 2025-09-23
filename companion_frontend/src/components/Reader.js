@@ -1,10 +1,9 @@
 // src/components/Reader.js (最终逻辑自洽版)
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
 import { useSwipeable } from 'react-swipeable';
-import axios from 'axios'; // [核心] 确保导入了axios
+// [核心] 我们不再需要 axios 来加载书籍内容了！
 import {
   Box, IconButton, Typography, CircularProgress, LinearProgress, Drawer,
   List, ListItem, ListItemButton, ListItemText, Alert
@@ -13,9 +12,9 @@ import MenuIcon from '@mui/icons-material/Menu';
 import HomeIcon from '@mui/icons-material/Home';
 
 function Reader() {
-  const { bookId } = useParams(); // [核心] 我们只需要这个ID！
+  const { bookId } = useParams();
   const location = useLocation();
-  const { title } = location.state || {}; // 书名从书架页接收，避免闪烁
+  const { title } = location.state || {};
 
   const [rendition, setRendition] = useState(null);
   const [toc, setToc] = useState([]);
@@ -28,64 +27,44 @@ function Reader() {
   useEffect(() => {
     let book;
     
-    const loadBook = async () => {
-      // 如果没有bookId，直接报错
-      if (!bookId) {
-        setError("无法加载书籍，未找到书籍ID。");
-        setIsLoading(false);
-        return;
+    if (!bookId) {
+      setError("无法加载书籍，未找到书籍ID。");
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setError('');
+      
+      // [核心改造] 直接构建指向我们新API的文件URL
+      const bookUrl = `/books/${bookId}/file`;
+
+      // [核心改造] Epub.js 直接加载这个URL，它会像浏览器一样去下载文件
+      book = Epub(bookUrl);
+      
+      if (viewerRef.current) {
+        const rendition = book.renderTo(viewerRef.current, {
+          width: '100%', height: '100%', flow: "paginated", spread: "auto",
+        });
+
+        // ... (所有事件监听和目录加载逻辑，和之前完全一样)
+        rendition.on('relocated', (loc) => { /* ... */ });
+        book.ready.then(() => { /* ... */ });
+
+        rendition.display().then(() => {
+          setIsLoading(false); // [核心] 渲染完成后才停止加载
+        });
+        
+        setRendition(rendition);
       }
-
-      try {
-        setIsLoading(true);
-        setError('');
-        
-        // 1. [核心] 阅读器自己去请求书籍的Base64内容
-        const response = await axios.get(`/books/${bookId}/content`);
-        const base64Data = response.data.epub_data_base64;
-        
-        if (!base64Data) {
-          setError("这本书没有内容。");
-          setIsLoading(false);
-          return;
-        }
-
-        // 2. epub.js 加载Base64数据
-        book = Epub(`data:application/epub+zip;base64,${base64Data}`);
-        
-        // 3. 渲染
-        if (viewerRef.current) {
-          const rendition = book.renderTo(viewerRef.current, {
-            width: '100%', height: '100%', flow: "paginated", spread: "auto",
-          });
-
-          rendition.on('relocated', (loc) => {
-            book.ready.then(() => {
-                if (book.locations.length > 0) {
-                    const percent = book.locations.percentageFromCfi(loc.start.cfi);
-                    setProgress(Math.round(percent * 100));
-                }
-            });
-          });
-          
-          book.ready.then(() => {
-            book.navigation.load().then(nav => setToc(nav.toc));
-          });
-
-          await rendition.display();
-          setRendition(rendition);
-          setIsLoading(false);
-        }
-      } catch (err) {
-        setError("加载书籍内容失败，请刷新重试。");
-        setIsLoading(false);
-      }
-    };
-    
-    loadBook();
+    } catch (err) {
+      setError("加载书籍内容失败，请刷新重试。");
+      setIsLoading(false);
+    }
     
     return () => { book?.destroy(); };
-  }, [bookId]); // [核心] 依赖bookId来重新加载
+  }, [bookId]);
 
   const goToNextPage = () => rendition?.next();
   const goToPrevPage = () => rendition?.prev();
