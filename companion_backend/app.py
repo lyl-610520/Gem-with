@@ -756,10 +756,29 @@ def create_checkin():
 # [全新] 阅读功能 API (Reading Feature APIs)
 # ==========================================================
 
+# companion_backend/app.py
+
 @app.route('/api/books', methods=['POST'])
 def upload_book():
-    """[Base64版] 上传并解析新书，存入数据库"""
+    """[Base64+限额版] 上传并解析新书，存入数据库"""
     if 'user_id' not in session: return jsonify({'error': '未登录'}), 401
+    
+    # ==========================================================
+    # V V V  [新增] 上传限额安检程序 V V V
+    # ==========================================================
+    try:
+        # 1. 查询当前用户已经拥有多少本书
+        book_count = Book.query.filter_by(user_id=session['user_id']).count()
+        
+        # 2. 检查是否达到或超过5本的限额
+        if book_count >= 5:
+            return jsonify({'error': '书架已满！每个用户最多保留5本书，请删除旧书后重试。'}), 403 # 403 Forbidden
+    except Exception as e:
+        return jsonify({'error': f'查询书籍数量失败: {e}'}), 500
+    # ==========================================================
+    # ^ ^ ^  安检结束 ^ ^ ^
+    # ==========================================================
+    
     if 'file' not in request.files: return jsonify({'error': '没有找到文件'}), 400
     
     file = request.files['file']
@@ -767,12 +786,16 @@ def upload_book():
         return jsonify({'error': '请选择一个.epub文件'}), 400
 
     try:
-        # [核心] 读取文件内容，并编码为Base64字符串
         file_content = file.read()
+        
+        # [新增] 文件大小限制 (例如：10MB)
+        MAX_FILE_SIZE = 10 * 1024 * 1024 # 10 MB
+        if len(file_content) > MAX_FILE_SIZE:
+            return jsonify({'error': '文件过大，请上传小于10MB的EPUB文件。'}), 413 # 413 Payload Too Large
+
         epub_base64_data = base64.b64encode(file_content).decode('utf-8')
         
-        # 使用 EbookLib 解析文件元数据
-        book_epub = epub.read_epub(io.BytesIO(file_content)) # EbookLib可以直接读内存中的文件
+        book_epub = epub.read_epub(io.BytesIO(file_content))
         title = book_epub.get_metadata('DC', 'title')[0][0] if book_epub.get_metadata('DC', 'title') else '未命名书籍'
         author = book_epub.get_metadata('DC', 'creator')[0][0] if book_epub.get_metadata('DC', 'creator') else '未知作者'
         
@@ -785,7 +808,7 @@ def upload_book():
         new_book = Book(
             user_id=session['user_id'],
             title=title, author=author,
-            epub_data_base64=epub_base64_data, # [核心] 存入Base64字符串
+            epub_data_base64=epub_base64_data,
             cover_image_data=cover_image_data
         )
         db.session.add(new_book)
@@ -800,7 +823,7 @@ def upload_book():
 
     except Exception as e:
         print(f"Base64或EPUB处理失败: {e}")
-        return jsonify({'error': '文件处理失败，请重试。'}), 500
+        return jsonify({'error': '文件处理失败，可能文件已损坏或格式不标准。'}), 500
 
 @app.route('/api/books', methods=['GET'])
 def get_books():
