@@ -27,6 +27,7 @@
     "web-vitals": "^2.1.4",
     "@mui/x-date-pickers": "^6.20.1", 
     "react-swipeable": "^7.0.0",
+    "epubjs": "^0.3.93",
     "date-fns": "^2.30.0"
   },
   "scripts": {
