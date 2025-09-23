@@ -1264,8 +1264,6 @@ def reset_book_table():
     """
     一个临时的、危险的API，用于删除并重建book表。
     """
-    if 'user_id' not in session:
-        return jsonify({'error': '请先登录'}), 401
     
     try:
         print("⚠️ [核武器] 收到 book 表重建请求！")
