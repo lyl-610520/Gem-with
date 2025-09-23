@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import json
 import os
 import re
+import io
 import hashlib
 import secrets
 import google.generativeai as genai
@@ -24,7 +25,6 @@ from sqlalchemy import func
 import ebooklib
 from ebooklib import epub
 import base64
-from werkzeug.utils import secure_filename
 
 # 加载环境变量
 load_dotenv()
@@ -179,20 +179,20 @@ class Checkin(db.Model):
 
 # companion_backend/app.py
 
+# companion_backend/app.py
+
 class Book(db.Model):
-    """[EPUB版] 书籍模型"""
+    """[Base64版] 书籍模型"""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     title = db.Column(db.String(200), nullable=False)
     author = db.Column(db.String(100))
-    # [改造] 我们不再存储书籍的全文内容，只存储文件名，让前端去加载
-    # 这样可以极大地减轻数据库和API的负担
-    epub_filename = db.Column(db.String(255), nullable=False, unique=True)
-    # [改造] cover_image_data 用于存储Base64编码的封面图片
+    # [核心改造] 我们现在用一个Text字段来存储整本书的Base64编码
+    epub_data_base64 = db.Column(db.Text, nullable=False)
     cover_image_data = db.Column(db.Text) 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     annotations = db.relationship('Annotation', backref='book', lazy=True, cascade='all, delete-orphan')
-
+    
 class Annotation(db.Model):
     """批注模型"""
     id = db.Column(db.Integer, primary_key=True)
@@ -758,98 +758,77 @@ def create_checkin():
 
 @app.route('/api/books', methods=['POST'])
 def upload_book():
-    """[EPUB版] 上传并解析新书"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    if 'file' not in request.files:
-        return jsonify({'error': '没有找到文件'}), 400
+    """[Base64版] 上传并解析新书，存入数据库"""
+    if 'user_id' not in session: return jsonify({'error': '未登录'}), 401
+    if 'file' not in request.files: return jsonify({'error': '没有找到文件'}), 400
     
     file = request.files['file']
     if file.filename == '' or not file.filename.endswith('.epub'):
         return jsonify({'error': '请选择一个.epub文件'}), 400
 
     try:
-        # [核心] 解析EPUB文件
-        # 为了安全，我们先保存文件再解析
-        # 使用 secure_filename 防止恶意文件名
-        # 为了避免重名，我们在文件名前加上用户ID和时间戳
-        filename = f"{session['user_id']}_{int(time.time())}_{secure_filename(file.filename)}"
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-
-        # 使用 EbookLib 解析文件
-        book_epub = epub.read_epub(filepath)
+        # [核心] 读取文件内容，并编码为Base64字符串
+        file_content = file.read()
+        epub_base64_data = base64.b64encode(file_content).decode('utf-8')
         
-        # 提取元数据 (书名, 作者)
-        title = book_epub.get_metadata('DC', 'title')
-        title = title[0][0] if title else '未命名书籍'
+        # 使用 EbookLib 解析文件元数据
+        book_epub = epub.read_epub(io.BytesIO(file_content)) # EbookLib可以直接读内存中的文件
+        title = book_epub.get_metadata('DC', 'title')[0][0] if book_epub.get_metadata('DC', 'title') else '未命名书籍'
+        author = book_epub.get_metadata('DC', 'creator')[0][0] if book_epub.get_metadata('DC', 'creator') else '未知作者'
         
-        author = book_epub.get_metadata('DC', 'creator')
-        author = author[0][0] if author else '未知作者'
-        
-        # 提取封面图片
         cover_image_data = None
         cover_items = book_epub.get_items_of_type(ebooklib.ITEM_COVER)
         for item in cover_items:
-            # 将图片内容编码为Base64字符串，方便在JSON和HTML中传输
             cover_image_data = base64.b64encode(item.get_content()).decode('utf-8')
-            break # 通常只有一张封面
+            break
 
-        # 将书籍信息存入数据库
         new_book = Book(
             user_id=session['user_id'],
-            title=title,
-            author=author,
-            epub_filename=filename,
+            title=title, author=author,
+            epub_data_base64=epub_base64_data, # [核心] 存入Base64字符串
             cover_image_data=cover_image_data
         )
         db.session.add(new_book)
         db.session.commit()
-        
-        # [改造] 返回更丰富的书籍信息
-        return jsonify({
-            'success': True,
-            'book': {
-                'id': new_book.id,
-                'title': new_book.title,
-                'author': new_book.author,
-                'cover_image_data': new_book.cover_image_data
-            }
-        }), 201
-        
+
+        return jsonify({'success': True, 'book': {
+            'id': new_book.id,
+            'title': new_book.title,
+            'author': new_book.author,
+            'cover_image_data': new_book.cover_image_data
+        }}), 201
+
     except Exception as e:
-        # 如果出错了，清理掉已上传的垃圾文件
-        if os.path.exists(filepath):
-            os.remove(filepath)
-        print(f"EPUB处理失败: {e}")
-        return jsonify({'error': 'EPUB文件解析失败，可能文件已损坏或格式不标准。'}), 500
+        print(f"Base64或EPUB处理失败: {e}")
+        return jsonify({'error': '文件处理失败，请重试。'}), 500
 
-from flask import send_from_directory
-
-@app.route('/uploads/<path:filename>')
-def serve_book(filename):
-    """提供EPUB文件的静态访问"""
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-    
 @app.route('/api/books', methods=['GET'])
 def get_books():
-    """[EPUB版] 获取用户的书架列表"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    """[Base64版] 获取书架列表 (不包含书籍内容)"""
+    if 'user_id' not in session: return jsonify({'error': '未登录'}), 401
     
     books = Book.query.filter_by(user_id=session['user_id']).order_by(Book.created_at.desc()).all()
     
+    # [核心] 书架列表只发送元数据，不发送整本书，避免卡顿
     books_data = [{
         'id': book.id,
         'title': book.title,
         'author': book.author,
-        # [改造] 返回封面数据和书籍文件的URL
         'cover_image_data': book.cover_image_data,
-        'epub_url': f"/uploads/{book.epub_filename}"
     } for book in books]
     
     return jsonify({'books': books_data})
+
+@app.route('/api/books/<int:book_id>/content', methods=['GET'])
+def get_book_content(book_id):
+    """[新增] 单独获取一本书的Base64内容"""
+    if 'user_id' not in session: return jsonify({'error': '未登录'}), 401
+    
+    book = Book.query.with_entities(Book.epub_data_base64).filter_by(id=book_id, user_id=session['user_id']).first_or_404()
+    
+    return jsonify({
+        'epub_data_base64': book.epub_data_base64
+    })
 
 @app.route('/api/books/<int:book_id>', methods=['GET'])
 def get_book_details(book_id):
