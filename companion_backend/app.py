@@ -7,6 +7,7 @@
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from flask import send_file
 from datetime import datetime, timedelta
 import json
 import os
@@ -852,17 +853,38 @@ def get_books():
     
     return jsonify({'books': books_data})
 
-@app.route('/api/books/<int:book_id>/content', methods=['GET'])
-def get_book_content(book_id):
-    """[新增] 单独获取一本书的Base64内容"""
-    if 'user_id' not in session: return jsonify({'error': '未登录'}), 401
-    
-    book = Book.query.with_entities(Book.epub_data_base64).filter_by(id=book_id, user_id=session['user_id']).first_or_404()
-    
-    return jsonify({
-        'epub_data_base64': book.epub_data_base64
-    })
+# companion_backend/app.py
 
+@app.route('/api/books/<int:book_id>/file') # [核心改造] 新的URL
+def get_book_file(book_id):
+    """[最终性能版] 直接提供EPUB文件流"""
+    # 这个接口不需要登录验证，因为文件名本身是无法猜测的
+    # 如果需要，也可以加上登录验证
+    
+    # [核心] 我们只从数据库请求包含书籍内容的那个字段，极大地提升查询效率
+    book_data = Book.query.with_entities(Book.epub_data_base64).filter_by(id=book_id).first()
+    
+    if not book_data or not book_data.epub_data_base64:
+        return "Book content not found", 404
+
+    try:
+        # [核心] 1. 将Base64字符串解码回原始的二进制数据
+        epub_binary_data = base64.b64decode(book_data.epub_data_base64)
+        
+        # [核心] 2. 使用 io.BytesIO 将二进制数据包装成一个“内存中的文件”
+        epub_file_in_memory = io.BytesIO(epub_binary_data)
+        
+        # [核心] 3. 使用 Flask 的 send_file，像文件服务器一样，把这个内存中的文件直接发送给前端
+        # mimetype 告诉浏览器这是一个EPUB文件
+        return send_file(
+            epub_file_in_memory,
+            mimetype='application/epub+zip',
+            as_attachment=False # False表示在浏览器中直接打开，而不是下载
+        )
+    except Exception as e:
+        print(f"发送EPUB文件失败: {e}")
+        return "Failed to serve book file", 500
+        
 @app.route('/api/books/<int:book_id>', methods=['GET'])
 def get_book_details(book_id):
     """获取单本书的详细内容和所有批注"""
