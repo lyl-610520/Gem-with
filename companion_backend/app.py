@@ -66,7 +66,10 @@ db = SQLAlchemy(app)
 frontend_url = os.getenv('FRONTEND_URL')
 if frontend_url:
     # 如果在Render环境变量里找到了前端URL，就只允许它访问
-    CORS(app, supports_credentials=True, origins=[frontend_url])
+    CORS(app, supports_credentials=True, origins=[frontend_url], resources={
+        r"/api/*": {}, 
+        r"/uploads/*": {}
+    })
     print(f"✅ CORS已配置，明确允许来自 {frontend_url} 的跨域请求。")
 else:
     # 如果没有配置（比如在本地测试时），为了方便，允许所有来源
