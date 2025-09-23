@@ -12,6 +12,7 @@ import Diary from './components/Diary';
 import Checkin from './components/Checkin';
 import Music from './components/Music';
 import Reading from './components/Reading';
+import Reader from './components/Reader';
 import Games from './components/Games';
 import Chat from './components/Chat';
 import Settings from './components/Settings';
@@ -187,6 +188,7 @@ function App() {
                   <Route path="/checkin" element={<Checkin user={user} />} />
                   <Route path="/music" element={<Music user={user} />} />
                   <Route path="/reading" element={<Reading user={user} />} />
+                  <Route path="/reading/:bookId" element={<Reader user={user} />} />
                   <Route path="/games" element={<Games user={user} />} />
                   <Route path="/chat" element={<Chat user={user} />} />
                   <Route 
