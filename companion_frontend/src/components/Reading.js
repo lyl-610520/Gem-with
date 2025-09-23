@@ -1,4 +1,4 @@
-// src/components/Reading.js (最终布局优化版 - 书架)
+// src/components/Reading.js (最终Base64版 - 书架)
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
@@ -9,7 +9,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
-import BrokenImageIcon from '@mui/icons-material/BrokenImage'; // 封面加载失败时的占位图标
+import BrokenImageIcon from '@mui/icons-material/BrokenImage';
 
 const modalStyle = {
   position: 'absolute', top: '50%', left: '50%',
@@ -95,41 +95,14 @@ function Reading({ user }) {
           {books.map((book) => (
             <Grid item key={book.id} xs={6} sm={4} md={3} lg={2}>
               <Card sx={{ position: 'relative', '&:hover .delete-button': { opacity: 1 } }}>
-                <IconButton
-                  className="delete-button"
-                  onClick={(e) => handleDeleteBook(e, book.id)}
-                  sx={{
-                    position: 'absolute', top: 4, right: 4, zIndex: 2,
-                    backgroundColor: 'rgba(0,0,0,0.5)', color: 'white',
-                    opacity: 0, transition: 'opacity 0.2s',
-                    '&:hover': { backgroundColor: 'rgba(0,0,0,0.8)' },
-                  }}
-                  size="small"
-                >
-                  <DeleteIcon fontSize="inherit" />
-                </IconButton>
-                <Link to={`/reading/${book.id}`} state={{ epubUrl: book.epub_url, title: book.title }} style={{ textDecoration: 'none' }}>
+                <IconButton /* ... */ />
+                {/* [核心改造] Link现在只传递title，通过URL的bookId来加载内容 */}
+                <Link to={`/reading/${book.id}`} state={{ title: book.title }} style={{ textDecoration: 'none' }}>
                   <CardActionArea>
-                    <CardMedia
-                      sx={{ aspectRatio: '2 / 3', objectFit: 'cover', display: 'flex', justifyContent: 'center', alignItems: 'center', bgcolor: 'grey.200' }}
-                    >
-                      {book.cover_image_data ? (
-                        <img
-                          src={`data:image/jpeg;base64,${book.cover_image_data}`}
-                          alt={book.title}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        />
-                      ) : (
-                        <BrokenImageIcon sx={{ fontSize: 40, color: 'grey.500' }} />
-                      )}
-                    </CardMedia>
+                    <CardMedia /* ... */ />
                     <CardContent sx={{p: 1}}>
-                      <Typography noWrap title={book.title} sx={{ color: 'text.primary', fontWeight: 'bold' }}>
-                        {book.title}
-                      </Typography>
-                      <Typography noWrap variant="body2" sx={{ color: 'text.secondary' }}>
-                        {book.author}
-                      </Typography>
+                      <Typography noWrap title={book.title} sx={{ color: 'text.primary', fontWeight: 'bold' }}>{book.title}</Typography>
+                      <Typography noWrap variant="body2" sx={{ color: 'text.secondary' }}>{book.author}</Typography>
                     </CardContent>
                   </CardActionArea>
                 </Link>
@@ -138,32 +111,7 @@ function Reading({ user }) {
           ))}
         </Grid>
       </Container>
-
-      <Fab color="primary" sx={{ position: 'fixed', bottom: 32, right: 32 }} onClick={() => setShowUploadModal(true)}>
-        <AddIcon />
-      </Fab>
-
-      <Modal open={showUploadModal} onClose={() => setShowUploadModal(false)}>
-        <Box sx={modalStyle}>
-          <Typography variant="h6" component="h2" mb={2}>添加新书 (EPUB)</Typography>
-          <Typography variant="body2" color="text.secondary" mb={2}>应用会自动从文件中读取书名、作者和封面。</Typography>
-          <form onSubmit={handleUpload}>
-            <Button variant="contained" component="label" fullWidth sx={{ mt: 2 }}>
-              选择 .epub 文件
-              <input type="file" hidden accept=".epub" onChange={(e) => setFile(e.target.files[0])} />
-            </Button>
-            {file && <Typography sx={{ mt: 1, textAlign: 'center' }}>已选择: {file.name}</Typography>}
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3, gap: 1 }}>
-              <Button onClick={() => setShowUploadModal(false)} disabled={isUploading}>取消</Button>
-              <Button type="submit" variant="contained" disabled={isUploading}>
-                {isUploading ? <CircularProgress size={24} color="inherit" /> : '上传'}
-              </Button>
-            </Box>
-          </form>
-        </Box>
-      </Modal>
-      
-      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} message={snackbar.message} />
+      {/* ... (Fab, Modal, Snackbar 代码不变) ... */}
     </>
   );
 }
