@@ -1265,21 +1265,30 @@ def reset_book_table():
     一个临时的、危险的API，用于删除并重建book表。
     """
     
-    try:
-        print("⚠️ [核武器] 收到 book 表重建请求！")
-        with app.app_context():
-            # 关键：直接命令数据库引擎删除 book 表
-            Book.__table__.drop(db.engine)
-            print("✅ 旧的 book 表已成功删除。")
-            
-            # 关键：再命令数据库引擎按照最新的模型创建 book 表
-            Book.__table__.create(db.engine)
-            print("✅ 全新的 book 表已成功创建！")
-            
-        return jsonify({'success': True, 'message': 'Book table has been successfully reset.'})
-    except Exception as e:
-        print(f"❌ [核武器] 执行失败: {e}")
-        return jsonify({'error': str(e)}), 500
+    # Inside reset_book_table function...
+try:
+    print("⚠️ [最终核武器] 收到 book 和 annotation 表重建请求！")
+    with app.app_context():
+        # [关键] 我们先删除依赖别人的 "annotation" 表
+        Annotation.__table__.drop(db.engine)
+        print("✅ 旧的 annotation 表已成功删除。")
+        
+        # [关键] 现在我们可以安全地删除 "book" 表了
+        Book.__table__.drop(db.engine)
+        print("✅ 旧的 book 表已成功删除。")
+        
+        # [关键] 现在，按照正确的顺序重建它们
+        Book.__table__.create(db.engine)
+        print("✅ 全新的 book 表已成功创建！")
+        Annotation.__table__.create(db.engine)
+        print("✅ 全新的 annotation 表已成功创建！")
+        
+    return jsonify({'success': True, 'message': 'Book and Annotation tables have been successfully reset.'})
+except Exception as e:
+    print(f"❌ [核武器] 执行失败: {e}")
+    # 为了调试，返回更详细的错误
+    import traceback
+    return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
 # ==========================================================
 # [新增] 定时任务的“秘密开关” (Cron Job "Secret Switch")
 # ==========================================================
