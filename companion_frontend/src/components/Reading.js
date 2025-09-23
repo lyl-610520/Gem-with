@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 // Modal 弹窗的样式 (MUI风格)
 const modalStyle = {
@@ -36,6 +37,23 @@ function Reading({ user }) {
   const [file, setFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
+  // V V V  [新增] 删除书籍的函数 V V V
+  const handleDeleteBook = async (e, bookId) => {
+    e.preventDefault(); // 阻止点击删除按钮时触发 Link 跳转
+    e.stopPropagation(); // 阻止事件冒泡
+
+    if (window.confirm('确定要删除这本书吗？这本书的所有批注也会被一并删除。')) {
+      try {
+        await axios.delete(`/books/${bookId}`);
+        setSnackbar({ open: true, message: '书籍已删除' });
+      // 从当前列表中移除这本书，避免刷新整个页面
+        setBooks(prevBooks => prevBooks.filter(b => b.id !== bookId));
+      } catch (err) {
+        setSnackbar({ open: true, message: '删除失败，请重试' });
+      }
+    }
+  };
+// ^ ^ ^  [新增] 删除书籍的函数 ^ ^
 
   useEffect(() => {
     fetchBooks();
@@ -109,22 +127,62 @@ function Reading({ user }) {
           {books.map((book) => (
             <Grid item key={book.id} xs={12} sm={6} md={4} lg={3}>
               <Link to={`/reading/${book.id}`} style={{ textDecoration: 'none' }}>
-                <Card sx={{ height: 200, display: 'flex', flexDirection: 'column', transition: '0.2s', '&:hover': {transform: 'scale(1.03)'} }}>
-                  <CardActionArea sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', p: 2 }}>
-                      <MenuBookIcon sx={{ fontSize: 40, color: 'primary.main', mb: 2 }} />
-                      <Typography gutterBottom variant="h6" component="div" noWrap sx={{width: '100%', textAlign: 'center'}}>
-                        {book.title}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {book.author}
-                      </Typography>
+                <Card
+                  sx={{
+                    position: 'relative', // 为了让删除按钮可以相对于它定位
+                    height: 200,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    transition: '0.2s',
+                    '&:hover': { transform: 'scale(1.03)' },
+                  }}
+                >
+                  {/* [新增] 删除按钮 */}
+                  <IconButton
+                    onClick={(e) => handleDeleteBook(e, book.id)}
+                    sx={{
+                      position: 'absolute',
+                      top: 8,
+                      right: 8,
+                      zIndex: 2, // 确保在最上层
+                      backgroundColor: 'rgba(255,255,255,0.7)',
+                      '&:hover': { backgroundColor: 'rgba(255,255,255,1)' },
+                    }}
+                    size="small"
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+
+                  {/* 卡片的可点击区域 */}
+                  <CardActionArea
+                    sx={{
+                      flexGrow: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      p: 2,
+                    }}
+                  >
+                    <MenuBookIcon sx={{ fontSize: 40, color: 'primary.main', mb: 2 }} />
+                    <Typography
+                      gutterBottom
+                      variant="h6"
+                      component="div"
+                      noWrap
+                      sx={{ width: '100%', textAlign: 'center' }}
+                    >
+                      {book.title}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {book.author}
+                    </Typography>
                   </CardActionArea>
                 </Card>
               </Link>
             </Grid>
           ))}
         </Grid>
-      )}
 
       <Fab color="primary" sx={{ position: 'fixed', bottom: 32, right: 32 }} onClick={() => setShowUploadModal(true)}>
         <AddIcon />
