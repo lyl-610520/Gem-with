@@ -1255,37 +1255,6 @@ def health_check():
 
 # ... (你的 trigger_daily_job_from_cron 函数代码) ...
 
-
-# ==========================================================
-# [临时核武器] - 用完就删！！！
-# ==========================================================
-@app.route('/api/database/reset-book-table-please-work', methods=['GET'])
-def reset_book_table():
-    """
-    一个临时的、危险的API，用于删除并重建book和annotation表。
-    """
-    try:
-        print("⚠️ [最终核武器] 收到 book 和 annotation 表重建请求！")
-        with app.app_context():
-            # [关键] 我们先删除依赖别人的 "annotation" 表
-            Annotation.__table__.drop(db.engine)
-            print("✅ 旧的 annotation 表已成功删除。")
-            
-            # [关键] 现在我们可以安全地删除 "book" 表了
-            Book.__table__.drop(db.engine)
-            print("✅ 旧的 book 表已成功删除。")
-            
-            # [关键] 现在，按照正确的顺序重建它们
-            Book.__table__.create(db.engine)
-            print("✅ 全新的 book 表已成功创建！")
-            Annotation.__table__.create(db.engine)
-            print("✅ 全新的 annotation 表已成功创建！")
-            
-        return jsonify({'success': True, 'message': 'Book and Annotation tables have been successfully reset.'})
-    except Exception as e:
-        print(f"❌ [核武器] 执行失败: {e}")
-        import traceback
-        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
 # ==========================================================
 # [新增] 定时任务的“秘密开关” (Cron Job "Secret Switch")
 # ==========================================================
