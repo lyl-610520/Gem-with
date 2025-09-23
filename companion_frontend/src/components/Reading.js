@@ -147,7 +147,7 @@ function Reading({ user }) {
               <Button onClick={() => setShowUploadModal(false)} disabled={isUploading}>取消</Button>
               <Button type="submit" variant="contained" disabled={isUploading}>
                 {isUploading ? <CircularProgress size={24} color="inherit" /> : '上传'}
-              </a-very-long-and-random-secret-key-123>
+              </Button>
             </Box>
           </form>
         </Box>
