@@ -1,9 +1,10 @@
-// src/components/Reader.js (最终Base64版 - 完整代码)
+// src/components/Reader.js (最终逻辑自洽版)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
 import { useSwipeable } from 'react-swipeable';
+import axios from 'axios'; // [核心] 确保导入了axios
 import {
   Box, IconButton, Typography, CircularProgress, LinearProgress, Drawer,
   List, ListItem, ListItemButton, ListItemText, Alert
@@ -12,27 +13,34 @@ import MenuIcon from '@mui/icons-material/Menu';
 import HomeIcon from '@mui/icons-material/Home';
 
 function Reader() {
-  const { bookId } = useParams(); // 从URL中获取书籍ID
+  const { bookId } = useParams(); // [核心] 我们只需要这个ID！
   const location = useLocation();
-  const { title } = location.state || {}; // 从书架页接收书名
+  const { title } = location.state || {}; // 书名从书架页接收，避免闪烁
 
   const [rendition, setRendition] = useState(null);
   const [toc, setToc] = useState([]);
   const [progress, setProgress] = useState(0);
   const [showToc, setShowToc] = useState(false);
   const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(true); // [新增] 统一的加载状态
+  const [isLoading, setIsLoading] = useState(true);
   const viewerRef = useRef(null);
 
   useEffect(() => {
-    let book; // 把 book 实例放在 effect 作用域内，方便在卸载时销毁
+    let book;
     
     const loadBook = async () => {
+      // 如果没有bookId，直接报错
+      if (!bookId) {
+        setError("无法加载书籍，未找到书籍ID。");
+        setIsLoading(false);
+        return;
+      }
+
       try {
         setIsLoading(true);
         setError('');
         
-        // 1. 先去请求书籍的Base64内容
+        // 1. [核心] 阅读器自己去请求书籍的Base64内容
         const response = await axios.get(`/books/${bookId}/content`);
         const base64Data = response.data.epub_data_base64;
         
@@ -42,22 +50,21 @@ function Reader() {
           return;
         }
 
-        // 2. epub.js 可以直接加载Base64数据！
+        // 2. epub.js 加载Base64数据
         book = Epub(`data:application/epub+zip;base64,${base64Data}`);
         
-        // 3. 确保渲染容器已经准备好
+        // 3. 渲染
         if (viewerRef.current) {
           const rendition = book.renderTo(viewerRef.current, {
-            width: '100%',
-            height: '100%',
-            flow: "paginated",
-            spread: "auto",
+            width: '100%', height: '100%', flow: "paginated", spread: "auto",
           });
 
           rendition.on('relocated', (loc) => {
             book.ready.then(() => {
-                const percent = book.locations.percentageFromCfi(loc.start.cfi);
-                setProgress(Math.round(percent * 100));
+                if (book.locations.length > 0) {
+                    const percent = book.locations.percentageFromCfi(loc.start.cfi);
+                    setProgress(Math.round(percent * 100));
+                }
             });
           });
           
@@ -67,7 +74,7 @@ function Reader() {
 
           await rendition.display();
           setRendition(rendition);
-          setIsLoading(false); // [核心] 渲染完成后才停止加载
+          setIsLoading(false);
         }
       } catch (err) {
         setError("加载书籍内容失败，请刷新重试。");
@@ -77,11 +84,8 @@ function Reader() {
     
     loadBook();
     
-    // 4. 组件卸载时销毁书籍实例，防止内存泄漏
-    return () => {
-      book?.destroy();
-    };
-  }, [bookId]);
+    return () => { book?.destroy(); };
+  }, [bookId]); // [核心] 依赖bookId来重新加载
 
   const goToNextPage = () => rendition?.next();
   const goToPrevPage = () => rendition?.prev();
@@ -99,6 +103,8 @@ function Reader() {
   });
 
   return (
+    // [核心] 整个JSX结构和之前的最终版完全一样，不需要改动
+    // 唯一的区别是，现在的逻辑是自洽的，能正确运行了
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.200' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
