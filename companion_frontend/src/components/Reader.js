@@ -1,4 +1,4 @@
-// src/components/Reader.js (最终修复版 - 修复语法错误并恢复键盘功能)
+// src/components/Reader.js (终极决定版 - 彻底修复交互与状态)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
@@ -20,7 +20,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
 
-// GeminiChat 组件保持不变
+// GeminiChat 组件 (保持不变)
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -55,10 +55,10 @@ function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
 
 function Reader() {
   const { bookId } = useParams();
-  const location = useLocation();
   const { title } = location.state || {};
   
   const [rendition, setRendition] = useState(null);
+  const [book, setBook] = useState(null); // <--- [核心升级] 将book实例存入state
   const [toc, setToc] = useState([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -75,20 +75,17 @@ function Reader() {
   const [bookLocation, setBookLocation] = useState({ currentPage: 1, totalPages: 1, progress: 0 });
 
   useEffect(() => {
-    let book;
+    let currentBook;
     let currentRendition;
     let isMounted = true; 
 
-    // --- [核心修复] 恢复键盘翻页功能 ---
+    // --- [核心升级] 恢复键盘翻页功能 ---
     const handleKeyPress = (event) => {
-      // 确保聊天输入框激活时，不触发翻页
-      if (document.activeElement.tagName.toLowerCase() === 'input' || document.activeElement.tagName.toLowerCase() === 'textarea') {
-          return;
-      }
-      if (currentRendition) {
-        if (event.key === 'ArrowRight') currentRendition.next();
-        if (event.key === 'ArrowLeft') currentRendition.prev();
-      }
+        if (document.activeElement.tagName.toLowerCase() === 'input' || document.activeElement.tagName.toLowerCase() === 'textarea') { return; }
+        if (currentRendition) {
+            if (event.key === 'ArrowRight') currentRendition.next();
+            if (event.key === 'ArrowLeft') currentRendition.prev();
+        }
     };
     window.addEventListener('keydown', handleKeyPress);
 
@@ -99,7 +96,6 @@ function Reader() {
       }
       try {
         if (isMounted) { setIsLoading(true); setError(''); }
-
         const [fileResponse, detailsResponse] = await Promise.all([
           axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' }),
           axios.get(`/books/${bookId}`)
@@ -109,24 +105,25 @@ function Reader() {
         const loadedAnnotations = detailsResponse.data.annotations || [];
         setAnnotations(loadedAnnotations);
 
-        book = Epub(fileResponse.data);
+        currentBook = Epub(fileResponse.data);
+        setBook(currentBook);
         
-        await book.ready;
-        await book.locations.generate(1600);
+        await currentBook.ready;
+        await currentBook.locations.generate(1600);
         if (isMounted) {
-          setBookLocation(prev => ({ ...prev, totalPages: book.locations.length() }));
+          setBookLocation(prev => ({ ...prev, totalPages: currentBook.locations.length() }));
         }
 
         if (viewerRef.current) {
-          currentRendition = book.renderTo(viewerRef.current, { width: '100%', height: '100%' });
-          
+          currentRendition = currentBook.renderTo(viewerRef.current, { width: '100%', height: '100%' });
           const savedCfi = localStorage.getItem(`book-progress-${bookId}`);
           await currentRendition.display(savedCfi || undefined);
+          if (isMounted) setRendition(currentRendition);
 
           loadedAnnotations.forEach(anno => {
-            currentRendition.annotations.add("highlight", anno.cfi, { id: anno.id }, (e) => {}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3", "pointer-events": "auto" });
+            currentRendition.annotations.add("highlight", anno.cfi, { id: anno.id }, () => {}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
           });
-          
+
           currentRendition.on('selected', (cfiRange, contents) => {
             const selectedText = contents.window.getSelection().toString().trim();
             if (selectedText) {
@@ -136,25 +133,25 @@ function Reader() {
               const viewerRect = viewerRef.current.getBoundingClientRect();
               anchor.style.left = `${rect.left - viewerRect.left + rect.width / 2}px`;
               anchor.style.top = `${rect.top - viewerRect.top - 10}px`;
-
               viewerRef.current.appendChild(anchor);
               setSelectionMenu({ open: true, anchorEl: anchor, text: selectedText, cfiRange });
             }
           });
 
           currentRendition.on('relocated', (location) => {
-            if (isMounted) {
+            if (isMounted && currentBook.locations) {
               const cfi = location.start.cfi;
-              const page = book.locations.pageFromCfi(cfi);
-              const percent = book.locations.percentageFromCfi(cfi);
-              setBookLocation({ currentPage: page, totalPages: book.locations.length(), progress: Math.round(percent * 100) });
+              const page = currentBook.locations.pageFromCfi(cfi);
+              const percent = currentBook.locations.percentageFromCfi(cfi);
+              setBookLocation({ currentPage: page, totalPages: currentBook.locations.length(), progress: Math.round(percent * 100) });
               localStorage.setItem(`book-progress-${bookId}`, cfi);
             }
           });
 
-          if (isMounted) { setRendition(currentRendition); setToc(book.navigation.toc); setIsLoading(false); }
+          if (isMounted) { setToc(currentBook.navigation.toc); setIsLoading(false); }
         }
       } catch (err) {
+        console.error("加载书籍或批注失败:", err);
         if (isMounted) { setError("加载失败，请刷新重试"); setIsLoading(false); }
       }
     };
@@ -163,12 +160,32 @@ function Reader() {
     
     return () => { 
         isMounted = false; 
-        window.removeEventListener('keydown', handleKeyPress); // 清理监听器
+        window.removeEventListener('keydown', handleKeyPress);
         if (currentRendition) currentRendition.destroy(); 
-        if (book) book.destroy(); 
+        if (currentBook) currentBook.destroy(); 
     };
   }, [bookId]);
   
+  // --- [核心修复] 目录跳转的处理函数 ---
+  const onTocClick = async (href) => { 
+    if (!rendition || !book) return;
+    try {
+      await rendition.display(href);
+      setShowToc(false);
+      // 手动更新位置
+      const currentLocation = rendition.currentLocation();
+      if (currentLocation && currentLocation.start) {
+        const cfi = currentLocation.start.cfi;
+        const page = book.locations.pageFromCfi(cfi);
+        const percent = book.locations.percentageFromCfi(cfi);
+        setBookLocation({ currentPage: page, totalPages: book.locations.length(), progress: Math.round(percent * 100) });
+        localStorage.setItem(`book-progress-${bookId}`, cfi);
+      }
+    } catch (err) {
+      console.error("目录跳转失败:", err);
+    }
+  };
+
   const handleSaveAnnotation = async (note) => {
     try {
       const response = await axios.post(`/books/${bookId}/annotations`, {
@@ -177,7 +194,7 @@ function Reader() {
       });
       const newAnno = response.data.annotation;
       setAnnotations(prev => [...prev, newAnno]);
-      rendition.annotations.add("highlight", newAnno.cfi, { id: newAnno.id }, ()=>{}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3", "pointer-events": "auto" });
+      rendition.annotations.add("highlight", newAnno.cfi, { id: newAnno.id }, ()=>{}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
       setSnackbar({ open: true, message: '批注已保存' });
     } catch (err) {
       setSnackbar({ open: true, message: '保存失败' });
@@ -190,9 +207,7 @@ function Reader() {
     try {
       await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
       const annoToRemove = annotations.find(a => a.id === annotationId);
-      if (annoToRemove) {
-        rendition.annotations.remove(annoToRemove.cfi, "highlight");
-      }
+      if (annoToRemove) rendition.annotations.remove(annoToRemove.cfi, "highlight");
       setAnnotations(prev => prev.filter(a => a.id !== annotationId));
       setSnackbar({ open: true, message: '批注已删除' });
     } catch (err) {
@@ -200,9 +215,15 @@ function Reader() {
     }
   };
 
-  const handleJumpToAnnotation = (cfi) => { rendition?.display(cfi); setShowAnnotationsPanel(false); };
-  const onTocClick = (href) => { rendition?.display(href); setShowToc(false); };
-  const handleCloseSelectionMenu = () => { selectionMenu.anchorEl?.remove(); setSelectionMenu({ open: false, anchorEl: null, text: '', cfiRange: '' }); };
+  const handleJumpToAnnotation = (cfi) => {
+    onTocClick(cfi); // 复用目录跳转的逻辑来确保页码更新
+    setShowAnnotationsPanel(false);
+  };
+
+  const handleCloseSelectionMenu = () => { 
+    selectionMenu.anchorEl?.remove(); 
+    setSelectionMenu({ open: false, anchorEl: null, text: '', cfiRange: '' }); 
+  };
   
   // (handleGenerateGeminiAnnotation 和 handleSendChatMessage 保持不变)
   const handleGenerateGeminiAnnotation = async () => {};
@@ -220,20 +241,19 @@ function Reader() {
         </Box>
       </Box>
 
-      <Box 
-        sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            if (x < rect.width * 0.3) rendition?.prev();
-            else if (x > rect.width * 0.7) rendition?.next();
-          }
-        }}
-      >
+      {/* --- [核心修复] 翻页与选择的终极方案 --- */}
+      <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }}>
         {isLoading && <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress /></Box>}
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
+        
         <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading ? 'hidden' : 'visible' }} />
+        
+        {!isLoading && !error && (
+          <>
+            <Box onClick={() => rendition?.prev()} sx={{ position: 'absolute', top: 0, left: 0, width: '30%', height: '100%', zIndex: 1 }} />
+            <Box onClick={() => rendition?.next()} sx={{ position: 'absolute', top: 0, right: 0, width: '30%', height: '100%', zIndex: 1 }} />
+          </>
+        )}
       </Box>
 
       <Box sx={{ p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: '0 -2px 5px rgba(0,0,0,0.1)' }}>
@@ -306,8 +326,6 @@ function Reader() {
       <Fab color="primary" sx={{ position: 'fixed', bottom: 32, right: 32, zIndex: 1200 }} onClick={() => setShowGeminiChat(true)}>
         <ChatIcon />
       </Fab>
-      
-      {/* --- [核心修复] 修复了这里的语法错误 --- */}
       <GeminiChat 
         open={showGeminiChat} 
         onClose={() => setShowGeminiChat(false)} 
