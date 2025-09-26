@@ -1,10 +1,10 @@
-// src/components/Reader.js (最终修复版 - 2025/09/26)
+// src/components/Reader.js (最终、正确的异步逻辑修复版)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
 import { useSwipeable } from 'react-swipeable';
-import axios from 'axios'; // <--- [关键] 重新引入 axios
+import axios from 'axios';
 import {
   Box, IconButton, Typography, CircularProgress, LinearProgress, Drawer,
   List, ListItem, ListItemButton, ListItemText, Alert
@@ -25,9 +25,9 @@ function Reader() {
   const [isLoading, setIsLoading] = useState(true);
   const viewerRef = useRef(null);
 
-  // --- VVVVV  这是本次唯一的、决定性的修改  VVVVV ---
   useEffect(() => {
     let book;
+    let currentRendition;
 
     const loadBook = async () => {
       if (!bookId) {
@@ -40,35 +40,42 @@ function Reader() {
         setIsLoading(true);
         setError('');
 
-        // 步骤1: 使用 axios 来下载完整的书籍文件。
-        // axios 会正确使用您配置的 baseURL。
-        // responseType: 'arraybuffer' 是关键，它告诉 axios 我们要下载的是二进制文件。
+        // 步骤 1: 成功下载书籍文件 (这部分已经验证是正确的)
         const response = await axios.get(`/books/${bookId}/file`, {
           responseType: 'arraybuffer',
         });
 
-        // 步骤2: 将下载好的二进制数据直接交给 Epub.js
         book = Epub(response.data);
 
+        // --- VVVV  这是本次最核心的修复 VVVV ---
+
+        // 步骤 2: 【强制等待】书本元数据和所有资源解析完成
+        // book.ready 是一个Promise，必须await它！
+        await book.ready;
+
+        // --- ^^^^ 修复结束 ^^^^ ---
+
         if (viewerRef.current) {
-          const rendition = book.renderTo(viewerRef.current, {
+          // 步骤 3: 在书本完全准备好之后，才开始渲染
+          currentRendition = book.renderTo(viewerRef.current, {
             width: '100%', height: '100%', flow: "paginated", spread: "auto",
           });
+          setRendition(currentRendition); // 先设置到state，翻页才能用
 
-          rendition.on('relocated', (loc) => {
+          currentRendition.on('relocated', (loc) => {
             if (book.locations) {
                 const percent = book.locations.percentageFromCfi(loc.start.cfi);
                 setProgress(Math.round(percent * 100));
             }
           });
           
-          book.ready.then(() => {
-            book.navigation.toc.then(tocData => setToc(tocData));
-          });
+          setToc(book.navigation.toc);
           
-          await rendition.display();
+          // 步骤 4: 显示第一页
+          await currentRendition.display();
+
+          // 步骤 5: 在一切都成功显示后，才关闭加载动画
           setIsLoading(false);
-          setRendition(rendition);
         }
       } catch (err) {
         console.error("加载或渲染书籍时出错:", err);
@@ -83,9 +90,11 @@ function Reader() {
       if (book) {
         book.destroy();
       }
+      if (currentRendition) {
+        currentRendition.destroy();
+      }
     };
   }, [bookId]);
-  // --- ^^^^^  修改结束  ^^^^^ ---
 
   const goToNextPage = () => rendition?.next();
   const goToPrevPage = () => rendition?.prev();
