@@ -55,7 +55,10 @@ function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
 
 function Reader() {
   const { bookId } = useParams();
-  const { title } = location.state || {};
+  // --- VVVV [这是本次最核心的修复] 将 "location" 重命名为 "routeLocation" VVVV ---
+  const routeLocation = useLocation();
+  const { title } = routeLocation.state || {};
+  // --- ^^^^ 修复结束 ^^^^ ---
   
   const [rendition, setRendition] = useState(null);
   const [book, setBook] = useState(null);
@@ -137,7 +140,6 @@ function Reader() {
             }
           });
 
-          // --- VVVV [这是本次最核心的修复] 将 "location" 重命名为 "loc" VVVV ---
           currentRendition.on('relocated', (loc) => {
             if (isMounted && currentBook.locations) {
               const cfi = loc.start.cfi;
@@ -147,7 +149,6 @@ function Reader() {
               localStorage.setItem(`book-progress-${bookId}`, cfi);
             }
           });
-          // --- ^^^^ 修复结束 ^^^^ ---
 
           if (isMounted) { setToc(currentBook.navigation.toc); setIsLoading(false); }
         }
