@@ -24,7 +24,9 @@ function Reader() {
   const [isLoading, setIsLoading] = useState(true);
   const viewerRef = useRef(null);
 
-  useEffect(() => {
+// src/components/Reader.js (最终正确修复版)
+
+useEffect(() => {
     let book;
     
     if (!bookId) {
@@ -37,10 +39,23 @@ function Reader() {
       setIsLoading(true);
       setError('');
       
-      // [核心改造] 直接构建指向我们新API的文件URL
-      const bookUrl = `/api/books/${bookId}/file`;
+      // --- VVVV  从这里开始是核心修改 VVVV ---
 
-      // [核心改造] Epub.js 直接加载这个URL，它会像浏览器一样去下载文件
+      // 1. 获取您在环境变量中为 axios 配置的后端基础URL
+      const baseApiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+      
+      // 2. 从这个URL中移除可能存在的 '/api' 后缀，得到纯粹的后端根地址
+      //    例如: 'https://houduan.onrender.com/api' 会变成 'https://houduan.onrender.com'
+      const backendRootUrl = baseApiUrl.endsWith('/api') ? baseApiUrl.slice(0, -4) : baseApiUrl;
+      
+      // 3. 构建一个指向书籍文件接口的【完整绝对URL】
+      const bookUrl = `${backendRootUrl}/api/books/${bookId}/file`;
+      
+      console.log("正在尝试从以下URL加载书籍:", bookUrl); // 增加这行日志，方便您在浏览器控制台确认
+
+      // --- ^^^^  修改到这里结束 ^^^^ ---
+
+      // 4. 让 Epub.js 使用这个完整的URL来加载
       book = Epub(bookUrl);
       
       if (viewerRef.current) {
@@ -48,23 +63,33 @@ function Reader() {
           width: '100%', height: '100%', flow: "paginated", spread: "auto",
         });
 
-        // ... (所有事件监听和目录加载逻辑，和之前完全一样)
-        rendition.on('relocated', (loc) => { /* ... */ });
-        book.ready.then(() => { /* ... */ });
+        rendition.on('relocated', (loc) => {
+          const percent = book.locations.percentageFromCfi(loc.start.cfi);
+          setProgress(Math.round(percent * 100));
+        });
+
+        book.ready.then(() => {
+          book.navigation.toc.then(tocData => setToc(tocData));
+        });
 
         rendition.display().then(() => {
-          setIsLoading(false); // [核心] 渲染完成后才停止加载
+          setIsLoading(false);
         });
         
         setRendition(rendition);
       }
     } catch (err) {
+      console.error("加载Epub时出错:", err); // 增加错误日志
       setError("加载书籍内容失败，请刷新重试。");
       setIsLoading(false);
     }
     
-    return () => { book?.destroy(); };
-  }, [bookId]);
+    return () => {
+      if (book) {
+        book.destroy();
+      }
+    };
+}, [bookId]);
 
   const goToNextPage = () => rendition?.next();
   const goToPrevPage = () => rendition?.prev();
