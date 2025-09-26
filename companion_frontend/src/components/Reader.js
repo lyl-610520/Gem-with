@@ -1,4 +1,4 @@
-// src/components/Reader.js (最终修复版 - 补全组件导入)
+// src/components/Reader.js (最终美化版 - 修复加载错误 & 美化UI)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
@@ -8,7 +8,7 @@ import {
   Box, IconButton, Typography, CircularProgress, LinearProgress, Drawer,
   List, ListItem, ListItemText, Alert, Fab, Popover, Button, TextField,
   Paper, InputBase, Avatar, Tooltip, Snackbar, ListItemAvatar, Divider,
-  ListItemButton // <--- [这是本次最核心的修复] 补回被遗漏的组件导入
+  ListItemButton
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import HomeIcon from '@mui/icons-material/Home';
@@ -17,9 +17,10 @@ import NotesIcon from '@mui/icons-material/Notes';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import SendIcon from '@mui/icons-material/Send';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import CloseIcon from '@mui/icons-material/Close';
 
 // ==========================================================
-// [新增] 聊天窗口组件
+// [UI美化版] 聊天窗口组件
 // ==========================================================
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   const [input, setInput] = useState('');
@@ -39,29 +40,41 @@ function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   if (!open) return null;
 
   return (
-    <Paper elevation={8} sx={{
-      position: 'fixed', bottom: 20, right: 20, width: {xs: '90%', sm: 350}, height: 500, zIndex: 1300,
-      display: 'flex', flexDirection: 'column', borderRadius: 4, overflow: 'hidden'
+    <Paper elevation={12} sx={{
+      position: 'fixed', bottom: {xs: 10, sm: 20}, right: {xs: 10, sm: 20}, 
+      width: {xs: 'calc(100% - 20px)', sm: 360}, height: {xs: '70vh', sm: 500},
+      zIndex: 1300, display: 'flex', flexDirection: 'column', 
+      borderRadius: '20px', // 更圆润的边角
+      backdropFilter: 'blur(10px)', // 毛玻璃效果
+      backgroundColor: 'rgba(255, 255, 255, 0.8)', // 半透明背景
+      boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)', // 更柔和的阴影
+      overflow: 'hidden'
     }}>
-      <Box sx={{ p: 2, bgcolor: 'primary.main', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">与 Gem 伴读</Typography>
-        <Button color="inherit" onClick={onClose}>关闭</Button>
+      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
+        <Typography variant="h6" sx={{fontWeight: 'bold'}}>与 Gem 伴读</Typography>
+        <IconButton onClick={onClose} size="small"><CloseIcon /></IconButton>
       </Box>
       <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2 }}>
         {messages.map((msg, index) => (
-          <Box key={index} sx={{ display: 'flex', justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start', mb: 2 }}>
-            {msg.sender === 'gemini' && <Avatar sx={{ bgcolor: 'primary.light', mr: 1 }}><AutoAwesomeIcon /></Avatar>}
-            <Paper elevation={2} sx={{ p: 1.5, borderRadius: 3, bgcolor: msg.sender === 'user' ? 'primary.main' : 'grey.200', color: msg.sender === 'user' ? 'white' : 'black', maxWidth: '80%' }}>
-              <Typography variant="body1">{msg.text}</Typography>
+          <Box key={index} sx={{ display: 'flex', justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start', mb: 1.5 }}>
+            {msg.sender === 'gemini' && <Avatar sx={{ bgcolor: 'primary.light', mr: 1, width: 32, height: 32 }}><AutoAwesomeIcon fontSize="small" /></Avatar>}
+            <Paper elevation={0} sx={{ 
+              p: '10px 14px', 
+              borderRadius: msg.sender === 'user' ? '20px 20px 5px 20px' : '20px 20px 20px 5px', // 气泡效果
+              bgcolor: msg.sender === 'user' ? 'primary.main' : 'rgba(0,0,0,0.05)', 
+              color: msg.sender === 'user' ? 'white' : 'black', 
+              maxWidth: '80%' 
+            }}>
+              <Typography variant="body1" sx={{whiteSpace: 'pre-wrap'}}>{msg.text}</Typography>
             </Paper>
           </Box>
         ))}
-        {isSending && <Typography sx={{textAlign: 'center', color: 'grey.500'}}>Gem 正在思考...</Typography>}
+        {isSending && <Typography sx={{textAlign: 'center', color: 'text.secondary', fontSize: '0.8rem', my: 1}}>Gem 正在思考...</Typography>}
         <div ref={messagesEndRef} />
       </Box>
-      <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSend(); }} sx={{ p: 1, display: 'flex', borderTop: '1px solid #ddd' }}>
-        <InputBase sx={{ ml: 1, flex: 1 }} placeholder="问问关于这一页的事..." value={input} onChange={(e) => setInput(e.target.value)} />
-        <IconButton type="submit" color="primary" disabled={isSending}><SendIcon /></IconButton>
+      <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSend(); }} sx={{ p: 1, display: 'flex', alignItems: 'center', borderTop: '1px solid rgba(0,0,0,0.1)' }}>
+        <InputBase sx={{ ml: 1, flex: 1, bgcolor: 'rgba(0,0,0,0.05)', borderRadius: '20px', px: 2, py: 0.5 }} placeholder="问问关于这一页的事..." value={input} onChange={(e) => setInput(e.target.value)} />
+        <IconButton type="submit" color="primary" disabled={isSending || !input.trim()}><SendIcon /></IconButton>
       </Box>
     </Paper>
   );
@@ -75,7 +88,6 @@ function Reader() {
   const location = useLocation();
   const { title } = location.state || {};
   
-  // --- VVVV  核心状态声明 VVVV ---
   const [rendition, setRendition] = useState(null);
   const [toc, setToc] = useState([]);
   const [progress, setProgress] = useState(0);
@@ -87,8 +99,8 @@ function Reader() {
   const [showGeminiChat, setShowGeminiChat] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [isChatSending, setIsChatSending] = useState(false);
-  const [selectionMenu, setSelectionMenu] = useState({ open: false, anchorEl: null, text: '', cfiRange: null });
-  const [annotationModal, setAnnotationModal] = useState({ open: false, text: '', cfiRange: null });
+  const [selectionMenu, setSelectionMenu] = useState({ open: false, anchorEl: null, text: '' });
+  const [annotationModal, setAnnotationModal] = useState({ open: false, text: '' });
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
   const [showToc, setShowToc] = useState(false);
 
@@ -115,15 +127,12 @@ function Reader() {
 
         const [fileResponse, detailsResponse] = await Promise.all([
           axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' }),
-          axios.get(`/books/${bookId}`)
+          axios.get(`/books/${bookId}`) // 这个API现在已经修复
         ]);
         if (!isMounted) return;
         
         if (detailsResponse.data && Array.isArray(detailsResponse.data.annotations)) {
             setAnnotations(detailsResponse.data.annotations);
-        } else {
-            console.warn("收到的批注数据格式不正确", detailsResponse.data);
-            setAnnotations([]);
         }
 
         book = Epub(fileResponse.data);
@@ -149,7 +158,7 @@ function Reader() {
               anchor.style.top = `${rect.top - viewerRect.top - 10}px`;
 
               viewerRef.current.appendChild(anchor);
-              setSelectionMenu({ open: true, anchorEl: anchor, text: selectedText, cfiRange });
+              setSelectionMenu({ open: true, anchorEl: anchor, text: selectedText });
             }
           });
           
@@ -187,13 +196,11 @@ function Reader() {
     };
   }, [bookId]);
   
-  // --- 所有交互功能的处理函数 ---
   const getCurrentPageContent = async () => {
-      if (!rendition) return '';
-      const contents = rendition.getContents();
-      if (!contents || contents.length === 0) return '';
-      // 提取所有当前可见 "页面" 的文本内容
-      return contents.map(content => content.document.body.textContent || '').join('\n');
+    if (!rendition) return '';
+    const contents = rendition.getContents();
+    if (!contents || contents.length === 0) return '';
+    return contents.map(content => content.document.body.textContent || '').join('\n');
   };
 
   const handleSaveAnnotation = async (note) => {
@@ -208,7 +215,7 @@ function Reader() {
     } catch (err) {
       setSnackbar({ open: true, message: '保存失败' });
     }
-    setAnnotationModal({ open: false, text: '', cfiRange: null });
+    setAnnotationModal({ open: false, text: '' });
   };
   
   const handleSendChatMessage = async (message) => {
@@ -232,7 +239,7 @@ function Reader() {
         page_content: pageContent,
         page_number: progress,
       });
-      setAnnotations(prev => [...prev, response.data.annotation]);
+      setAnnotations(prev => [...prev, response.data.annotation].sort((a,b) => a.page_number - b.page_number));
       setSnackbar({ open: true, message: 'Gem 写好批注啦！' });
     } catch (err) {
       setSnackbar({ open: true, message: 'Gem 思考失败了' });
@@ -246,11 +253,11 @@ function Reader() {
 
   const handleCloseSelectionMenu = () => {
     selectionMenu.anchorEl?.remove();
-    setSelectionMenu({ open: false, anchorEl: null, text: '', cfiRange: null });
+    setSelectionMenu({ open: false, anchorEl: null, text: '' });
   };
   
   return (
-    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.200' }}>
+    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{title || '...'}</Typography>
@@ -275,8 +282,8 @@ function Reader() {
 
         {!isLoading && !error && (
           <>
-            <Box onClick={() => rendition?.prev()} sx={{ position: 'absolute', left: 0, width: '50%', height: '100%', zIndex: 1 }} />
-            <Box onClick={() => rendition?.next()} sx={{ position: 'absolute', right: 0, width: '50%', height: '100%', zIndex: 1 }} />
+            <Box onClick={() => rendition?.prev()} sx={{ position: 'absolute', left: 0, width: '40%', height: '100%', zIndex: 1 }} />
+            <Box onClick={() => rendition?.next()} sx={{ position: 'absolute', right: 0, width: '40%', height: '100%', zIndex: 1 }} />
           </>
         )}
       </Box>
@@ -286,33 +293,25 @@ function Reader() {
         <LinearProgress variant="determinate" value={progress} />
       </Box>
       
-      {/* 文本选择后的弹出菜单 */}
       <Popover open={selectionMenu.open} anchorEl={selectionMenu.anchorEl} onClose={handleCloseSelectionMenu}>
         <Paper sx={{p: 1}}>
           <Button onClick={() => {
-            setAnnotationModal({ open: true, text: selectionMenu.text, cfiRange: selectionMenu.cfiRange });
+            setAnnotationModal({ open: true, text: selectionMenu.text });
             handleCloseSelectionMenu();
           }}>添加批注</Button>
         </Paper>
       </Popover>
       
-      {/* 添加批注的输入对话框 */}
       <Drawer anchor="bottom" open={annotationModal.open} onClose={() => setAnnotationModal({ ...annotationModal, open: false })}>
         <Box p={2}>
-          <Typography variant="h6">为“{annotationModal.text}”添加批注</Typography>
+          <Typography variant="h6" noWrap>为 “{annotationModal.text}” 添加批注</Typography>
           <TextField
-            autoFocus
-            margin="dense"
-            label="你的想法..."
-            type="text"
-            fullWidth
-            variant="standard"
+            autoFocus margin="dense" label="你的想法..." type="text" fullWidth variant="standard"
             onKeyDown={(e) => { if(e.key === 'Enter' && e.target.value) { handleSaveAnnotation(e.target.value); } }}
           />
         </Box>
       </Drawer>
 
-      {/* 批注列表面板 */}
       <Drawer anchor="right" open={showAnnotationsPanel} onClose={() => setShowAnnotationsPanel(false)}>
         <Box sx={{ width: {xs: '80vw', sm: 350}, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>所有批注</Typography>
@@ -337,7 +336,6 @@ function Reader() {
         </Box>
       </Drawer>
 
-      {/* 目录面板 */}
       <Drawer anchor="right" open={showToc} onClose={() => setShowToc(false)}>
         <Box sx={{ width: 250, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>目录</Typography>
@@ -353,7 +351,6 @@ function Reader() {
         </Box>
       </Drawer>
       
-      {/* Gemini聊天悬浮按钮和窗口 */}
       <Fab color="primary" sx={{ position: 'fixed', bottom: 32, right: 32, zIndex: 1200 }} onClick={() => setShowGeminiChat(true)}>
         <ChatIcon />
       </Fab>
