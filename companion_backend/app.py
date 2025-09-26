@@ -909,7 +909,6 @@ def get_book_details(book_id):
         'id': book.id,
         'title': book.title,
         'author': book.author,
-        'content': book.content,
         'annotations': annotations_data
     })
 
