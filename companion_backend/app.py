@@ -205,6 +205,8 @@ class Annotation(db.Model):
     content = db.Column(db.Text, nullable=False)
     # [新增] 用户划重点的原文
     highlighted_text = db.Column(db.Text)
+    # [核心改造] 我们不再简单依赖页码，而是使用精确的CFI位置标识符
+    cfi = db.Column(db.String(255), nullable=False) # <---  在这里添加这一行！
     # [新增] 批注所在的页码
     page_number = db.Column(db.Integer, nullable=False)
     is_gemini_annotation = db.Column(db.Boolean, default=False)
@@ -912,43 +914,71 @@ def get_book_details(book_id):
         'annotations': annotations_data
     })
 
+# companion_backend/app.py
+
 @app.route('/api/books/<int:book_id>/annotations', methods=['POST'])
 def add_annotation(book_id):
-    """为书籍添加一条新批注（用户或Gemini）"""
     if 'user_id' not in session:
         return jsonify({'error': '未登录'}), 401
     
     data = request.get_json()
     content = data.get('content')
     highlighted_text = data.get('highlighted_text')
+    cfi = data.get('cfi') # <---  获取CFI
     page_number = data.get('page_number')
     
-    if not all([content, page_number is not None]):
-        return jsonify({'error': '缺少必要参数'}), 400
+    # [核心改造] CFI是必须的！
+    if not all([content, cfi]):
+        return jsonify({'error': '缺少必要参数(content, cfi)'}), 400
 
     new_annotation = Annotation(
         user_id=session['user_id'],
         book_id=book_id,
         content=content,
         highlighted_text=highlighted_text,
+        cfi=cfi, # <---  保存CFI
         page_number=page_number,
-        is_gemini_annotation=False # 默认为用户批注
+        is_gemini_annotation=False
     )
     db.session.add(new_annotation)
     db.session.commit()
     
-    # 将新创建的批注返回给前端
     anno_data = {
         'id': new_annotation.id,
-        'user_id': new_annotation.user_id,
         'content': new_annotation.content,
         'highlighted_text': new_annotation.highlighted_text,
+        'cfi': new_annotation.cfi, # <---  返回CFI
         'page_number': new_annotation.page_number,
         'is_gemini_annotation': new_annotation.is_gemini_annotation,
         'created_at': new_annotation.created_at.isoformat() + 'Z'
     }
     
     return jsonify({'success': True, 'annotation': anno_data}), 201
+
+# companion_backend/app.py
+
+# VVVV  [全新功能] 在 add_annotation 下方，粘贴这个函数 VVVV
+@app.route('/api/books/<int:book_id>/annotations/<int:annotation_id>', methods=['DELETE'])
+def delete_annotation(book_id, annotation_id):
+    """删除一条批注"""
+    if 'user_id' not in session:
+        return jsonify({'error': '未登录'}), 401
+    
+    # 查找批注，并确保它属于当前用户，防止误删
+    annotation = Annotation.query.filter_by(
+        id=annotation_id, 
+        book_id=book_id, 
+        user_id=session['user_id']
+    ).first()
+    
+    if not annotation:
+        return jsonify({'error': '批注不存在或无权删除'}), 404
+        
+    db.session.delete(annotation)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': '批注已删除'})
+# ^^^^  粘贴到这里结束 ^^^^
 
 @app.route('/api/books/<int:book_id>/chat', methods=['POST'])
 def chat_about_book(book_id):
@@ -1355,6 +1385,48 @@ def save_game_score():
 def health_check():
     """健康检查"""
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
+# companion_backend/app.py
+
+# ==========================================================
+# [临时手术刀] - 用来为Annotation表添加cfi字段，用完就删！
+# ==========================================================
+@app.route('/api/database/add-cfi-column-to-annotations', methods=['GET'])
+def add_cfi_column():
+    """
+    一个临时的、安全的API，仅用于为现有的Annotation表添加新的'cfi'列。
+    它不会删除任何数据。
+    """
+    try:
+        print("⚠️ [微创手术] 收到 Annotation 表升级请求！")
+        with app.app_context():
+            # 我们将直接执行SQL命令，这是最安全、最精确的方式
+            # 1. 先添加列，并允许它暂时为空 (NULL)
+            db.session.execute('ALTER TABLE annotation ADD COLUMN cfi VARCHAR(255)')
+            print("✅ 成功为 annotation 表添加 'cfi' 列。")
+
+            # 2. 为所有已存在的、没有cfi的批注填充一个默认值
+            #    这样可以确保它们符合未来“不能为空”的规则
+            db.session.execute("UPDATE annotation SET cfi = 'legacy-annotation' WHERE cfi IS NULL")
+            print("✅ 已为所有旧批注填充了默认的 cfi 值。")
+            
+            # 提交我们的更改
+            db.session.commit()
+        
+        return jsonify({'success': True, 'message': 'Annotation table upgraded successfully. All data preserved.'})
+
+    except Exception as e:
+        # 如果列已经存在，它会报错，这是正常的，我们可以捕捉这个错误
+        if "already exists" in str(e).lower():
+            message = "列 'cfi' 已经存在，无需再次添加。操作被安全地跳过。"
+            print(f"✅ [微创手术] {message}")
+            return jsonify({'success': True, 'message': message})
+            
+        import traceback
+        error_message = f"执行升级时发生错误: {e}"
+        print(f"❌ [手术失败] {error_message}")
+        return jsonify({'error': error_message, 'traceback': traceback.format_exc()}), 500
+# ==========================================================
+# ... (您已有的其他代码) ...
 
 
 
