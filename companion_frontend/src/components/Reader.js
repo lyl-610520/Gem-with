@@ -1,4 +1,4 @@
-// src/components/Reader.js (最终、完整功能修复版)
+// src/components/Reader.js (终极修复版 - 使用核心交互管理器)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
@@ -29,19 +29,28 @@ function Reader() {
     let currentRendition;
 
     const loadBook = async () => {
+      // 防止在组件卸载后仍然尝试更新状态
+      let isMounted = true; 
+      
       if (!bookId) {
         setError("无法加载书籍，未找到书籍ID。");
         setIsLoading(false);
         return;
       }
+
       try {
         setIsLoading(true);
         setError('');
+
         const response = await axios.get(`/books/${bookId}/file`, {
           responseType: 'arraybuffer',
         });
+        if (!isMounted) return;
+
         book = Epub(response.data);
         await book.ready;
+        if (!isMounted) return;
+
         if (viewerRef.current) {
           currentRendition = book.renderTo(viewerRef.current, {
             width: '100%', height: '100%', flow: "paginated", spread: "auto",
@@ -50,22 +59,8 @@ function Reader() {
 
           // --- VVVV  这是本次最核心的修复 VVVV ---
 
-          // [核心修复1]: 拦截并处理iframe内部的链接点击
-          currentRendition.on('rendered', (section) => {
-            const current_document = section.document;
-            const links = current_document.querySelectorAll('a');
-            links.forEach(link => {
-              link.addEventListener('click', (e) => {
-                e.preventDefault(); // 阻止默认的、错误的跳转行为
-                const href = link.getAttribute('href');
-                currentRendition.display(href); // 使用正确的API来跳转
-              });
-            });
-          });
-
-          // [核心修复2]: 启用并处理Epub.js的滑动事件管理器
-          const manager = currentRendition.manager;
-          manager.on('swiped', (e) => {
+          // 步骤 1: 在 Epub.js 的核心“交互管理器”上绑定滑动事件
+          currentRendition.manager.on('swiped', (e) => {
             if (e.direction === 'left') {
               currentRendition.next();
             }
@@ -74,28 +69,42 @@ function Reader() {
             }
           });
 
+          // 步骤 2: 【新增功能】在渲染器上绑定键盘事件，支持左右键翻页
+          currentRendition.on('keyup', (event) => {
+            if (event.key === 'ArrowRight') {
+              currentRendition.next();
+            }
+            if (event.key === 'ArrowLeft') {
+              currentRendition.prev();
+            }
+          });
+
           // --- ^^^^ 修复结束 ^^^^ ---
 
           currentRendition.on('relocated', (loc) => {
-            if (book.locations) {
-              const percent = book.locations.percentageFromCfi(loc.start.cfi);
-              setProgress(Math.round(percent * 100));
+            if (isMounted && book.locations) {
+                const percent = book.locations.percentageFromCfi(loc.start.cfi);
+                setProgress(Math.round(percent * 100));
             }
           });
           
-          setToc(book.navigation.toc);
+          if (isMounted) setToc(book.navigation.toc);
           await currentRendition.display();
-          setIsLoading(false);
+          if (isMounted) setIsLoading(false);
         }
       } catch (err) {
         console.error("加载或渲染书籍时出错:", err);
-        setError("加载书籍内容失败。文件可能已损坏或格式不受支持。");
-        setIsLoading(false);
+        if (isMounted) {
+          setError("加载书籍内容失败。文件可能已损坏或格式不受支持。");
+          setIsLoading(false);
+        }
       }
     };
 
     loadBook();
+    
     return () => {
+      let isMounted = false;
       if (book) book.destroy();
       if (currentRendition) currentRendition.destroy();
     };
@@ -105,8 +114,8 @@ function Reader() {
     rendition?.display(href);
     setShowToc(false);
   };
-
-  // JSX部分无需任何修改
+  
+  // JSX部分保持不变，也不需要任何外部滑动处理器
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.200' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
@@ -114,6 +123,7 @@ function Reader() {
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{title || '正在加载...'}</Typography>
         <IconButton onClick={() => setShowToc(true)} disabled={toc.length === 0}><MenuIcon /></IconButton>
       </Box>
+
       <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }}>
         {isLoading && (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
@@ -123,12 +133,14 @@ function Reader() {
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
         <Box ref={viewerRef} sx={{ position: 'absolute', top: 0, left: 0, height: '100%', width: '100%', visibility: isLoading ? 'hidden' : 'visible' }} />
       </Box>
+
       <Box sx={{ p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: '0 -2px 5px rgba(0,0,0,0.1)' }}>
         <Typography align="center" variant="body2" color="text.secondary">
             {progress}%
         </Typography>
         <LinearProgress variant="determinate" value={progress} />
       </Box>
+      
       <Drawer anchor="right" open={showToc} onClose={() => setShowToc(false)}>
         <Box sx={{ width: 250, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>目录</Typography>
