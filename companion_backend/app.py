@@ -895,7 +895,7 @@ def get_book_details(book_id):
     
     book = Book.query.filter_by(id=book_id, user_id=session['user_id']).first_or_404()
     
-    annotations = Annotation.query.filter_by(book_id=book.id).order_by(Annotation.page_number.asc()).all()
+    annotations = Annotation.query.filter_by(book_id=book.id).order_by(Annotation.created_at.asc()).all()
     
     annotations_data = [{
         'id': anno.id,
