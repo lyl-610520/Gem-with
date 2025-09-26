@@ -1,9 +1,10 @@
-// src/components/Reader.js (最终逻辑自洽版)
+// src/components/Reader.js (最终修复版 - 2025/09/26)
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
 import { useSwipeable } from 'react-swipeable';
-// [核心] 我们不再需要 axios 来加载书籍内容了！
+import axios from 'axios'; // <--- [关键] 重新引入 axios
 import {
   Box, IconButton, Typography, CircularProgress, LinearProgress, Drawer,
   List, ListItem, ListItemButton, ListItemText, Alert
@@ -24,72 +25,67 @@ function Reader() {
   const [isLoading, setIsLoading] = useState(true);
   const viewerRef = useRef(null);
 
-// src/components/Reader.js (最终正确修复版)
-
-useEffect(() => {
+  // --- VVVVV  这是本次唯一的、决定性的修改  VVVVV ---
+  useEffect(() => {
     let book;
-    
-    if (!bookId) {
-      setError("无法加载书籍，未找到书籍ID。");
-      setIsLoading(false);
-      return;
-    }
 
-    try {
-      setIsLoading(true);
-      setError('');
-      
-      // --- VVVV  从这里开始是核心修改 VVVV ---
-
-      // 1. 获取您在环境变量中为 axios 配置的后端基础URL
-      const baseApiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-      
-      // 2. 从这个URL中移除可能存在的 '/api' 后缀，得到纯粹的后端根地址
-      //    例如: 'https://houduan.onrender.com/api' 会变成 'https://houduan.onrender.com'
-      const backendRootUrl = baseApiUrl.endsWith('/api') ? baseApiUrl.slice(0, -4) : baseApiUrl;
-      
-      // 3. 构建一个指向书籍文件接口的【完整绝对URL】
-      const bookUrl = `${backendRootUrl}/api/books/${bookId}/file`;
-      
-      console.log("正在尝试从以下URL加载书籍:", bookUrl); // 增加这行日志，方便您在浏览器控制台确认
-
-      // --- ^^^^  修改到这里结束 ^^^^ ---
-
-      // 4. 让 Epub.js 使用这个完整的URL来加载
-      book = Epub(bookUrl);
-      
-      if (viewerRef.current) {
-        const rendition = book.renderTo(viewerRef.current, {
-          width: '100%', height: '100%', flow: "paginated", spread: "auto",
-        });
-
-        rendition.on('relocated', (loc) => {
-          const percent = book.locations.percentageFromCfi(loc.start.cfi);
-          setProgress(Math.round(percent * 100));
-        });
-
-        book.ready.then(() => {
-          book.navigation.toc.then(tocData => setToc(tocData));
-        });
-
-        rendition.display().then(() => {
-          setIsLoading(false);
-        });
-        
-        setRendition(rendition);
+    const loadBook = async () => {
+      if (!bookId) {
+        setError("无法加载书籍，未找到书籍ID。");
+        setIsLoading(false);
+        return;
       }
-    } catch (err) {
-      console.error("加载Epub时出错:", err); // 增加错误日志
-      setError("加载书籍内容失败，请刷新重试。");
-      setIsLoading(false);
-    }
+
+      try {
+        setIsLoading(true);
+        setError('');
+
+        // 步骤1: 使用 axios 来下载完整的书籍文件。
+        // axios 会正确使用您配置的 baseURL。
+        // responseType: 'arraybuffer' 是关键，它告诉 axios 我们要下载的是二进制文件。
+        const response = await axios.get(`/books/${bookId}/file`, {
+          responseType: 'arraybuffer',
+        });
+
+        // 步骤2: 将下载好的二进制数据直接交给 Epub.js
+        book = Epub(response.data);
+
+        if (viewerRef.current) {
+          const rendition = book.renderTo(viewerRef.current, {
+            width: '100%', height: '100%', flow: "paginated", spread: "auto",
+          });
+
+          rendition.on('relocated', (loc) => {
+            if (book.locations) {
+                const percent = book.locations.percentageFromCfi(loc.start.cfi);
+                setProgress(Math.round(percent * 100));
+            }
+          });
+          
+          book.ready.then(() => {
+            book.navigation.toc.then(tocData => setToc(tocData));
+          });
+          
+          await rendition.display();
+          setIsLoading(false);
+          setRendition(rendition);
+        }
+      } catch (err) {
+        console.error("加载或渲染书籍时出错:", err);
+        setError("加载书籍内容失败。文件可能已损坏或格式不受支持。");
+        setIsLoading(false);
+      }
+    };
+
+    loadBook();
     
     return () => {
       if (book) {
         book.destroy();
       }
     };
-}, [bookId]);
+  }, [bookId]);
+  // --- ^^^^^  修改结束  ^^^^^ ---
 
   const goToNextPage = () => rendition?.next();
   const goToPrevPage = () => rendition?.prev();
@@ -105,10 +101,9 @@ useEffect(() => {
     preventScrollOnSwipe: true,
     trackMouse: true,
   });
-
+  
+  // JSX部分保持不变
   return (
-    // [核心] 整个JSX结构和之前的最终版完全一样，不需要改动
-    // 唯一的区别是，现在的逻辑是自洽的，能正确运行了
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.200' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
