@@ -1,4 +1,4 @@
-// src/components/Reader.js (最终修复版 - 补全状态声明)
+// src/components/Reader.js (最终修复版 - 补全组件导入)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
@@ -7,7 +7,8 @@ import axios from 'axios';
 import {
   Box, IconButton, Typography, CircularProgress, LinearProgress, Drawer,
   List, ListItem, ListItemText, Alert, Fab, Popover, Button, TextField,
-  Paper, InputBase, Avatar, Tooltip, Snackbar, ListItemAvatar, Divider
+  Paper, InputBase, Avatar, Tooltip, Snackbar, ListItemAvatar, Divider,
+  ListItemButton // <--- [这是本次最核心的修复] 补回被遗漏的组件导入
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import HomeIcon from '@mui/icons-material/Home';
@@ -89,10 +90,7 @@ function Reader() {
   const [selectionMenu, setSelectionMenu] = useState({ open: false, anchorEl: null, text: '', cfiRange: null });
   const [annotationModal, setAnnotationModal] = useState({ open: false, text: '', cfiRange: null });
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
-
-  // --- VVVV  [这是本次最核心的修复] 补回被误删的状态 VVVV ---
   const [showToc, setShowToc] = useState(false);
-  // --- ^^^^  修复结束 ^^^^ ---
 
   useEffect(() => {
     let book;
@@ -121,7 +119,6 @@ function Reader() {
         ]);
         if (!isMounted) return;
         
-        // 检查返回的数据结构是否正确
         if (detailsResponse.data && Array.isArray(detailsResponse.data.annotations)) {
             setAnnotations(detailsResponse.data.annotations);
         } else {
@@ -137,8 +134,7 @@ function Reader() {
           currentRendition = book.renderTo(viewerRef.current, {
             width: '100%', height: '100%', flow: "paginated", spread: "auto",
           });
-          setRendition(currentRendition);
-
+          
           await currentRendition.display();
           if (!isMounted) return;
 
@@ -148,7 +144,6 @@ function Reader() {
               const rect = contents.window.getSelection().getRangeAt(0).getBoundingClientRect();
               const anchor = document.createElement('div');
               anchor.style.position = 'absolute';
-              // 计算相对于viewerRef的位置
               const viewerRect = viewerRef.current.getBoundingClientRect();
               anchor.style.left = `${rect.left - viewerRect.left + rect.width / 2}px`;
               anchor.style.top = `${rect.top - viewerRect.top - 10}px`;
@@ -170,7 +165,11 @@ function Reader() {
             }
           });
 
-          if (isMounted) { setToc(book.navigation.toc); setIsLoading(false); }
+          if (isMounted) { 
+            setRendition(currentRendition);
+            setToc(book.navigation.toc); 
+            setIsLoading(false); 
+          }
         }
       } catch (err) {
         console.error("加载书籍或批注失败:", err);
@@ -191,18 +190,10 @@ function Reader() {
   // --- 所有交互功能的处理函数 ---
   const getCurrentPageContent = async () => {
       if (!rendition) return '';
-      const location = rendition.currentLocation();
-      if (!location || !location.start) return '';
-      
-      const range = location.start.cfi;
-      const chapter = await rendition.book.getRange(range);
-      
-      if(chapter && chapter.startContainer) {
-          // 尝试获取整个章节的文本内容
-          const chapterNode = chapter.startContainer.ownerDocument.body;
-          return chapterNode.textContent || '';
-      }
-      return '';
+      const contents = rendition.getContents();
+      if (!contents || contents.length === 0) return '';
+      // 提取所有当前可见 "页面" 的文本内容
+      return contents.map(content => content.document.body.textContent || '').join('\n');
   };
 
   const handleSaveAnnotation = async (note) => {
@@ -250,7 +241,7 @@ function Reader() {
 
   const onTocClick = (href) => { 
     rendition?.display(href);
-    setShowToc(false); // <--- 这里需要 setShowToc
+    setShowToc(false);
   };
 
   const handleCloseSelectionMenu = () => {
@@ -271,7 +262,7 @@ function Reader() {
             <IconButton onClick={() => setShowAnnotationsPanel(true)}><NotesIcon /></IconButton>
           </Tooltip>
           <Tooltip title="目录">
-            <IconButton onClick={() => setShowToc(true)} disabled={toc.length === 0}><MenuIcon /></IconButton>
+            <IconButton onClick={() => setShowToc(true)} disabled={!toc || toc.length === 0}><MenuIcon /></IconButton>
           </Tooltip>
         </Box>
       </Box>
