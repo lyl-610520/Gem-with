@@ -1,6 +1,6 @@
-// src/components/Reader.js (终极修复版 - 使用核心交互管理器)
+// src/components/Reader.js (最终修复版 - 修正事件监听时机)
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
 import axios from 'axios';
@@ -15,32 +15,35 @@ function Reader() {
   const { bookId } = useParams();
   const location = useLocation();
   const { title } = location.state || {};
+  
+  // 使用 React.useState 和 React.useRef 来避免命名冲突
+  const [rendition, setRendition] = React.useState(null);
+  const [toc, setToc] = React.useState([]);
+  const [progress, setProgress] = React.useState(0);
+  const [showToc, setShowToc] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [isLoading, setIsLoading] = React.useState(true);
+  const viewerRef = React.useRef(null);
 
-  const [rendition, setRendition] = useState(null);
-  const [toc, setToc] = useState([]);
-  const [progress, setProgress] = useState(0);
-  const [showToc, setShowToc] = useState(false);
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const viewerRef = useRef(null);
-
-  useEffect(() => {
+  React.useEffect(() => {
     let book;
     let currentRendition;
+    let isMounted = true; 
 
     const loadBook = async () => {
-      // 防止在组件卸载后仍然尝试更新状态
-      let isMounted = true; 
-      
       if (!bookId) {
-        setError("无法加载书籍，未找到书籍ID。");
-        setIsLoading(false);
+        if (isMounted) {
+          setError("无法加载书籍，未找到书籍ID。");
+          setIsLoading(false);
+        }
         return;
       }
 
       try {
-        setIsLoading(true);
-        setError('');
+        if (isMounted) {
+          setIsLoading(true);
+          setError('');
+        }
 
         const response = await axios.get(`/books/${bookId}/file`, {
           responseType: 'arraybuffer',
@@ -55,42 +58,38 @@ function Reader() {
           currentRendition = book.renderTo(viewerRef.current, {
             width: '100%', height: '100%', flow: "paginated", spread: "auto",
           });
-          setRendition(currentRendition);
 
           // --- VVVV  这是本次最核心的修复 VVVV ---
 
-          // 步骤 1: 在 Epub.js 的核心“交互管理器”上绑定滑动事件
+          // 步骤 1: 【先施工】必须先调用 display() 来创建 iframe 和管理器
+          await currentRendition.display();
+          if (!isMounted) return;
+
+          // 步骤 2: 【后装修】在 display 完成后，manager 才存在，此时才能安全地绑定事件
           currentRendition.manager.on('swiped', (e) => {
-            if (e.direction === 'left') {
-              currentRendition.next();
-            }
-            if (e.direction === 'right') {
-              currentRendition.prev();
-            }
+            if (e.direction === 'left') currentRendition.next();
+            if (e.direction === 'right') currentRendition.prev();
           });
 
-          // 步骤 2: 【新增功能】在渲染器上绑定键盘事件，支持左右键翻页
           currentRendition.on('keyup', (event) => {
-            if (event.key === 'ArrowRight') {
-              currentRendition.next();
-            }
-            if (event.key === 'ArrowLeft') {
-              currentRendition.prev();
-            }
+            if (event.key === 'ArrowRight') currentRendition.next();
+            if (event.key === 'ArrowLeft') currentRendition.prev();
           });
 
           // --- ^^^^ 修复结束 ^^^^ ---
 
           currentRendition.on('relocated', (loc) => {
             if (isMounted && book.locations) {
-                const percent = book.locations.percentageFromCfi(loc.start.cfi);
-                setProgress(Math.round(percent * 100));
+              const percent = book.locations.percentageFromCfi(loc.start.cfi);
+              setProgress(Math.round(percent * 100));
             }
           });
-          
-          if (isMounted) setToc(book.navigation.toc);
-          await currentRendition.display();
-          if (isMounted) setIsLoading(false);
+
+          if (isMounted) {
+            setRendition(currentRendition);
+            setToc(book.navigation.toc);
+            setIsLoading(false);
+          }
         }
       } catch (err) {
         console.error("加载或渲染书籍时出错:", err);
@@ -104,9 +103,9 @@ function Reader() {
     loadBook();
     
     return () => {
-      let isMounted = false;
-      if (book) book.destroy();
+      isMounted = false;
       if (currentRendition) currentRendition.destroy();
+      if (book) book.destroy();
     };
   }, [bookId]);
 
@@ -115,7 +114,6 @@ function Reader() {
     setShowToc(false);
   };
   
-  // JSX部分保持不变，也不需要任何外部滑动处理器
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.200' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
@@ -126,9 +124,9 @@ function Reader() {
 
       <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }}>
         {isLoading && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-                <CircularProgress />
-            </Box>
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+            <CircularProgress />
+          </Box>
         )}
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
         <Box ref={viewerRef} sx={{ position: 'absolute', top: 0, left: 0, height: '100%', width: '100%', visibility: isLoading ? 'hidden' : 'visible' }} />
