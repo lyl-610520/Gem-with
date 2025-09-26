@@ -1,10 +1,8 @@
-// src/components/Reader.js (最终功能完整版 - 修复翻页)
+// src/components/Reader.js (最终、完整功能修复版)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
-// [核心修改] 我们不再需要 useSwipeable 了
-// import { useSwipeable } from 'react-swipeable'; 
 import axios from 'axios';
 import {
   Box, IconButton, Typography, CircularProgress, LinearProgress, Drawer,
@@ -36,18 +34,14 @@ function Reader() {
         setIsLoading(false);
         return;
       }
-
       try {
         setIsLoading(true);
         setError('');
-
         const response = await axios.get(`/books/${bookId}/file`, {
           responseType: 'arraybuffer',
         });
-
         book = Epub(response.data);
         await book.ready;
-
         if (viewerRef.current) {
           currentRendition = book.renderTo(viewerRef.current, {
             width: '100%', height: '100%', flow: "paginated", spread: "auto",
@@ -56,24 +50,36 @@ function Reader() {
 
           // --- VVVV  这是本次最核心的修复 VVVV ---
 
-          // 步骤1: 使用 Epub.js 内置的 'swiped' 事件监听器
-          currentRendition.on('swiped', (direction) => {
-            if (direction === 'left') {
-              // 向左滑动 -> 下一页
+          // [核心修复1]: 拦截并处理iframe内部的链接点击
+          currentRendition.on('rendered', (section) => {
+            const current_document = section.document;
+            const links = current_document.querySelectorAll('a');
+            links.forEach(link => {
+              link.addEventListener('click', (e) => {
+                e.preventDefault(); // 阻止默认的、错误的跳转行为
+                const href = link.getAttribute('href');
+                currentRendition.display(href); // 使用正确的API来跳转
+              });
+            });
+          });
+
+          // [核心修复2]: 启用并处理Epub.js的滑动事件管理器
+          const manager = currentRendition.manager;
+          manager.on('swiped', (e) => {
+            if (e.direction === 'left') {
               currentRendition.next();
             }
-            if (direction === 'right') {
-              // 向右滑动 -> 上一页
+            if (e.direction === 'right') {
               currentRendition.prev();
             }
           });
-          
+
           // --- ^^^^ 修复结束 ^^^^ ---
 
           currentRendition.on('relocated', (loc) => {
             if (book.locations) {
-                const percent = book.locations.percentageFromCfi(loc.start.cfi);
-                setProgress(Math.round(percent * 100));
+              const percent = book.locations.percentageFromCfi(loc.start.cfi);
+              setProgress(Math.round(percent * 100));
             }
           });
           
@@ -89,28 +95,18 @@ function Reader() {
     };
 
     loadBook();
-    
     return () => {
       if (book) book.destroy();
       if (currentRendition) currentRendition.destroy();
     };
   }, [bookId]);
 
-  // [核心修改] 我们不再需要这些外部的翻页函数了，但可以保留给未来的按钮使用
-  const goToNextPage = () => rendition?.next();
-  const goToPrevPage = () => rendition?.prev();
-  
   const onTocClick = (href) => {
     rendition?.display(href);
     setShowToc(false);
   };
 
-  // [核心修改] 移除 useSwipeable hook
-  /* 
-  const swipeHandlers = useSwipeable({ ... });
-  */
-  
-  // 在JSX中，只需要移除 {...swipeHandlers}
+  // JSX部分无需任何修改
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.200' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
@@ -118,8 +114,6 @@ function Reader() {
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{title || '正在加载...'}</Typography>
         <IconButton onClick={() => setShowToc(true)} disabled={toc.length === 0}><MenuIcon /></IconButton>
       </Box>
-
-      {/* [核心修改] 这里的Box不再需要 {...swipeHandlers} */}
       <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }}>
         {isLoading && (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
@@ -129,14 +123,12 @@ function Reader() {
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
         <Box ref={viewerRef} sx={{ position: 'absolute', top: 0, left: 0, height: '100%', width: '100%', visibility: isLoading ? 'hidden' : 'visible' }} />
       </Box>
-
       <Box sx={{ p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: '0 -2px 5px rgba(0,0,0,0.1)' }}>
         <Typography align="center" variant="body2" color="text.secondary">
             {progress}%
         </Typography>
         <LinearProgress variant="determinate" value={progress} />
       </Box>
-      
       <Drawer anchor="right" open={showToc} onClose={() => setShowToc(false)}>
         <Box sx={{ width: 250, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>目录</Typography>
