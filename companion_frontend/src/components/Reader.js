@@ -1,4 +1,4 @@
-// src/components/Reader.js (最终版 - 集成批注与Gemini伴读)
+// src/components/Reader.js (最终修复版 - 补全状态声明)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
@@ -11,11 +11,11 @@ import {
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import HomeIcon from '@mui/icons-material/Home';
-import ChatIcon from '@mui/icons-material/Chat'; // Gemini聊天图标
-import NotesIcon from '@mui/icons-material/Notes'; // 批注列表图标
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'; // Gemini AI图标
-import SendIcon from '@mui/icons-material/Send'; // 发送图标
-import VisibilityIcon from '@mui/icons-material/Visibility'; // “Gem写了什么”图标
+import ChatIcon from '@mui/icons-material/Chat';
+import NotesIcon from '@mui/icons-material/Notes';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import SendIcon from '@mui/icons-material/Send';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 
 // ==========================================================
 // [新增] 聊天窗口组件
@@ -74,14 +74,13 @@ function Reader() {
   const location = useLocation();
   const { title } = location.state || {};
   
+  // --- VVVV  核心状态声明 VVVV ---
   const [rendition, setRendition] = useState(null);
   const [toc, setToc] = useState([]);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const viewerRef = useRef(null);
-
-  // --- VVVV  [新增] 批注和Gemini相关状态 VVVV ---
   const [annotations, setAnnotations] = useState([]);
   const [showAnnotationsPanel, setShowAnnotationsPanel] = useState(false);
   const [showGeminiChat, setShowGeminiChat] = useState(false);
@@ -90,9 +89,11 @@ function Reader() {
   const [selectionMenu, setSelectionMenu] = useState({ open: false, anchorEl: null, text: '', cfiRange: null });
   const [annotationModal, setAnnotationModal] = useState({ open: false, text: '', cfiRange: null });
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
-  // --- ^^^^  新增状态结束 ^^^^ ---
 
-  // 加载书籍和批注的核心逻辑
+  // --- VVVV  [这是本次最核心的修复] 补回被误删的状态 VVVV ---
+  const [showToc, setShowToc] = useState(false);
+  // --- ^^^^  修复结束 ^^^^ ---
+
   useEffect(() => {
     let book;
     let currentRendition;
@@ -111,18 +112,22 @@ function Reader() {
         if (isMounted) { setError("未找到书籍ID"); setIsLoading(false); }
         return;
       }
-
       try {
         if (isMounted) { setIsLoading(true); setError(''); }
 
-        // 步骤1: 同时获取书籍文件和书籍详情（包含批注）
         const [fileResponse, detailsResponse] = await Promise.all([
           axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' }),
           axios.get(`/books/${bookId}`)
         ]);
         if (!isMounted) return;
-
-        setAnnotations(detailsResponse.data.annotations);
+        
+        // 检查返回的数据结构是否正确
+        if (detailsResponse.data && Array.isArray(detailsResponse.data.annotations)) {
+            setAnnotations(detailsResponse.data.annotations);
+        } else {
+            console.warn("收到的批注数据格式不正确", detailsResponse.data);
+            setAnnotations([]);
+        }
 
         book = Epub(fileResponse.data);
         await book.ready;
@@ -137,21 +142,22 @@ function Reader() {
           await currentRendition.display();
           if (!isMounted) return;
 
-          // --- VVVV  [新增] 绑定文本选择事件 VVVV ---
           currentRendition.on('selected', (cfiRange, contents) => {
             const selectedText = contents.window.getSelection().toString().trim();
             if (selectedText) {
               const rect = contents.window.getSelection().getRangeAt(0).getBoundingClientRect();
               const anchor = document.createElement('div');
               anchor.style.position = 'absolute';
-              anchor.style.left = `${rect.left + rect.width / 2}px`;
-              anchor.style.top = `${rect.top - 10}px`;
+              // 计算相对于viewerRef的位置
+              const viewerRect = viewerRef.current.getBoundingClientRect();
+              anchor.style.left = `${rect.left - viewerRect.left + rect.width / 2}px`;
+              anchor.style.top = `${rect.top - viewerRect.top - 10}px`;
+
               viewerRef.current.appendChild(anchor);
               setSelectionMenu({ open: true, anchorEl: anchor, text: selectedText, cfiRange });
             }
           });
-          // --- ^^^^  事件绑定结束 ^^^^ ---
-
+          
           currentRendition.manager.on('swiped', (e) => {
             if (e.direction === 'left') currentRendition.next();
             if (e.direction === 'right') currentRendition.prev();
@@ -182,20 +188,29 @@ function Reader() {
     };
   }, [bookId]);
   
-  // --- VVVV  [新增] 所有交互功能的处理函数 VVVV ---
-
-  // 获取当前页的纯文本内容
-  const getCurrentPageContent = () => {
-    return rendition?.getContents()[0]?.document?.body?.textContent || '';
+  // --- 所有交互功能的处理函数 ---
+  const getCurrentPageContent = async () => {
+      if (!rendition) return '';
+      const location = rendition.currentLocation();
+      if (!location || !location.start) return '';
+      
+      const range = location.start.cfi;
+      const chapter = await rendition.book.getRange(range);
+      
+      if(chapter && chapter.startContainer) {
+          // 尝试获取整个章节的文本内容
+          const chapterNode = chapter.startContainer.ownerDocument.body;
+          return chapterNode.textContent || '';
+      }
+      return '';
   };
 
-  // 处理添加用户批注
   const handleSaveAnnotation = async (note) => {
     try {
       const response = await axios.post(`/books/${bookId}/annotations`, {
         content: note,
         highlighted_text: annotationModal.text,
-        page_number: progress, // 使用进度百分比作为页码代理
+        page_number: progress,
       });
       setAnnotations(prev => [...prev, response.data.annotation]);
       setSnackbar({ open: true, message: '批注已保存' });
@@ -205,12 +220,11 @@ function Reader() {
     setAnnotationModal({ open: false, text: '', cfiRange: null });
   };
   
-  // 处理与Gemini聊天
   const handleSendChatMessage = async (message) => {
     setIsChatSending(true);
     setChatMessages(prev => [...prev, { sender: 'user', text: message }]);
     try {
-      const pageContent = getCurrentPageContent();
+      const pageContent = await getCurrentPageContent();
       const response = await axios.post(`/books/${bookId}/chat`, { message, page_content: pageContent });
       setChatMessages(prev => [...prev, { sender: 'gemini', text: response.data.response }]);
     } catch (err) {
@@ -219,11 +233,10 @@ function Reader() {
     setIsChatSending(false);
   };
   
-  // 处理“Gem写了什么”按钮点击
   const handleGenerateGeminiAnnotation = async () => {
     setSnackbar({ open: true, message: '正在请 Gem 思考...' });
     try {
-      const pageContent = getCurrentPageContent();
+      const pageContent = await getCurrentPageContent();
       const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
         page_content: pageContent,
         page_number: progress,
@@ -235,14 +248,16 @@ function Reader() {
     }
   };
 
-  const onTocClick = (href) => rendition?.display(href);
+  const onTocClick = (href) => { 
+    rendition?.display(href);
+    setShowToc(false); // <--- 这里需要 setShowToc
+  };
+
   const handleCloseSelectionMenu = () => {
     selectionMenu.anchorEl?.remove();
     setSelectionMenu({ open: false, anchorEl: null, text: '', cfiRange: null });
   };
   
-  // --- ^^^^  处理函数结束 ^^^^ ---
-
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.200' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
@@ -279,8 +294,6 @@ function Reader() {
         <Typography align="center" variant="body2" color="text.secondary">{progress}%</Typography>
         <LinearProgress variant="determinate" value={progress} />
       </Box>
-
-      {/* --- VVVV  [新增] 所有悬浮窗口和面板 VVVV --- */}
       
       {/* 文本选择后的弹出菜单 */}
       <Popover open={selectionMenu.open} anchorEl={selectionMenu.anchorEl} onClose={handleCloseSelectionMenu}>
@@ -303,7 +316,7 @@ function Reader() {
             type="text"
             fullWidth
             variant="standard"
-            onKeyDown={(e) => { if(e.key === 'Enter') { handleSaveAnnotation(e.target.value); } }}
+            onKeyDown={(e) => { if(e.key === 'Enter' && e.target.value) { handleSaveAnnotation(e.target.value); } }}
           />
         </Box>
       </Drawer>
@@ -313,7 +326,7 @@ function Reader() {
         <Box sx={{ width: {xs: '80vw', sm: 350}, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>所有批注</Typography>
           <List>
-            {annotations.map((anno) => (
+            {annotations && annotations.length > 0 ? annotations.map((anno) => (
               <React.Fragment key={anno.id}>
                 <ListItem alignItems="flex-start">
                   <ListItemAvatar>
@@ -328,14 +341,25 @@ function Reader() {
                 </ListItem>
                 <Divider variant="inset" component="li" />
               </React.Fragment>
-            ))}
+            )) : <Typography sx={{p: 2, color: 'text.secondary'}}>还没有任何批注</Typography>}
           </List>
         </Box>
       </Drawer>
 
       {/* 目录面板 */}
-      <Drawer anchor="right" open={toc.length > 0 && showToc} onClose={() => setShowToc(false)}>
-        {/* ...目录代码保持不变... */}
+      <Drawer anchor="right" open={showToc} onClose={() => setShowToc(false)}>
+        <Box sx={{ width: 250, p: 2 }}>
+          <Typography variant="h6" sx={{mb: 2}}>目录</Typography>
+          <List>
+            {toc.map((item, index) => (
+              <ListItem key={index} disablePadding>
+                <ListItemButton onClick={() => onTocClick(item.href)}>
+                  <ListItemText primary={item.label.trim()} />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        </Box>
       </Drawer>
       
       {/* Gemini聊天悬浮按钮和窗口 */}
@@ -351,8 +375,6 @@ function Reader() {
       />
       
       <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar({ ...snackbar, open: false })} message={snackbar.message} />
-
-      {/* --- ^^^^  新增UI结束 ^^^^ --- */}
     </Box>
   );
 }
