@@ -1,6 +1,6 @@
-// src/components/Reader.js (最终修复版 - 修正语法错误和逻辑)
+// src/components/Reader.js (终极修复版 - 透明按钮点击翻页)
 
-import React, { useState, useEffect, useRef } from 'react'; // <--- 修复了此处的语法错误
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
 import axios from 'axios';
@@ -28,6 +28,21 @@ function Reader() {
     let book;
     let currentRendition;
     let isMounted = true; 
+
+    // --- VVVV  新增功能：键盘监听 VVVV ---
+    const handleKeyPress = (event) => {
+      if (currentRendition) {
+        if (event.key === 'ArrowRight') {
+          currentRendition.next();
+        }
+        if (event.key === 'ArrowLeft') {
+          currentRendition.prev();
+        }
+      }
+    };
+    // 绑定到全局 window，确保任何时候都能监听到
+    window.addEventListener('keydown', handleKeyPress);
+    // --- ^^^^ 新增功能结束 ^^^^ ---
 
     const loadBook = async () => {
       if (!bookId) {
@@ -58,21 +73,9 @@ function Reader() {
             width: '100%', height: '100%', flow: "paginated", spread: "auto",
           });
 
-          // 步骤 1: 必须先调用 display() 来创建 iframe 和管理器
           await currentRendition.display();
           if (!isMounted) return;
-
-          // 步骤 2: 在 display 完成后，manager 才存在，此时才能安全地绑定事件
-          currentRendition.manager.on('swiped', (e) => {
-            if (e.direction === 'left') currentRendition.next();
-            if (e.direction === 'right') currentRendition.prev();
-          });
-
-          currentRendition.on('keyup', (event) => {
-            if (event.key === 'ArrowRight') currentRendition.next();
-            if (event.key === 'ArrowLeft') currentRendition.prev();
-          });
-
+          
           currentRendition.on('relocated', (loc) => {
             if (isMounted && book.locations) {
               const percent = book.locations.percentageFromCfi(loc.start.cfi);
@@ -99,6 +102,8 @@ function Reader() {
     
     return () => {
       isMounted = false;
+      // 在组件卸载时，必须移除全局监听器
+      window.removeEventListener('keydown', handleKeyPress);
       if (currentRendition) currentRendition.destroy();
       if (book) book.destroy();
     };
@@ -124,7 +129,42 @@ function Reader() {
           </Box>
         )}
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
+        
+        {/* 这是书籍内容的渲染区域 */}
         <Box ref={viewerRef} sx={{ position: 'absolute', top: 0, left: 0, height: '100%', width: '100%', visibility: isLoading ? 'hidden' : 'visible' }} />
+
+        {/* --- VVVV  这是本次最核心的修复 VVVV --- */}
+        {!isLoading && !error && (
+          <>
+            {/* 左侧透明翻页按钮 (上一页) */}
+            <Box 
+              onClick={() => rendition?.prev()}
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '50%',
+                height: '100%',
+                zIndex: 1, // 确保在最上层
+                cursor: 'pointer'
+              }}
+            />
+            {/* 右侧透明翻页按钮 (下一页) */}
+            <Box 
+              onClick={() => rendition?.next()}
+              sx={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                width: '50%',
+                height: '100%',
+                zIndex: 1, // 确保在最上层
+                cursor: 'pointer'
+              }}
+            />
+          </>
+        )}
+        {/* --- ^^^^ 修复结束 ^^^^ --- */}
       </Box>
 
       <Box sx={{ p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: '0 -2px 5px rgba(0,0,0,0.1)' }}>
