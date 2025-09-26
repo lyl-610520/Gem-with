@@ -1385,49 +1385,6 @@ def save_game_score():
 def health_check():
     """健康检查"""
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
-# companion_backend/app.py
-
-# ==========================================================
-# [临时手术刀] - 用来为Annotation表添加cfi字段，用完就删！
-# ==========================================================
-@app.route('/api/database/add-cfi-column-to-annotations', methods=['GET'])
-def add_cfi_column():
-    """
-    一个临时的、安全的API，仅用于为现有的Annotation表添加新的'cfi'列。
-    它不会删除任何数据。
-    """
-    try:
-        print("⚠️ [微创手术] 收到 Annotation 表升级请求！")
-        with app.app_context():
-            # 我们将直接执行SQL命令，这是最安全、最精确的方式
-            # 1. 先添加列，并允许它暂时为空 (NULL)
-            db.session.execute('ALTER TABLE annotation ADD COLUMN cfi VARCHAR(255)')
-            print("✅ 成功为 annotation 表添加 'cfi' 列。")
-
-            # 2. 为所有已存在的、没有cfi的批注填充一个默认值
-            #    这样可以确保它们符合未来“不能为空”的规则
-            db.session.execute("UPDATE annotation SET cfi = 'legacy-annotation' WHERE cfi IS NULL")
-            print("✅ 已为所有旧批注填充了默认的 cfi 值。")
-            
-            # 提交我们的更改
-            db.session.commit()
-        
-        return jsonify({'success': True, 'message': 'Annotation table upgraded successfully. All data preserved.'})
-
-    except Exception as e:
-        # 如果列已经存在，它会报错，这是正常的，我们可以捕捉这个错误
-        if "already exists" in str(e).lower():
-            message = "列 'cfi' 已经存在，无需再次添加。操作被安全地跳过。"
-            print(f"✅ [微创手术] {message}")
-            return jsonify({'success': True, 'message': message})
-            
-        import traceback
-        error_message = f"执行升级时发生错误: {e}"
-        print(f"❌ [手术失败] {error_message}")
-        return jsonify({'error': error_message, 'traceback': traceback.format_exc()}), 500
-# ==========================================================
-# ... (您已有的其他代码) ...
-
 
 
 # ==========================================================
