@@ -1,4 +1,4 @@
-// src/components/Reader.js (终极决定版 - 彻底修复交互与状态)
+// src/components/Reader.js (终极决定版 - 修复所有已知错误)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
@@ -58,7 +58,7 @@ function Reader() {
   const { title } = location.state || {};
   
   const [rendition, setRendition] = useState(null);
-  const [book, setBook] = useState(null); // <--- [核心升级] 将book实例存入state
+  const [book, setBook] = useState(null);
   const [toc, setToc] = useState([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -79,7 +79,6 @@ function Reader() {
     let currentRendition;
     let isMounted = true; 
 
-    // --- [核心升级] 恢复键盘翻页功能 ---
     const handleKeyPress = (event) => {
         if (document.activeElement.tagName.toLowerCase() === 'input' || document.activeElement.tagName.toLowerCase() === 'textarea') { return; }
         if (currentRendition) {
@@ -138,15 +137,17 @@ function Reader() {
             }
           });
 
-          currentRendition.on('relocated', (location) => {
+          // --- VVVV [这是本次最核心的修复] 将 "location" 重命名为 "loc" VVVV ---
+          currentRendition.on('relocated', (loc) => {
             if (isMounted && currentBook.locations) {
-              const cfi = location.start.cfi;
+              const cfi = loc.start.cfi;
               const page = currentBook.locations.pageFromCfi(cfi);
               const percent = currentBook.locations.percentageFromCfi(cfi);
               setBookLocation({ currentPage: page, totalPages: currentBook.locations.length(), progress: Math.round(percent * 100) });
               localStorage.setItem(`book-progress-${bookId}`, cfi);
             }
           });
+          // --- ^^^^ 修复结束 ^^^^ ---
 
           if (isMounted) { setToc(currentBook.navigation.toc); setIsLoading(false); }
         }
@@ -166,13 +167,11 @@ function Reader() {
     };
   }, [bookId]);
   
-  // --- [核心修复] 目录跳转的处理函数 ---
   const onTocClick = async (href) => { 
     if (!rendition || !book) return;
     try {
       await rendition.display(href);
       setShowToc(false);
-      // 手动更新位置
       const currentLocation = rendition.currentLocation();
       if (currentLocation && currentLocation.start) {
         const cfi = currentLocation.start.cfi;
@@ -216,7 +215,7 @@ function Reader() {
   };
 
   const handleJumpToAnnotation = (cfi) => {
-    onTocClick(cfi); // 复用目录跳转的逻辑来确保页码更新
+    onTocClick(cfi);
     setShowAnnotationsPanel(false);
   };
 
@@ -241,7 +240,6 @@ function Reader() {
         </Box>
       </Box>
 
-      {/* --- [核心修复] 翻页与选择的终极方案 --- */}
       <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }}>
         {isLoading && <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress /></Box>}
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
@@ -274,7 +272,7 @@ function Reader() {
       
       <Drawer anchor="bottom" open={annotationModal.open} onClose={() => setAnnotationModal({ open: false, text: '', cfiRange: '' })}>
         <Box p={2}>
-          <Typography variant="h6" noWrap>为 “{annotationModal.text}” 添加批注</Typography>
+          <Typography variant="h6" noWrap>为 “{selectionMenu.text}” 添加批注</Typography>
           <TextField
             autoFocus margin="dense" label="你的想法..." type="text" fullWidth variant="standard"
             onKeyDown={(e) => { if(e.key === 'Enter' && e.target.value) { handleSaveAnnotation(e.target.value); } }}
