@@ -1386,7 +1386,56 @@ def health_check():
     """健康检查"""
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
+# ... 您的 app.py 文件里所有已有的代码 ...
 
+
+# ==========================================================
+# [临时最终核武器] - 用来升级到EPUB架构，用完就删！！！
+# ==========================================================
+@app.route('/api/database/upgrade-to-epub-arch-v2', methods=['GET'])
+def upgrade_to_epub_arch():
+    """
+    一个临时的API，用于删除旧的book/annotation表，并按照最新的EPUB模型重建。
+    """
+    try:
+        print("⚠️ [最终核武器] 收到 EPUB 架构升级请求！")
+        with app.app_context():
+            # 我们先删除依赖别人的 "annotation" 表
+            Annotation.__table__.drop(db.engine, checkfirst=True)
+            print("✅ 旧的 annotation 表已成功删除。")
+            
+            # 现在可以安全地删除 "book" 表了
+            Book.__table__.drop(db.engine, checkfirst=True)
+            print("✅ 旧的 book 表已成功删除。")
+            
+            # 现在，按照正确的顺序重建它们
+            Book.__table__.create(db.engine)
+            print("✅ 全新的 EPUB 版 book 表已成功创建！")
+            Annotation.__table__.create(db.engine)
+            print("✅ 全新的 EPUB 版 annotation 表已成功创建！")
+        
+        # [新增] 清理掉 uploads 文件夹里的所有旧书
+        upload_folder = app.config['UPLOAD_FOLDER']
+        if os.path.exists(upload_folder): # 增加一个存在性检查
+            for filename in os.listdir(upload_folder):
+                file_path = os.path.join(upload_folder, filename)
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+            print(f"✅ 已清空 '{upload_folder}' 文件夹。")
+
+        return jsonify({'success': True, 'message': 'Database schema upgraded to EPUB architecture successfully.'})
+
+    except Exception as e:
+        import traceback
+        error_message = f"执行升级时发生错误: {e}"
+        print(f"❌ [核武器] {error_message}")
+        return jsonify({'error': error_message, 'traceback': traceback.format_exc()}), 500
+# ==========================================================
+
+
+if __name__ == '__main__':
+    app.run(debug=True)
+    
 # ==========================================================
 # [新增] 定时任务的“秘密开关” (Cron Job "Secret Switch")
 # ==========================================================
