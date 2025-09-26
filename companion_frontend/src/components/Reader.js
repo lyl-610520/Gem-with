@@ -38,7 +38,7 @@ function Reader() {
       setError('');
       
       // [核心改造] 直接构建指向我们新API的文件URL
-      const bookUrl = `/books/${bookId}/file`;
+      const bookUrl = `/api/books/${bookId}/file`;
 
       // [核心改造] Epub.js 直接加载这个URL，它会像浏览器一样去下载文件
       book = Epub(bookUrl);
