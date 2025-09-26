@@ -1,9 +1,10 @@
-// src/components/Reader.js (最终、正确的异步逻辑修复版)
+// src/components/Reader.js (最终功能完整版 - 修复翻页)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
-import { useSwipeable } from 'react-swipeable';
+// [核心修改] 我们不再需要 useSwipeable 了
+// import { useSwipeable } from 'react-swipeable'; 
 import axios from 'axios';
 import {
   Box, IconButton, Typography, CircularProgress, LinearProgress, Drawer,
@@ -40,27 +41,34 @@ function Reader() {
         setIsLoading(true);
         setError('');
 
-        // 步骤 1: 成功下载书籍文件 (这部分已经验证是正确的)
         const response = await axios.get(`/books/${bookId}/file`, {
           responseType: 'arraybuffer',
         });
 
         book = Epub(response.data);
-
-        // --- VVVV  这是本次最核心的修复 VVVV ---
-
-        // 步骤 2: 【强制等待】书本元数据和所有资源解析完成
-        // book.ready 是一个Promise，必须await它！
         await book.ready;
 
-        // --- ^^^^ 修复结束 ^^^^ ---
-
         if (viewerRef.current) {
-          // 步骤 3: 在书本完全准备好之后，才开始渲染
           currentRendition = book.renderTo(viewerRef.current, {
             width: '100%', height: '100%', flow: "paginated", spread: "auto",
           });
-          setRendition(currentRendition); // 先设置到state，翻页才能用
+          setRendition(currentRendition);
+
+          // --- VVVV  这是本次最核心的修复 VVVV ---
+
+          // 步骤1: 使用 Epub.js 内置的 'swiped' 事件监听器
+          currentRendition.on('swiped', (direction) => {
+            if (direction === 'left') {
+              // 向左滑动 -> 下一页
+              currentRendition.next();
+            }
+            if (direction === 'right') {
+              // 向右滑动 -> 上一页
+              currentRendition.prev();
+            }
+          });
+          
+          // --- ^^^^ 修复结束 ^^^^ ---
 
           currentRendition.on('relocated', (loc) => {
             if (book.locations) {
@@ -70,11 +78,7 @@ function Reader() {
           });
           
           setToc(book.navigation.toc);
-          
-          // 步骤 4: 显示第一页
           await currentRendition.display();
-
-          // 步骤 5: 在一切都成功显示后，才关闭加载动画
           setIsLoading(false);
         }
       } catch (err) {
@@ -87,15 +91,12 @@ function Reader() {
     loadBook();
     
     return () => {
-      if (book) {
-        book.destroy();
-      }
-      if (currentRendition) {
-        currentRendition.destroy();
-      }
+      if (book) book.destroy();
+      if (currentRendition) currentRendition.destroy();
     };
   }, [bookId]);
 
+  // [核心修改] 我们不再需要这些外部的翻页函数了，但可以保留给未来的按钮使用
   const goToNextPage = () => rendition?.next();
   const goToPrevPage = () => rendition?.prev();
   
@@ -104,14 +105,12 @@ function Reader() {
     setShowToc(false);
   };
 
-  const swipeHandlers = useSwipeable({
-    onSwipedLeft: goToNextPage,
-    onSwipedRight: goToPrevPage,
-    preventScrollOnSwipe: true,
-    trackMouse: true,
-  });
+  // [核心修改] 移除 useSwipeable hook
+  /* 
+  const swipeHandlers = useSwipeable({ ... });
+  */
   
-  // JSX部分保持不变
+  // 在JSX中，只需要移除 {...swipeHandlers}
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.200' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
@@ -120,7 +119,8 @@ function Reader() {
         <IconButton onClick={() => setShowToc(true)} disabled={toc.length === 0}><MenuIcon /></IconButton>
       </Box>
 
-      <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }} {...swipeHandlers}>
+      {/* [核心修改] 这里的Box不再需要 {...swipeHandlers} */}
+      <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }}>
         {isLoading && (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
                 <CircularProgress />
