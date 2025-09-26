@@ -1,6 +1,6 @@
-// src/components/Reader.js (最终修复版 - 修正事件监听时机)
+// src/components/Reader.js (最终修复版 - 修正语法错误和逻辑)
 
-import React, 'react';
+import React, { useState, useEffect, useRef } from 'react'; // <--- 修复了此处的语法错误
 import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
 import axios from 'axios';
@@ -16,16 +16,15 @@ function Reader() {
   const location = useLocation();
   const { title } = location.state || {};
   
-  // 使用 React.useState 和 React.useRef 来避免命名冲突
-  const [rendition, setRendition] = React.useState(null);
-  const [toc, setToc] = React.useState([]);
-  const [progress, setProgress] = React.useState(0);
-  const [showToc, setShowToc] = React.useState(false);
-  const [error, setError] = React.useState('');
-  const [isLoading, setIsLoading] = React.useState(true);
-  const viewerRef = React.useRef(null);
+  const [rendition, setRendition] = useState(null);
+  const [toc, setToc] = useState([]);
+  const [progress, setProgress] = useState(0);
+  const [showToc, setShowToc] = useState(false);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const viewerRef = useRef(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let book;
     let currentRendition;
     let isMounted = true; 
@@ -59,13 +58,11 @@ function Reader() {
             width: '100%', height: '100%', flow: "paginated", spread: "auto",
           });
 
-          // --- VVVV  这是本次最核心的修复 VVVV ---
-
-          // 步骤 1: 【先施工】必须先调用 display() 来创建 iframe 和管理器
+          // 步骤 1: 必须先调用 display() 来创建 iframe 和管理器
           await currentRendition.display();
           if (!isMounted) return;
 
-          // 步骤 2: 【后装修】在 display 完成后，manager 才存在，此时才能安全地绑定事件
+          // 步骤 2: 在 display 完成后，manager 才存在，此时才能安全地绑定事件
           currentRendition.manager.on('swiped', (e) => {
             if (e.direction === 'left') currentRendition.next();
             if (e.direction === 'right') currentRendition.prev();
@@ -75,8 +72,6 @@ function Reader() {
             if (event.key === 'ArrowRight') currentRendition.next();
             if (event.key === 'ArrowLeft') currentRendition.prev();
           });
-
-          // --- ^^^^ 修复结束 ^^^^ ---
 
           currentRendition.on('relocated', (loc) => {
             if (isMounted && book.locations) {
