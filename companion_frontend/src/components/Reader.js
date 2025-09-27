@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, Link, useParams } from 'react-router-dom';
 import Epub from 'epubjs';
 import axios from 'axios';
 import {
   Box, IconButton, Typography, CircularProgress, LinearProgress, Drawer,
-  List, ListItem, ListItemText, Alert, Fab, Button, TextField,
-  Paper, InputBase, Avatar, Tooltip, Snackbar, ListItemAvatar, Divider,
+  List, ListItem, ListItemText, Alert, Fab, Popover, Button, TextField,
+  Paper, InputBase, Avatar, Tooltip, Snackbar, ListItemAvatar,
   ListItemButton
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -17,6 +17,7 @@ import SendIcon from '@mui/icons-material/Send';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
+import CreateIcon from '@mui/icons-material/Create'; // [新] 引入画笔图标
 
 // GeminiChat 组件 (保持不变)
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
@@ -65,16 +66,38 @@ function Reader() {
   const [annotations, setAnnotations] = useState([]);
   const [showAnnotationsPanel, setShowAnnotationsPanel] = useState(false);
   const [showToc, setShowToc] = useState(false);
-  
-  // [修改 1/5] 简化 state，不再需要 Popover 的 anchorEl，并用一个 state 同时服务于移动端和桌面端
-  const [selectionInfo, setSelectionInfo] = useState({ text: '', cfiRange: '' });
-  const [annotationModal, setAnnotationModal] = useState({ open: false });
-
+  const [annotationModal, setAnnotationModal] = useState({ open: false, text: '', cfiRange: '' });
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
   const [showGeminiChat, setShowGeminiChat] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [isChatSending, setIsChatSending] = useState(false);
   const [bookLocation, setBookLocation] = useState({ currentPage: 1, totalPages: 1, progress: 0 });
+
+  // --- VVVV [新功能] 用于“两点式”批注的状态 VVVV ---
+  const [isAnnotationMode, setIsAnnotationMode] = useState(false);
+  const [startCfi, setStartCfi] = useState(null);
+  const [tempAnnotation, setTempAnnotation] = useState({text: '', cfiRange: ''});
+  // --- ^^^^ 新状态结束 ^^^^ ---
+
+
+  // --- VVVV [页码修复] 创建一个稳定可靠的位置更新函数 VVVV ---
+  const updateLocation = useCallback((renditionToUpdate, bookToUpdate) => {
+    const activeRendition = renditionToUpdate || rendition;
+    const activeBook = bookToUpdate || book;
+    if (!activeRendition || !activeBook || !activeBook.locations || activeBook.locations.length() === 0) {
+      return;
+    }
+    const currentLocation = activeRendition.currentLocation();
+    if (currentLocation && currentLocation.start) {
+      const cfi = currentLocation.start.cfi;
+      const page = activeBook.locations.pageFromCfi(cfi);
+      const percent = activeBook.locations.percentageFromCfi(cfi);
+      setBookLocation({ currentPage: page, totalPages: activeBook.locations.length(), progress: Math.round(percent * 100) });
+      localStorage.setItem(`book-progress-${bookId}`, cfi);
+    }
+  }, [book, rendition, bookId]);
+  // --- ^^^^ 页码修复函数结束 ^^^^ ---
+
 
   useEffect(() => {
     let currentBook;
@@ -84,11 +107,51 @@ function Reader() {
     const handleKeyPress = (event) => {
         if (document.activeElement.tagName.toLowerCase() === 'input' || document.activeElement.tagName.toLowerCase() === 'textarea') { return; }
         if (currentRendition) {
-            if (event.key === 'ArrowRight') currentRendition.next();
-            if (event.key === 'ArrowLeft') currentRendition.prev();
+            if (event.key === 'ArrowRight') { currentRendition.next().then(() => updateLocation(currentRendition, currentBook)); }
+            if (event.key === 'ArrowLeft') { currentRendition.prev().then(() => updateLocation(currentRendition, currentBook)); }
         }
     };
     window.addEventListener('keydown', handleKeyPress);
+
+    // --- VVVV [新功能] 处理iframe内部点击事件的核心逻辑 VVVV ---
+    const handleIframeClick = async (event) => {
+      if (!isAnnotationMode || !currentRendition || !currentBook) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      const iframe = viewerRef.current.querySelector('iframe');
+      if (!iframe) return;
+      const rect = iframe.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+
+      const range = currentRendition.getRange(currentRendition.cfiFromPoint(x, y));
+      const cfi = (await range).cfi;
+
+      if (!startCfi) {
+        setStartCfi(cfi);
+        setSnackbar({ open: true, message: '起点已选择，请点击终点' });
+      } else {
+        try {
+          const fullCfiRange = new Epub.Range(startCfi, cfi).toString();
+          const text = await currentBook.getRange(fullCfiRange).then(r => r.toString());
+          
+          if (text.trim()) {
+            setTempAnnotation({ text: text, cfiRange: fullCfiRange });
+            setAnnotationModal({ open: true });
+          } else {
+            setSnackbar({ open: true, message: '选择无效，请重试' });
+          }
+        } catch(e) {
+            console.error("生成批注范围失败:", e);
+            setSnackbar({ open: true, message: '选择范围无效，请确保终点在起点之后' });
+        } finally {
+            setStartCfi(null);
+            setIsAnnotationMode(false);
+        }
+      }
+    };
+    // --- ^^^^ 新功能核心逻辑结束 ^^^^ ---
 
     const loadBook = async () => {
       if (!bookId) {
@@ -110,52 +173,34 @@ function Reader() {
         setBook(currentBook);
         
         await currentBook.ready;
-
-        // [核心修复] 确保 locations 生成完毕后才进行后续操作，这是解决页码问题的关键
-        console.log("开始生成书籍定位点 (locations)...");
         await currentBook.locations.generate(1600);
-        console.log(`定位点生成完毕，共 ${currentBook.locations.length()} 页。`);
-
         if (isMounted) {
-          // 现在可以安全地更新总页数了
           setBookLocation(prev => ({ ...prev, totalPages: currentBook.locations.length() }));
         }
 
         if (viewerRef.current) {
           currentRendition = currentBook.renderTo(viewerRef.current, { width: '100%', height: '100%' });
-          if (isMounted) setRendition(currentRendition);
-
-          // [核心修复] 将 relocated 事件监听放在这里，确保 book.locations 可用
-          currentRendition.on('relocated', (loc) => {
-            if (isMounted && currentBook && currentBook.locations) {
-              const cfi = loc.start.cfi;
-              // 此时 pageFromCfi 和 percentageFromCfi 才能正常工作
-              const page = currentBook.locations.pageFromCfi(cfi);
-              const percent = currentBook.locations.percentageFromCfi(cfi);
-              setBookLocation({ currentPage: page, totalPages: currentBook.locations.length(), progress: Math.round(percent * 100) });
-              localStorage.setItem(`book-progress-${bookId}`, cfi);
-            }
-          });
-
           const savedCfi = localStorage.getItem(`book-progress-${bookId}`);
           await currentRendition.display(savedCfi || undefined);
+          if (isMounted) setRendition(currentRendition);
 
           loadedAnnotations.forEach(anno => {
             currentRendition.annotations.add("highlight", anno.cfi, { id: anno.id }, () => {}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
           });
 
-          // [修改 2/5] 优化 selected 事件处理，解决移动端批注问题
-          currentRendition.on('selected', (cfiRange, contents) => {
-            const selectedText = contents.window.getSelection().toString().trim();
-            
-            // 增加健壮性检查，确保 cfiRange 有效，这是修复保存失败的关键
-            if (selectedText && cfiRange) {
-              // 不再使用 Popover，直接准备打开底部抽屉
-              setSelectionInfo({ text: selectedText, cfiRange: cfiRange });
-              setAnnotationModal({ open: true });
-            } else {
-              console.warn("选区事件触发，但未能获取有效的 cfiRange 或文本。");
-            }
+          // --- [已废弃] 旧的文本选择方式，在移动端不可靠 ---
+          // currentRendition.on('selected', (cfiRange, contents) => { ... });
+
+          // --- [页码修复] 使用更可靠的方式更新位置 ---
+          currentRendition.on('relocated', () => updateLocation(currentRendition, currentBook));
+          updateLocation(currentRendition, currentBook); // 初始化首次加载的位置
+
+          // --- [新功能] 为iframe添加点击监听器 ---
+          currentRendition.on('displayed', () => {
+              const iframeDoc = currentRendition.getContents()[0].document;
+              if (iframeDoc) {
+                  iframeDoc.addEventListener('click', handleIframeClick);
+              }
           });
 
           if (isMounted) { setToc(currentBook.navigation.toc); setIsLoading(false); }
@@ -171,29 +216,32 @@ function Reader() {
     return () => { 
         isMounted = false; 
         window.removeEventListener('keydown', handleKeyPress);
+        // --- [新功能] 清理iframe的事件监听 ---
+        if (currentRendition && currentRendition.getContents) {
+          const iframeDoc = currentRendition.getContents()[0]?.document;
+          if (iframeDoc) {
+            iframeDoc.removeEventListener('click', handleIframeClick);
+          }
+        }
         if (currentRendition) currentRendition.destroy(); 
         if (currentBook) currentBook.destroy(); 
     };
-  }, [bookId]);
-  
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookId]); // 依赖项已简化，updateLocation被useCallback包裹
+
   const onTocClick = async (href) => { 
-    if (!rendition || !book) return;
-    try {
-      await rendition.display(href);
-      setShowToc(false);
-      // 'relocated' 事件会自动处理后续的页码更新，这里无需手动设置
-    } catch (err) {
-      console.error("目录跳转失败:", err);
-    }
+    if (!rendition) return;
+    await rendition.display(href);
+    setShowToc(false);
+    updateLocation(); // [页码修复] 跳转后主动更新位置
   };
 
-  // [修改 3/5] 更新函数签名，直接接收所需参数
-  const handleSaveAnnotation = async (note, highlightedText, cfi) => {
+  const handleSaveAnnotation = async (note) => {
     try {
       const response = await axios.post(`/books/${bookId}/annotations`, {
         content: note, 
-        highlighted_text: highlightedText, 
-        cfi: cfi,
+        highlighted_text: tempAnnotation.text, 
+        cfi: tempAnnotation.cfiRange,
         page_number: bookLocation.currentPage,
       });
       const newAnno = response.data.annotation;
@@ -201,18 +249,19 @@ function Reader() {
       rendition.annotations.add("highlight", newAnno.cfi, { id: newAnno.id }, ()=>{}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
       setSnackbar({ open: true, message: '批注已保存' });
     } catch (err) {
-      console.error("保存批注失败:", err.response ? err.response.data : err);
-      setSnackbar({ open: true, message: '保存失败，请重试' });
+      setSnackbar({ open: true, message: '保存失败' });
     }
     setAnnotationModal({ open: false });
-    setSelectionInfo({ text: '', cfiRange: '' }); // 清理
+    setTempAnnotation({ text: '', cfiRange: ''});
   };
   
   const handleDeleteAnnotation = async (annotationId) => {
     try {
       await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
       const annoToRemove = annotations.find(a => a.id === annotationId);
-      if (annoToRemove) rendition.annotations.remove(annoToRemove.cfi, "highlight");
+      if (annoToRemove && annoToRemove.cfi) { // 确保有CFI才移除高亮
+         rendition.annotations.remove(annoToRemove.cfi, "highlight");
+      }
       setAnnotations(prev => prev.filter(a => a.id !== annotationId));
       setSnackbar({ open: true, message: '批注已删除' });
     } catch (err) {
@@ -225,9 +274,21 @@ function Reader() {
     setShowAnnotationsPanel(false);
   };
   
-  // (handleGenerateGeminiAnnotation 和 handleSendChatMessage 保持不变)
   const handleGenerateGeminiAnnotation = async () => {};
   const handleSendChatMessage = async (message) => {};
+
+  // --- VVVV [新功能] 切换批注模式的函数 VVVV ---
+  const toggleAnnotationMode = () => {
+    const newMode = !isAnnotationMode;
+    setIsAnnotationMode(newMode);
+    setStartCfi(null); // 每次切换都重置
+    if (newMode) {
+      setSnackbar({ open: true, message: '批注模式已开启，请点击内容起点' });
+    } else {
+      setSnackbar({ open: true, message: '批注模式已关闭' });
+    }
+  };
+  // --- ^^^^ 新功能函数结束 ^^^^ ---
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
@@ -235,6 +296,13 @@ function Reader() {
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{title || '...'}</Typography>
         <Box>
+          {/* --- VVVV [新功能] 新增的批注模式按钮 VVVV --- */}
+          <Tooltip title="两点法添加批注">
+            <IconButton onClick={toggleAnnotationMode} color={isAnnotationMode ? "primary" : "default"}>
+              <CreateIcon />
+            </IconButton>
+          </Tooltip>
+          {/* --- ^^^^ 新功能按钮结束 ^^^^ --- */}
           <Tooltip title="Gem写了什么"><IconButton onClick={handleGenerateGeminiAnnotation}><VisibilityIcon /></IconButton></Tooltip>
           <Tooltip title="批注列表"><IconButton onClick={() => setShowAnnotationsPanel(true)}><NotesIcon /></IconButton></Tooltip>
           <Tooltip title="目录"><IconButton onClick={() => setShowToc(true)} disabled={!toc || toc.length === 0}><MenuIcon /></IconButton></Tooltip>
@@ -245,12 +313,12 @@ function Reader() {
         {isLoading && <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress /></Box>}
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
         
-        <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading ? 'hidden' : 'visible' }} />
+        <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading ? 'hidden' : 'visible', cursor: isAnnotationMode ? 'crosshair' : 'default' }} />
         
-        {!isLoading && !error && (
+        {!isLoading && !error && !isAnnotationMode && (
           <>
-            <Box onClick={() => rendition?.prev()} sx={{ position: 'absolute', top: 0, left: 0, width: '30%', height: '100%', zIndex: 1, cursor: 'pointer' }} />
-            <Box onClick={() => rendition?.next()} sx={{ position: 'absolute', top: 0, right: 0, width: '30%', height: '100%', zIndex: 1, cursor: 'pointer' }} />
+            <Box onClick={() => { if(rendition) rendition.prev().then(updateLocation); }} sx={{ position: 'absolute', top: 0, left: 0, width: '30%', height: '100%', zIndex: 1 }} />
+            <Box onClick={() => { if(rendition) rendition.next().then(updateLocation); }} sx={{ position: 'absolute', top: 0, right: 0, width: '30%', height: '100%', zIndex: 1 }} />
           </>
         )}
       </Box>
@@ -262,34 +330,24 @@ function Reader() {
         <LinearProgress variant="determinate" value={bookLocation.progress} />
       </Box>
       
-      {/* [修改 4/5] 移除 Popover 组件，不再需要它 */}
+      {/* --- [已废弃] 旧的Popover选择菜单，不再需要 --- */}
+      {/* <Popover open={selectionMenu.open} ... /> */}
       
-      {/* [修改 5/5] 修改 Drawer 组件，使其更健壮 */}
       <Drawer anchor="bottom" open={annotationModal.open} onClose={() => setAnnotationModal({ open: false })}>
-        <Box p={2} sx={{maxWidth: '600px', mx: 'auto'}}>
+        <Box p={2}>
           <Typography variant="h6" sx={{
-              display: "-webkit-box",
-              WebkitBoxOrient: "vertical",
-              WebkitLineClamp: 2,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              mb: 1
-            }}>
-            为 “{selectionInfo.text}” 添加批注
+            maxHeight: '3em',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical'
+          }}>
+            为 “{tempAnnotation.text}” 添加批注
           </Typography>
           <TextField
-            autoFocus
-            margin="dense"
-            label="你的想法..."
-            type="text"
-            fullWidth
-            variant="standard"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && e.target.value.trim()) {
-                e.preventDefault(); // 防止回车换行
-                handleSaveAnnotation(e.target.value.trim(), selectionInfo.text, selectionInfo.cfiRange);
-              }
-            }}
+            autoFocus margin="dense" label="你的想法..." type="text" fullWidth variant="standard"
+            onKeyDown={(e) => { if(e.key === 'Enter' && e.target.value) { handleSaveAnnotation(e.target.value); } }}
           />
         </Box>
       </Drawer>
@@ -299,33 +357,29 @@ function Reader() {
           <Typography variant="h6" sx={{mb: 2}}>所有批注</Typography>
           <List>
             {annotations && annotations.length > 0 ? annotations.map((anno) => (
-              <React.Fragment key={anno.id}>
-                <ListItem 
-                  secondaryAction={
-                    <IconButton edge="end" aria-label="delete" onClick={(e) => { e.stopPropagation(); handleDeleteAnnotation(anno.id); }}>
-                      <DeleteIcon />
-                    </IconButton>
-                  }
-                  disablePadding
-                >
-                  <ListItemButton onClick={() => handleJumpToAnnotation(anno.cfi)}>
-                    <ListItemText
-                      primaryTypographyProps={{style: {fontWeight: 500}}}
-                      secondaryTypographyProps={{style: { whiteSpace: 'pre-wrap'}}}
-                      primary={anno.highlighted_text}
-                      secondary={anno.content}
-                    />
-                  </ListItemButton>
-                </ListItem>
-                <Divider />
-              </React.Fragment>
+              <ListItem 
+                key={anno.id}
+                secondaryAction={
+                  <IconButton edge="end" aria-label="delete" onClick={(e) => { e.stopPropagation(); handleDeleteAnnotation(anno.id); }}>
+                    <DeleteIcon />
+                  </IconButton>
+                }
+                disablePadding
+              >
+                <ListItemButton onClick={() => anno.cfi && handleJumpToAnnotation(anno.cfi)}>
+                  <ListItemText
+                    primary={anno.highlighted_text}
+                    secondary={anno.content}
+                  />
+                </ListItemButton>
+              </ListItem>
             )) : <Typography sx={{p: 2, color: 'text.secondary'}}>还没有任何批注</Typography>}
           </List>
         </Box>
       </Drawer>
 
       <Drawer anchor="right" open={showToc} onClose={() => setShowToc(false)}>
-        <Box sx={{ width: 250, p: 2 }}>
+        <Box sx={{ width: {xs: '90vw', sm: 300}, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>目录</Typography>
           <List>
             {toc.map((item, index) => (
