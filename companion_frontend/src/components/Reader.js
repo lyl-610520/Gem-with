@@ -21,6 +21,7 @@ import CreateIcon from '@mui/icons-material/Create';
 
 // GeminiChat 组件 (保持不变)
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
+  // ... (此组件代码无变化，为简洁省略，请保留您原来的代码)
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -57,12 +58,15 @@ function Reader() {
   const routeLocation = useLocation();
   const { title } = routeLocation.state || {};
   
-  const [rendition, setRendition] = useState(null);
-  const [book, setBook] = useState(null);
+  // --- [核心重构] 使用useRef管理epubjs实例 ---
+  const bookRef = useRef(null);
+  const renditionRef = useRef(null);
+  const viewerRef = useRef(null);
+
+  // --- UI相关的状态，保留在useState中 ---
   const [toc, setToc] = useState([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const viewerRef = useRef(null);
   const [annotations, setAnnotations] = useState([]);
   const [showAnnotationsPanel, setShowAnnotationsPanel] = useState(false);
   const [showToc, setShowToc] = useState(false);
@@ -72,211 +76,186 @@ function Reader() {
   const [chatMessages, setChatMessages] = useState([]);
   const [isChatSending, setIsChatSending] = useState(false);
   const [bookLocation, setBookLocation] = useState({ currentPage: 1, totalPages: 1, progress: 0 });
-
+  
   const [isAnnotationMode, setIsAnnotationMode] = useState(false);
   const [startCfi, setStartCfi] = useState(null);
   const [tempAnnotation, setTempAnnotation] = useState({text: '', cfiRange: ''});
   
-  // [关键修复] 使用useRef来让事件监听函数能访问到最新的state，而无需成为useEffect的依赖
+  // 使用useRef来让事件监听函数能访问到最新的state
   const annotationStateRef = useRef({ isAnnotationMode, startCfi });
   useEffect(() => {
     annotationStateRef.current = { isAnnotationMode, startCfi };
   }, [isAnnotationMode, startCfi]);
 
-
-  const updateLocation = useCallback((renditionToUpdate, bookToUpdate) => {
-    const activeRendition = renditionToUpdate || rendition;
-    const activeBook = bookToUpdate || book;
-    if (!activeRendition || !activeBook || !activeBook.locations || activeBook.locations.length() === 0) return;
-    
-    const currentLocation = activeRendition.currentLocation();
-    if (currentLocation && currentLocation.start) {
-      const cfi = currentLocation.start.cfi;
-      const page = activeBook.locations.pageFromCfi(cfi);
-      const percent = activeBook.locations.percentageFromCfi(cfi);
-      setBookLocation({ currentPage: page, totalPages: activeBook.locations.length(), progress: Math.round(percent * 100) });
-      localStorage.setItem(`book-progress-${bookId}`, cfi);
-    }
-  }, [book, rendition, bookId]);
-
+  // --- 稳定的useEffect，只负责加载和销毁书籍 ---
   useEffect(() => {
-    let currentBook;
-    let currentRendition;
-    let isMounted = true; 
+    // 确保清理上一个实例
+    if (renditionRef.current) renditionRef.current.destroy();
+    if (bookRef.current) bookRef.current.destroy();
+    
+    if (!bookId) {
+      setError("未找到书籍ID");
+      setIsLoading(false);
+      return;
+    }
 
-    const handleKeyPress = (event) => {
-        if (document.activeElement.tagName.toLowerCase() === 'input' || document.activeElement.tagName.toLowerCase() === 'textarea') return;
-        if (currentRendition) {
-            if (event.key === 'ArrowRight') { currentRendition.next().then(() => updateLocation(currentRendition, currentBook)); }
-            if (event.key === 'ArrowLeft') { currentRendition.prev().then(() => updateLocation(currentRendition, currentBook)); }
-        }
-    };
-
-    const handleIframeClick = async (event) => {
-      const { isAnnotationMode: currentIsAnnotationMode, startCfi: currentStartCfi } = annotationStateRef.current;
-      if (!currentIsAnnotationMode || !currentRendition || !currentBook) return;
-      
-      event.preventDefault();
-      event.stopPropagation();
-
-      const iframe = viewerRef.current.querySelector('iframe');
-      if (!iframe) return;
-      const rect = iframe.getBoundingClientRect();
-      
-      // 兼容触摸事件和鼠标事件
-      const clientX = event.touches ? event.touches[0].clientX : event.clientX;
-      const clientY = event.touches ? event.touches[0].clientY : event.clientY;
-      const x = clientX - rect.left;
-      const y = clientY - rect.top;
-
-      const cfi = currentRendition.cfiFromPoint(x, y);
-
-      if (!currentStartCfi) {
-        setStartCfi(cfi);
-        setSnackbar({ open: true, message: '起点已选择，请点击终点' });
-      } else {
-        try {
-          const fullCfiRange = new Epub.Range(currentStartCfi, cfi).toString();
-          const text = await currentBook.getRange(fullCfiRange).then(r => r.toString());
-          
-          if (text.trim()) {
-            setTempAnnotation({ text: text, cfiRange: fullCfiRange });
-            setAnnotationModal({ open: true });
-          } else {
-            setSnackbar({ open: true, message: '选择无效，请重试' });
-          }
-        } catch(e) {
-            console.error("生成批注范围失败:", e);
-            setSnackbar({ open: true, message: '选择范围无效，请确保终点在起点之后' });
-        } finally {
-            setStartCfi(null);
-            setIsAnnotationMode(false);
-        }
-      }
-    };
+    let isMounted = true;
+    setIsLoading(true);
+    setError('');
 
     const loadBook = async () => {
-      if (!bookId) {
-        if (isMounted) { setError("未找到书籍ID"); setIsLoading(false); }
-        return;
-      }
       try {
-        if (isMounted) { setIsLoading(true); setError(''); }
         const [fileResponse, detailsResponse] = await Promise.all([
           axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' }),
           axios.get(`/books/${bookId}`)
         ]);
+
         if (!isMounted) return;
-        
-        const loadedAnnotations = detailsResponse.data.annotations || [];
-        setAnnotations(loadedAnnotations);
 
-        currentBook = Epub(fileResponse.data);
-        setBook(currentBook);
+        bookRef.current = Epub(fileResponse.data);
         
-        await currentBook.ready;
-        // EPUB的页码是基于字符数估算的，所以是固定的。这并非bug。
-        // 它为进度条和批注定位提供了可靠的“逻辑”基础。
-        await currentBook.locations.generate(1600);
-        if (isMounted) {
-          setBookLocation(prev => ({ ...prev, totalPages: currentBook.locations.length() }));
-        }
+        await bookRef.current.ready;
+        await bookRef.current.locations.generate(1600);
 
+        if (!isMounted) return;
+        setToc(bookRef.current.navigation.toc);
+        setAnnotations(detailsResponse.data.annotations || []);
+        setBookLocation(prev => ({ ...prev, totalPages: bookRef.current.locations.length() }));
+        
         if (viewerRef.current) {
-          currentRendition = currentBook.renderTo(viewerRef.current, { width: '100%', height: '100%' });
+          renditionRef.current = bookRef.current.renderTo(viewerRef.current, { width: '100%', height: '100%' });
+          
           const savedCfi = localStorage.getItem(`book-progress-${bookId}`);
-          await currentRendition.display(savedCfi || undefined);
-          if (isMounted) setRendition(currentRendition);
+          await renditionRef.current.display(savedCfi || undefined);
 
-          loadedAnnotations.forEach(anno => {
-            if(anno.cfi) currentRendition.annotations.add("highlight", anno.cfi, { id: anno.id }, () => {}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
-          });
+          // --- 重新定义事件处理函数，确保它们在当前闭包内 ---
+          const updateLocation = () => {
+            if (!renditionRef.current || !bookRef.current.locations) return;
+            const currentLocation = renditionRef.current.currentLocation();
+            if (currentLocation && currentLocation.start) {
+              const cfi = currentLocation.start.cfi;
+              setBookLocation({
+                currentPage: bookRef.current.locations.pageFromCfi(cfi),
+                totalPages: bookRef.current.locations.length(),
+                progress: Math.round(bookRef.current.locations.percentageFromCfi(cfi) * 100)
+              });
+              localStorage.setItem(`book-progress-${bookId}`, cfi);
+            }
+          };
 
-          currentRendition.on('relocated', () => updateLocation(currentRendition, currentBook));
-          updateLocation(currentRendition, currentBook);
+          const handleIframeClick = async (event) => {
+            const { isAnnotationMode: currentIsAnnotationMode, startCfi: currentStartCfi } = annotationStateRef.current;
+            if (!currentIsAnnotationMode || !renditionRef.current || !bookRef.current) return;
+            
+            event.preventDefault(); event.stopPropagation();
+            const iframe = viewerRef.current.querySelector('iframe');
+            if (!iframe) return;
+            const rect = iframe.getBoundingClientRect();
+            
+            const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+            const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
 
-          currentRendition.on('displayed', () => {
-              const contents = currentRendition.getContents();
-              if (contents && contents[0]) {
-                const iframeDoc = contents[0].document;
-                if (iframeDoc) {
-                    iframeDoc.addEventListener('click', handleIframeClick);
-                    iframeDoc.addEventListener('touchstart', handleIframeClick); // 添加触摸支持
+            const cfi = renditionRef.current.cfiFromPoint(x, y);
+
+            if (!currentStartCfi) {
+              setStartCfi(cfi);
+              setSnackbar({ open: true, message: '起点已选择，请点击终点' });
+            } else {
+              try {
+                const fullCfiRange = new Epub.Range(currentStartCfi, cfi).toString();
+                const text = await bookRef.current.getRange(fullCfiRange).then(r => r.toString());
+                if (text.trim()) {
+                  setTempAnnotation({ text: text, cfiRange: fullCfiRange });
+                  setAnnotationModal({ open: true });
                 }
+              } catch(e) { console.error("生成范围失败:", e); } 
+              finally {
+                setStartCfi(null);
+                setIsAnnotationMode(false);
+              }
+            }
+          };
+          
+          renditionRef.current.on('relocated', updateLocation);
+          renditionRef.current.on('displayed', () => {
+              updateLocation(); // 初次显示时更新位置
+              const contents = renditionRef.current.getContents();
+              if (contents[0]) {
+                contents[0].document.addEventListener('click', handleIframeClick);
+                contents[0].document.addEventListener('touchstart', handleIframeClick);
               }
           });
-
-          if (isMounted) { setToc(currentBook.navigation.toc); setIsLoading(false); }
+          
+          (detailsResponse.data.annotations || []).forEach(anno => {
+            if(anno.cfi) renditionRef.current.annotations.add("highlight", anno.cfi, { id: anno.id }, () => {}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
+          });
         }
+        
+        if (isMounted) setIsLoading(false);
+
       } catch (err) {
-        console.error("加载书籍或批注失败:", err);
-        if (isMounted) { setError("加载失败，请刷新重试"); setIsLoading(false); }
+        console.error("加载书籍失败，这是详细错误:", err);
+        if (isMounted) {
+          setError("加载失败，请刷新重试。如果问题持续，可能是文件损坏。");
+          setIsLoading(false);
+        }
       }
     };
 
     loadBook();
-    window.addEventListener('keydown', handleKeyPress);
-    
-    return () => { 
-        isMounted = false; 
-        window.removeEventListener('keydown', handleKeyPress);
-        if (currentRendition) {
-          const contents = currentRendition.getContents();
-          if (contents && contents[0]) {
-            const iframeDoc = contents[0].document;
-            if (iframeDoc) {
-              iframeDoc.removeEventListener('click', handleIframeClick);
-              iframeDoc.removeEventListener('touchstart', handleIframeClick);
-            }
-          }
-          currentRendition.destroy();
-        }
-        if (currentBook) currentBook.destroy(); 
+
+    return () => {
+      isMounted = false;
+      if (renditionRef.current) {
+        // 清理事件监听可以省略，因为destroy()会处理
+        renditionRef.current.destroy();
+      }
+      if (bookRef.current) {
+        bookRef.current.destroy();
+      }
     };
-  // [关键修复] 此useEffect只应在bookId变化时运行，其他依赖已通过useCallback和useRef处理
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId]);
+  }, [bookId]); // 这个useEffect只依赖bookId，绝对稳定！
 
+  // --- 所有交互函数现在都从 renditionRef.current 获取实例 ---
   const onTocClick = async (href) => { 
-    if (!rendition) return;
-    await rendition.display(href);
+    if (!renditionRef.current) return;
+    await renditionRef.current.display(href);
     setShowToc(false);
-    // [页码修复] 跳转后主动更新位置, 延迟以确保rendition完成渲染
-    setTimeout(() => updateLocation(), 100);
   };
-
+  
   const handleSaveAnnotation = async (note) => {
+    // ... 此函数逻辑不变 ...
     try {
-      const response = await axios.post(`/books/${bookId}/annotations`, {
-        content: note, 
-        highlighted_text: tempAnnotation.text, 
-        cfi: tempAnnotation.cfiRange,
-        page_number: bookLocation.currentPage,
-      });
-      const newAnno = response.data.annotation;
-      setAnnotations(prev => [...prev, newAnno]);
-      if(newAnno.cfi) rendition.annotations.add("highlight", newAnno.cfi, { id: newAnno.id }, ()=>{}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
-      setSnackbar({ open: true, message: '批注已保存' });
-    } catch (err) {
-      console.error("保存批注失败:", err.response ? err.response.data : err);
-      setSnackbar({ open: true, message: '保存失败' });
-    }
-    setAnnotationModal({ open: false });
-    setTempAnnotation({ text: '', cfiRange: ''});
+        const response = await axios.post(`/books/${bookId}/annotations`, {
+          content: note, highlighted_text: tempAnnotation.text, cfi: tempAnnotation.cfiRange,
+          page_number: bookLocation.currentPage,
+        });
+        const newAnno = response.data.annotation;
+        setAnnotations(prev => [...prev, newAnno]);
+        if(newAnno.cfi) renditionRef.current.annotations.add("highlight", newAnno.cfi, { id: newAnno.id }, ()=>{}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
+        setSnackbar({ open: true, message: '批注已保存' });
+      } catch (err) {
+        setSnackbar({ open: true, message: '保存失败' });
+      }
+      setAnnotationModal({ open: false });
+      setTempAnnotation({ text: '', cfiRange: ''});
   };
   
   const handleDeleteAnnotation = async (annotationId) => {
+    // ... 此函数逻辑不变 ...
     try {
-      await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
-      const annoToRemove = annotations.find(a => a.id === annotationId);
-      if (annoToRemove && annoToRemove.cfi) {
-         rendition.annotations.remove(annoToRemove.cfi, "highlight");
+        await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
+        const annoToRemove = annotations.find(a => a.id === annotationId);
+        if (annoToRemove && annoToRemove.cfi && renditionRef.current) {
+           renditionRef.current.annotations.remove(annoToRemove.cfi, "highlight");
+        }
+        setAnnotations(prev => prev.filter(a => a.id !== annotationId));
+        setSnackbar({ open: true, message: '批注已删除' });
+      } catch (err) {
+        setSnackbar({ open: true, message: '删除失败' });
       }
-      setAnnotations(prev => prev.filter(a => a.id !== annotationId));
-      setSnackbar({ open: true, message: '批注已删除' });
-    } catch (err) {
-      setSnackbar({ open: true, message: '删除失败' });
-    }
   };
 
   const handleJumpToAnnotation = (cfi) => {
@@ -291,15 +270,23 @@ function Reader() {
     const newMode = !isAnnotationMode;
     setIsAnnotationMode(newMode);
     setStartCfi(null);
-    if (newMode) {
-      setSnackbar({ open: true, message: '批注模式已开启' });
-    } else {
-      setSnackbar({ open: true, message: '批注模式已关闭' });
-    }
+    setSnackbar({ open: true, message: newMode ? '批注模式已开启' : '批注模式已关闭' });
   };
   
-  const handleNextPage = () => rendition?.next().then(updateLocation);
-  const handlePrevPage = () => rendition?.prev().then(updateLocation);
+  const handleNextPage = () => renditionRef.current?.next();
+  const handlePrevPage = () => renditionRef.current?.prev();
+
+  // --- KeyPress事件处理也需要用useCallback和ref来稳定 ---
+  const handleKeyPress = useCallback((event) => {
+    if (document.activeElement.tagName.toLowerCase() === 'input' || document.activeElement.tagName.toLowerCase() === 'textarea') return;
+    if (event.key === 'ArrowRight') handleNextPage();
+    if (event.key === 'ArrowLeft') handlePrevPage();
+  }, []); // 空依赖数组，函数永不改变
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [handleKeyPress]);
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
@@ -307,11 +294,7 @@ function Reader() {
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{title || '...'}</Typography>
         <Box>
-          <Tooltip title="两点法添加批注">
-            <IconButton onClick={toggleAnnotationMode} color={isAnnotationMode ? "primary" : "default"}>
-              <CreateIcon />
-            </IconButton>
-          </Tooltip>
+          <Tooltip title="两点法添加批注"><IconButton onClick={toggleAnnotationMode} color={isAnnotationMode ? "primary" : "default"}><CreateIcon /></IconButton></Tooltip>
           <Tooltip title="Gem写了什么"><IconButton onClick={handleGenerateGeminiAnnotation}><VisibilityIcon /></IconButton></Tooltip>
           <Tooltip title="批注列表"><IconButton onClick={() => setShowAnnotationsPanel(true)}><NotesIcon /></IconButton></Tooltip>
           <Tooltip title="目录"><IconButton onClick={() => setShowToc(true)} disabled={!toc || toc.length === 0}><MenuIcon /></IconButton></Tooltip>
@@ -322,7 +305,7 @@ function Reader() {
         {isLoading && <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress /></Box>}
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
         
-        <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading ? 'hidden' : 'visible', cursor: isAnnotationMode ? 'crosshair' : 'default' }} />
+        <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading || error ? 'hidden' : 'visible', cursor: isAnnotationMode ? 'crosshair' : 'default' }} />
         
         {!isLoading && !error && !isAnnotationMode && (
           <>
@@ -350,7 +333,8 @@ function Reader() {
           />
         </Box>
       </Drawer>
-
+      
+      {/* ... 其他Drawer和Fab组件保持不变 ... */}
       <Drawer anchor="right" open={showAnnotationsPanel} onClose={() => setShowAnnotationsPanel(false)}>
         <Box sx={{ width: {xs: '80vw', sm: 350}, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>所有批注</Typography>
