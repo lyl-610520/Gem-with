@@ -4,8 +4,8 @@ import Epub from 'epubjs';
 import axios from 'axios';
 import {
   Box, IconButton, Typography, CircularProgress, LinearProgress, Drawer,
-  List, ListItem, ListItemText, Alert, Fab, Popover, Button, TextField,
-  Paper, InputBase, Avatar, Tooltip, Snackbar, ListItemAvatar,
+  List, ListItem, ListItemText, Alert, Fab, Button, TextField,
+  Paper, InputBase, Avatar, Tooltip, Snackbar,
   ListItemButton
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -17,7 +17,7 @@ import SendIcon from '@mui/icons-material/Send';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
-import CreateIcon from '@mui/icons-material/Create'; // [新] 引入画笔图标
+import CreateIcon from '@mui/icons-material/Create';
 
 // GeminiChat 组件 (保持不变)
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
@@ -66,27 +66,29 @@ function Reader() {
   const [annotations, setAnnotations] = useState([]);
   const [showAnnotationsPanel, setShowAnnotationsPanel] = useState(false);
   const [showToc, setShowToc] = useState(false);
-  const [annotationModal, setAnnotationModal] = useState({ open: false, text: '', cfiRange: '' });
+  const [annotationModal, setAnnotationModal] = useState({ open: false });
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
   const [showGeminiChat, setShowGeminiChat] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [isChatSending, setIsChatSending] = useState(false);
   const [bookLocation, setBookLocation] = useState({ currentPage: 1, totalPages: 1, progress: 0 });
 
-  // --- VVVV [新功能] 用于“两点式”批注的状态 VVVV ---
   const [isAnnotationMode, setIsAnnotationMode] = useState(false);
   const [startCfi, setStartCfi] = useState(null);
   const [tempAnnotation, setTempAnnotation] = useState({text: '', cfiRange: ''});
-  // --- ^^^^ 新状态结束 ^^^^ ---
+  
+  // [关键修复] 使用useRef来让事件监听函数能访问到最新的state，而无需成为useEffect的依赖
+  const annotationStateRef = useRef({ isAnnotationMode, startCfi });
+  useEffect(() => {
+    annotationStateRef.current = { isAnnotationMode, startCfi };
+  }, [isAnnotationMode, startCfi]);
 
 
-  // --- VVVV [页码修复] 创建一个稳定可靠的位置更新函数 VVVV ---
   const updateLocation = useCallback((renditionToUpdate, bookToUpdate) => {
     const activeRendition = renditionToUpdate || rendition;
     const activeBook = bookToUpdate || book;
-    if (!activeRendition || !activeBook || !activeBook.locations || activeBook.locations.length() === 0) {
-      return;
-    }
+    if (!activeRendition || !activeBook || !activeBook.locations || activeBook.locations.length() === 0) return;
+    
     const currentLocation = activeRendition.currentLocation();
     if (currentLocation && currentLocation.start) {
       const cfi = currentLocation.start.cfi;
@@ -96,8 +98,6 @@ function Reader() {
       localStorage.setItem(`book-progress-${bookId}`, cfi);
     }
   }, [book, rendition, bookId]);
-  // --- ^^^^ 页码修复函数结束 ^^^^ ---
-
 
   useEffect(() => {
     let currentBook;
@@ -105,35 +105,38 @@ function Reader() {
     let isMounted = true; 
 
     const handleKeyPress = (event) => {
-        if (document.activeElement.tagName.toLowerCase() === 'input' || document.activeElement.tagName.toLowerCase() === 'textarea') { return; }
+        if (document.activeElement.tagName.toLowerCase() === 'input' || document.activeElement.tagName.toLowerCase() === 'textarea') return;
         if (currentRendition) {
             if (event.key === 'ArrowRight') { currentRendition.next().then(() => updateLocation(currentRendition, currentBook)); }
             if (event.key === 'ArrowLeft') { currentRendition.prev().then(() => updateLocation(currentRendition, currentBook)); }
         }
     };
-    window.addEventListener('keydown', handleKeyPress);
 
-    // --- VVVV [新功能] 处理iframe内部点击事件的核心逻辑 VVVV ---
     const handleIframeClick = async (event) => {
-      if (!isAnnotationMode || !currentRendition || !currentBook) return;
+      const { isAnnotationMode: currentIsAnnotationMode, startCfi: currentStartCfi } = annotationStateRef.current;
+      if (!currentIsAnnotationMode || !currentRendition || !currentBook) return;
+      
       event.preventDefault();
       event.stopPropagation();
 
       const iframe = viewerRef.current.querySelector('iframe');
       if (!iframe) return;
       const rect = iframe.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
+      
+      // 兼容触摸事件和鼠标事件
+      const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+      const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
 
-      const range = currentRendition.getRange(currentRendition.cfiFromPoint(x, y));
-      const cfi = (await range).cfi;
+      const cfi = currentRendition.cfiFromPoint(x, y);
 
-      if (!startCfi) {
+      if (!currentStartCfi) {
         setStartCfi(cfi);
         setSnackbar({ open: true, message: '起点已选择，请点击终点' });
       } else {
         try {
-          const fullCfiRange = new Epub.Range(startCfi, cfi).toString();
+          const fullCfiRange = new Epub.Range(currentStartCfi, cfi).toString();
           const text = await currentBook.getRange(fullCfiRange).then(r => r.toString());
           
           if (text.trim()) {
@@ -151,7 +154,6 @@ function Reader() {
         }
       }
     };
-    // --- ^^^^ 新功能核心逻辑结束 ^^^^ ---
 
     const loadBook = async () => {
       if (!bookId) {
@@ -173,6 +175,8 @@ function Reader() {
         setBook(currentBook);
         
         await currentBook.ready;
+        // EPUB的页码是基于字符数估算的，所以是固定的。这并非bug。
+        // 它为进度条和批注定位提供了可靠的“逻辑”基础。
         await currentBook.locations.generate(1600);
         if (isMounted) {
           setBookLocation(prev => ({ ...prev, totalPages: currentBook.locations.length() }));
@@ -185,21 +189,20 @@ function Reader() {
           if (isMounted) setRendition(currentRendition);
 
           loadedAnnotations.forEach(anno => {
-            currentRendition.annotations.add("highlight", anno.cfi, { id: anno.id }, () => {}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
+            if(anno.cfi) currentRendition.annotations.add("highlight", anno.cfi, { id: anno.id }, () => {}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
           });
 
-          // --- [已废弃] 旧的文本选择方式，在移动端不可靠 ---
-          // currentRendition.on('selected', (cfiRange, contents) => { ... });
-
-          // --- [页码修复] 使用更可靠的方式更新位置 ---
           currentRendition.on('relocated', () => updateLocation(currentRendition, currentBook));
-          updateLocation(currentRendition, currentBook); // 初始化首次加载的位置
+          updateLocation(currentRendition, currentBook);
 
-          // --- [新功能] 为iframe添加点击监听器 ---
           currentRendition.on('displayed', () => {
-              const iframeDoc = currentRendition.getContents()[0].document;
-              if (iframeDoc) {
-                  iframeDoc.addEventListener('click', handleIframeClick);
+              const contents = currentRendition.getContents();
+              if (contents && contents[0]) {
+                const iframeDoc = contents[0].document;
+                if (iframeDoc) {
+                    iframeDoc.addEventListener('click', handleIframeClick);
+                    iframeDoc.addEventListener('touchstart', handleIframeClick); // 添加触摸支持
+                }
               }
           });
 
@@ -212,28 +215,34 @@ function Reader() {
     };
 
     loadBook();
+    window.addEventListener('keydown', handleKeyPress);
     
     return () => { 
         isMounted = false; 
         window.removeEventListener('keydown', handleKeyPress);
-        // --- [新功能] 清理iframe的事件监听 ---
-        if (currentRendition && currentRendition.getContents) {
-          const iframeDoc = currentRendition.getContents()[0]?.document;
-          if (iframeDoc) {
-            iframeDoc.removeEventListener('click', handleIframeClick);
+        if (currentRendition) {
+          const contents = currentRendition.getContents();
+          if (contents && contents[0]) {
+            const iframeDoc = contents[0].document;
+            if (iframeDoc) {
+              iframeDoc.removeEventListener('click', handleIframeClick);
+              iframeDoc.removeEventListener('touchstart', handleIframeClick);
+            }
           }
+          currentRendition.destroy();
         }
-        if (currentRendition) currentRendition.destroy(); 
         if (currentBook) currentBook.destroy(); 
     };
+  // [关键修复] 此useEffect只应在bookId变化时运行，其他依赖已通过useCallback和useRef处理
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId]); // 依赖项已简化，updateLocation被useCallback包裹
+  }, [bookId]);
 
   const onTocClick = async (href) => { 
     if (!rendition) return;
     await rendition.display(href);
     setShowToc(false);
-    updateLocation(); // [页码修复] 跳转后主动更新位置
+    // [页码修复] 跳转后主动更新位置, 延迟以确保rendition完成渲染
+    setTimeout(() => updateLocation(), 100);
   };
 
   const handleSaveAnnotation = async (note) => {
@@ -246,9 +255,10 @@ function Reader() {
       });
       const newAnno = response.data.annotation;
       setAnnotations(prev => [...prev, newAnno]);
-      rendition.annotations.add("highlight", newAnno.cfi, { id: newAnno.id }, ()=>{}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
+      if(newAnno.cfi) rendition.annotations.add("highlight", newAnno.cfi, { id: newAnno.id }, ()=>{}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
       setSnackbar({ open: true, message: '批注已保存' });
     } catch (err) {
+      console.error("保存批注失败:", err.response ? err.response.data : err);
       setSnackbar({ open: true, message: '保存失败' });
     }
     setAnnotationModal({ open: false });
@@ -259,7 +269,7 @@ function Reader() {
     try {
       await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
       const annoToRemove = annotations.find(a => a.id === annotationId);
-      if (annoToRemove && annoToRemove.cfi) { // 确保有CFI才移除高亮
+      if (annoToRemove && annoToRemove.cfi) {
          rendition.annotations.remove(annoToRemove.cfi, "highlight");
       }
       setAnnotations(prev => prev.filter(a => a.id !== annotationId));
@@ -277,18 +287,19 @@ function Reader() {
   const handleGenerateGeminiAnnotation = async () => {};
   const handleSendChatMessage = async (message) => {};
 
-  // --- VVVV [新功能] 切换批注模式的函数 VVVV ---
   const toggleAnnotationMode = () => {
     const newMode = !isAnnotationMode;
     setIsAnnotationMode(newMode);
-    setStartCfi(null); // 每次切换都重置
+    setStartCfi(null);
     if (newMode) {
-      setSnackbar({ open: true, message: '批注模式已开启，请点击内容起点' });
+      setSnackbar({ open: true, message: '批注模式已开启' });
     } else {
       setSnackbar({ open: true, message: '批注模式已关闭' });
     }
   };
-  // --- ^^^^ 新功能函数结束 ^^^^ ---
+  
+  const handleNextPage = () => rendition?.next().then(updateLocation);
+  const handlePrevPage = () => rendition?.prev().then(updateLocation);
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
@@ -296,20 +307,18 @@ function Reader() {
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{title || '...'}</Typography>
         <Box>
-          {/* --- VVVV [新功能] 新增的批注模式按钮 VVVV --- */}
           <Tooltip title="两点法添加批注">
             <IconButton onClick={toggleAnnotationMode} color={isAnnotationMode ? "primary" : "default"}>
               <CreateIcon />
             </IconButton>
           </Tooltip>
-          {/* --- ^^^^ 新功能按钮结束 ^^^^ --- */}
           <Tooltip title="Gem写了什么"><IconButton onClick={handleGenerateGeminiAnnotation}><VisibilityIcon /></IconButton></Tooltip>
           <Tooltip title="批注列表"><IconButton onClick={() => setShowAnnotationsPanel(true)}><NotesIcon /></IconButton></Tooltip>
           <Tooltip title="目录"><IconButton onClick={() => setShowToc(true)} disabled={!toc || toc.length === 0}><MenuIcon /></IconButton></Tooltip>
         </Box>
       </Box>
 
-      <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }}>
+      <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }} >
         {isLoading && <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress /></Box>}
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
         
@@ -317,8 +326,8 @@ function Reader() {
         
         {!isLoading && !error && !isAnnotationMode && (
           <>
-            <Box onClick={() => { if(rendition) rendition.prev().then(updateLocation); }} sx={{ position: 'absolute', top: 0, left: 0, width: '30%', height: '100%', zIndex: 1 }} />
-            <Box onClick={() => { if(rendition) rendition.next().then(updateLocation); }} sx={{ position: 'absolute', top: 0, right: 0, width: '30%', height: '100%', zIndex: 1 }} />
+            <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '30%', height: '100%', zIndex: 1, WebkitTapHighlightColor: 'transparent' }} />
+            <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '30%', height: '100%', zIndex: 1, WebkitTapHighlightColor: 'transparent' }} />
           </>
         )}
       </Box>
@@ -330,19 +339,9 @@ function Reader() {
         <LinearProgress variant="determinate" value={bookLocation.progress} />
       </Box>
       
-      {/* --- [已废弃] 旧的Popover选择菜单，不再需要 --- */}
-      {/* <Popover open={selectionMenu.open} ... /> */}
-      
       <Drawer anchor="bottom" open={annotationModal.open} onClose={() => setAnnotationModal({ open: false })}>
         <Box p={2}>
-          <Typography variant="h6" sx={{
-            maxHeight: '3em',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical'
-          }}>
+          <Typography variant="h6" sx={{ maxHeight: '3em', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
             为 “{tempAnnotation.text}” 添加批注
           </Typography>
           <TextField
@@ -357,20 +356,11 @@ function Reader() {
           <Typography variant="h6" sx={{mb: 2}}>所有批注</Typography>
           <List>
             {annotations && annotations.length > 0 ? annotations.map((anno) => (
-              <ListItem 
-                key={anno.id}
-                secondaryAction={
-                  <IconButton edge="end" aria-label="delete" onClick={(e) => { e.stopPropagation(); handleDeleteAnnotation(anno.id); }}>
-                    <DeleteIcon />
-                  </IconButton>
-                }
-                disablePadding
-              >
+              <ListItem key={anno.id} secondaryAction={
+                  <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteAnnotation(anno.id)}> <DeleteIcon /> </IconButton>
+                } disablePadding >
                 <ListItemButton onClick={() => anno.cfi && handleJumpToAnnotation(anno.cfi)}>
-                  <ListItemText
-                    primary={anno.highlighted_text}
-                    secondary={anno.content}
-                  />
+                  <ListItemText primary={anno.highlighted_text} secondary={anno.content} />
                 </ListItemButton>
               </ListItem>
             )) : <Typography sx={{p: 2, color: 'text.secondary'}}>还没有任何批注</Typography>}
