@@ -98,8 +98,8 @@ function Reader() {
       try {
         if (isMounted) { setIsLoading(true); setError(''); }
         const [fileResponse, detailsResponse] = await Promise.all([
-          axios.get(`/api/books/${bookId}/file`, { responseType: 'arraybuffer' }),
-          axios.get(`/api/books/${bookId}`)
+          axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' }),
+          axios.get(`/books/${bookId}`)
         ]);
         if (!isMounted) return;
         
@@ -190,7 +190,7 @@ function Reader() {
   // [修改 3/5] 更新函数签名，直接接收所需参数
   const handleSaveAnnotation = async (note, highlightedText, cfi) => {
     try {
-      const response = await axios.post(`/api/books/${bookId}/annotations`, {
+      const response = await axios.post(`/books/${bookId}/annotations`, {
         content: note, 
         highlighted_text: highlightedText, 
         cfi: cfi,
@@ -210,7 +210,7 @@ function Reader() {
   
   const handleDeleteAnnotation = async (annotationId) => {
     try {
-      await axios.delete(`/api/books/${bookId}/annotations/${annotationId}`);
+      await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
       const annoToRemove = annotations.find(a => a.id === annotationId);
       if (annoToRemove) rendition.annotations.remove(annoToRemove.cfi, "highlight");
       setAnnotations(prev => prev.filter(a => a.id !== annotationId));
