@@ -73,14 +73,12 @@ function Reader() {
   const [chatMessages, setChatMessages] = useState([]);
   const [isChatSending, setIsChatSending] = useState(false);
   
-  // [UI/UX修复] 修复滚动穿透
   useEffect(() => {
     if (isTextSelectionOpen) { document.body.style.overflow = 'hidden'; } 
     else { document.body.style.overflow = 'auto'; }
     return () => { document.body.style.overflow = 'auto'; };
   }, [isTextSelectionOpen]);
   
-  // [批注持久化核心修复] 创建一个可靠的获取和绘制批注的函数
   const fetchAndDrawAnnotations = useCallback(async () => {
     if (!bookId) return;
     try {
@@ -88,11 +86,8 @@ function Reader() {
       const loadedAnnotations = response.data.annotations || [];
       setAnnotations(loadedAnnotations);
       
-      // 确保rendition已经准备好
       if (renditionRef.current && renditionRef.current.getContents()) {
-        // 先移除所有旧的高亮，防止重复绘制
         renditionRef.current.annotations.removeall();
-        // 重新绘制所有从服务器获取的批注
         loadedAnnotations.forEach(anno => {
           if(anno.cfi) {
             renditionRef.current.annotations.add("highlight", anno.cfi, {}, () => {}, "hl-class", { "fill": "yellow", "fill-opacity": "0.3" });
@@ -104,7 +99,6 @@ function Reader() {
     }
   }, [bookId]);
 
-  // 核心加载逻辑
   useEffect(() => {
     if (renditionRef.current) renditionRef.current.destroy();
     if (bookRef.current) bookRef.current.destroy();
@@ -129,15 +123,6 @@ function Reader() {
           renditionRef.current = bookRef.current.renderTo(viewerRef.current, { width: '100%', height: '100%' });
           const savedCfi = localStorage.getItem(`book-progress-${bookId}`);
           
-          renditionRef.current.on('displayed', async () => {
-            if (!isMounted) return;
-            // [持久化修复] 当rendition渲染完成后，才获取并绘制批注
-            await fetchAndDrawAnnotations();
-            updateLocation();
-          });
-          
-          await renditionRef.current.display(savedCfi || undefined);
-
           const updateLocation = () => {
             if (!isMounted || !renditionRef.current || !bookRef.current.locations) return;
             const currentLocation = renditionRef.current.currentLocation();
@@ -147,6 +132,14 @@ function Reader() {
               localStorage.setItem(`book-progress-${bookId}`, cfi);
             }
           };
+
+          renditionRef.current.on('displayed', async () => {
+            if (!isMounted) return;
+            await fetchAndDrawAnnotations();
+            updateLocation();
+          });
+          
+          await renditionRef.current.display(savedCfi || undefined);
           renditionRef.current.on('relocated', updateLocation);
         }
         if (isMounted) setIsLoading(false);
@@ -158,15 +151,15 @@ function Reader() {
     return () => { isMounted = false; if (renditionRef.current) renditionRef.current.destroy(); if (bookRef.current) bookRef.current.destroy(); };
   }, [bookId, fetchAndDrawAnnotations]);
 
-  // [页面文本精准提取]
   const openAnnotationPanel = async () => {
     if (!renditionRef.current || !bookRef.current) return;
     try {
-      const location = renditionRef.current.currentLocation();
-      // 获取当前页的CFI范围
-      const range = await bookRef.current.getRange(location.start.cfi);
-      const pageText = range.startContainer.parentNode.textContent;
-
+      const range = await renditionRef.current.getCurrentRange();
+      if (!range) {
+          setSnackbar({ open: true, message: '无法获取当前页面范围' });
+          return;
+      }
+      const pageText = await bookRef.current.getRange(range.cfi).then(r => r.toString());
       const sentences = (pageText.match(/[^。？！；.?!;]+[。？！；.?!;]?/g) || []).filter(s => s.trim());
       setCurrentPageSentences(sentences);
       setSelectedSentence(null);
@@ -188,8 +181,7 @@ function Reader() {
       
       const currentLocation = renditionRef.current.currentLocation();
       const currentHref = currentLocation.start.href;
-      // 优先选择当前章节的结果
-      let finalResult = results.find(res => res.cfi.includes(currentHref)) || results[0];
+      let finalResult = results.find(res => res.cfi.includes(currentHref)) || results;
 
       setTempAnnotation({ text: selectedText, cfiRange: finalResult.cfi });
       setAnnotationModal({ open: true });
@@ -201,7 +193,6 @@ function Reader() {
     try {
       await axios.post(`/books/${bookId}/annotations`, { content: note, highlighted_text: tempAnnotation.text, cfi: tempAnnotation.cfiRange, page_number: bookLocation.currentPage });
       setSnackbar({ open: true, message: '批注已保存' });
-      // [持久化修复] 保存成功后，重新获取并绘制所有批注
       await fetchAndDrawAnnotations();
     } catch (err) { setSnackbar({ open: true, message: '保存失败' }); }
     setAnnotationModal({ open: false });
@@ -212,7 +203,6 @@ function Reader() {
     try {
       await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
       setSnackbar({ open: true, message: '批注已删除' });
-      // [持久化修复] 删除成功后，同样刷新
       await fetchAndDrawAnnotations();
     } catch (err) { setSnackbar({ open: true, message: '删除失败' }); }
   };
@@ -254,8 +244,8 @@ function Reader() {
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
         <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading || error ? 'hidden' : 'visible' }} />
         {!isLoading && !error && (
-          <><Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '30%', height: '100%', zIndex: 1 }} />
-          <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '30%', height: '100%', zIndex: 1 }} /></>
+          <><Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '30%', height: '100%', zIndex: 1, WebkitTapHighlightColor: 'transparent' }} />
+          <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '30%', height: '100%', zIndex: 1, WebkitTapHighlightColor: 'transparent' }} /></>
         )}
       </Box>
 
@@ -264,7 +254,6 @@ function Reader() {
         <LinearProgress variant="determinate" value={bookLocation.progress} />
       </Box>
       
-      {/* --- [UI/UX修复] 布局重构的点选句子面板 --- */}
       <Drawer anchor="bottom" open={isTextSelectionOpen} onClose={() => setIsTextSelectionOpen(false)} sx={{ '& .MuiPaper-root': { maxHeight: '60vh', borderTopLeftRadius: 16, borderTopRightRadius: 16 }}}>
         <Box sx={{p: 2, display: 'flex', flexDirection: 'column', height: '100%'}}>
            <Typography variant="h6" sx={{mb: 2, flexShrink: 0}}>请点击一句话来添加批注</Typography>
@@ -327,4 +316,4 @@ function Reader() {
   );
 }
 
-export default Reader;```
+export default Reader;
