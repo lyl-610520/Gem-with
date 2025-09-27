@@ -902,6 +902,7 @@ def get_book_details(book_id):
         'user_id': anno.user_id,
         'content': anno.content,
         'highlighted_text': anno.highlighted_text,
+        'cfi': anno.cfi,
         'page_number': anno.page_number,
         'is_gemini_annotation': anno.is_gemini_annotation,
         'created_at': anno.created_at.isoformat() + 'Z'
@@ -1022,10 +1023,11 @@ def generate_gemini_annotation(book_id):
     book = Book.query.filter_by(id=book_id, user_id=session['user_id']).first_or_404()
     data = request.get_json()
     page_content = data.get('page_content')
-    page_number = data.get('page_number')
+    cfi = data.get('cfi') # <--- [修改1] 从前端获取CFI！
 
-    if not page_content or page_number is None:
-        return jsonify({'error': '缺少页面内容或页码'}), 400
+    # [修改2] 增加对 cfi 的校验
+    if not page_content or not cfi:
+        return jsonify({'error': '缺少页面内容或CFI'}), 400
 
     prompt = f"""
 你是一位深刻的读者，你正在阅读《{book.title}》这本书。
@@ -1044,7 +1046,7 @@ def generate_gemini_annotation(book_id):
         user_id=session['user_id'],
         book_id=book_id,
         content=gemini_annotation_content,
-        page_number=page_number,
+        cfi=cfi,
         is_gemini_annotation=True # 标记为Gemini的批注
     )
     db.session.add(new_annotation)
@@ -1055,7 +1057,7 @@ def generate_gemini_annotation(book_id):
         'user_id': new_annotation.user_id,
         'content': new_annotation.content,
         'highlighted_text': new_annotation.highlighted_text,
-        'page_number': new_annotation.page_number,
+        'cfi': new_annotation.cfi,
         'is_gemini_annotation': new_annotation.is_gemini_annotation,
         'created_at': new_annotation.created_at.isoformat() + 'Z'
     }
