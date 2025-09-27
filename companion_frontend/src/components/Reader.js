@@ -20,7 +20,6 @@ import CloseIcon from '@mui/icons-material/Close';
 import CreateIcon from '@mui/icons-material/Create';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
-
 // GeminiChat 组件 (完整代码)
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   const [input, setInput] = useState('');
@@ -30,26 +29,18 @@ function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   if (!open) return null;
   return (
     <Paper elevation={12} sx={{ position: 'fixed', bottom: {xs: 10, sm: 20}, right: {xs: 10, sm: 20}, width: {xs: 'calc(100% - 20px)', sm: 360}, height: {xs: '70vh', sm: 500}, zIndex: 1300, display: 'flex', flexDirection: 'column', borderRadius: '20px', backdropFilter: 'blur(10px)', backgroundColor: 'rgba(255, 255, 255, 0.8)', boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)', overflow: 'hidden' }}>
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
-        <Typography variant="h6" sx={{fontWeight: 'bold'}}>与 Gem 伴读</Typography>
-        <IconButton onClick={onClose} size="small"><CloseIcon /></IconButton>
-      </Box>
+      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.1)' }}><Typography variant="h6" sx={{fontWeight: 'bold'}}>与 Gem 伴读</Typography><IconButton onClick={onClose} size="small"><CloseIcon /></IconButton></Box>
       <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2 }}>
         {messages.map((msg, index) => (
           <Box key={index} sx={{ display: 'flex', justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start', mb: 1.5 }}>
             {msg.sender === 'gemini' && <Avatar sx={{ bgcolor: 'primary.light', mr: 1, width: 32, height: 32 }}><AutoAwesomeIcon fontSize="small" /></Avatar>}
-            <Paper elevation={0} sx={{ p: '10px 14px', borderRadius: msg.sender === 'user' ? '20px 20px 5px 20px' : '20px 20px 20px 5px', bgcolor: msg.sender === 'user' ? 'primary.main' : 'rgba(0,0,0,0.05)', color: msg.sender === 'user' ? 'white' : 'black', maxWidth: '80%' }}>
-              <Typography variant="body1" sx={{whiteSpace: 'pre-wrap'}}>{msg.text}</Typography>
-            </Paper>
+            <Paper elevation={0} sx={{ p: '10px 14px', borderRadius: msg.sender === 'user' ? '20px 20px 5px 20px' : '20px 20px 20px 5px', bgcolor: msg.sender === 'user' ? 'primary.main' : 'rgba(0,0,0,0.05)', color: msg.sender === 'user' ? 'white' : 'black', maxWidth: '80%' }}><Typography variant="body1" sx={{whiteSpace: 'pre-wrap'}}>{msg.text}</Typography></Paper>
           </Box>
         ))}
         {isSending && <Typography sx={{textAlign: 'center', color: 'text.secondary', fontSize: '0.8rem', my: 1}}>Gem 正在思考...</Typography>}
         <div ref={messagesEndRef} />
       </Box>
-      <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSend(); }} sx={{ p: 1, display: 'flex', alignItems: 'center', borderTop: '1px solid rgba(0,0,0,0.1)' }}>
-        <InputBase sx={{ ml: 1, flex: 1, bgcolor: 'rgba(0,0,0,0.05)', borderRadius: '20px', px: 2, py: 0.5 }} placeholder="问问关于这一页的事..." value={input} onChange={(e) => setInput(e.target.value)} />
-        <IconButton type="submit" color="primary" disabled={isSending || !input.trim()}><SendIcon /></IconButton>
-      </Box>
+      <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSend(); }} sx={{ p: 1, display: 'flex', alignItems: 'center', borderTop: '1px solid rgba(0,0,0,0.1)' }}><InputBase sx={{ ml: 1, flex: 1, bgcolor: 'rgba(0,0,0,0.05)', borderRadius: '20px', px: 2, py: 0.5 }} placeholder="问问关于这一页的事..." value={input} onChange={(e) => setInput(e.target.value)} /><IconButton type="submit" color="primary" disabled={isSending || !input.trim()}><SendIcon /></IconButton></Box>
     </Paper>
   );
 }
@@ -69,9 +60,10 @@ function Reader() {
   const [annotations, setAnnotations] = useState([]);
   const [bookLocation, setBookLocation] = useState({ currentPage: 1, totalPages: 1, progress: 0 });
   
+  // --- [终极方案] 批注流程状态 ---
   const [isTextSelectionOpen, setIsTextSelectionOpen] = useState(false);
-  const [currentPageText, setCurrentPageText] = useState('');
-  const [panelSelectedText, setPanelSelectedText] = useState('');
+  const [currentPageSentences, setCurrentPageSentences] = useState([]); // 存储当前页的句子数组
+  const [selectedSentence, setSelectedSentence] = useState(null); // { text: string, index: number }
   const [tempAnnotation, setTempAnnotation] = useState({text: '', cfiRange: ''});
   
   const [annotationModal, setAnnotationModal] = useState({ open: false });
@@ -83,15 +75,13 @@ function Reader() {
   const [isChatSending, setIsChatSending] = useState(false);
   
   useEffect(() => {
-    if (isTextSelectionOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'auto';
-    }
+    if (isTextSelectionOpen) { document.body.style.overflow = 'hidden'; } 
+    else { document.body.style.overflow = 'auto'; }
     return () => { document.body.style.overflow = 'auto'; };
   }, [isTextSelectionOpen]);
 
   useEffect(() => {
+    // ... (核心加载逻辑保持不变)
     if (renditionRef.current) renditionRef.current.destroy();
     if (bookRef.current) bookRef.current.destroy();
     if (!bookId) { setError("未找到书籍ID"); setIsLoading(false); return; }
@@ -136,50 +126,61 @@ function Reader() {
     return () => { isMounted = false; if (renditionRef.current) renditionRef.current.destroy(); if (bookRef.current) bookRef.current.destroy(); };
   }, [bookId]);
 
+  // [终极方案] 打开批注面板，提取并拆分句子
   const openAnnotationPanel = async () => {
     if (!renditionRef.current) return;
     try {
       const contents = renditionRef.current.getContents()[0];
-      const text = contents.document.body.innerText.replace(/\s\s+/g, '\n').trim();
-      setCurrentPageText(text);
-      setPanelSelectedText('');
+      const text = contents.document.body.innerText.trim();
+      // 使用正则表达式按标点符号拆分句子，并保留标点
+      const sentences = text.match(/[^。？！；.?!;]+[。？！；.?!;]?/g) || [];
+      setCurrentPageSentences(sentences.filter(s => s.trim())); // 过滤掉空句子
+      setSelectedSentence(null); // 重置选择
       setIsTextSelectionOpen(true);
     } catch(e) { setSnackbar({ open: true, message: '提取文本失败' }); }
   };
-
-  const handlePanelSelectionChange = () => {
-    const text = window.getSelection().toString();
-    if (text) { setPanelSelectedText(text); }
+  
+  // [终极方案] 当用户点击句子时
+  const handleSentenceClick = (sentence, index) => {
+    setSelectedSentence({ text: sentence, index: index });
   };
 
-  const handleTextSelection = async () => {
-    const selectedText = panelSelectedText.trim();
-    if (!selectedText) { setSnackbar({ open: true, message: '您没有选择任何文本' }); return; }
+  // [终极方案] 确认选择并查找CFI
+  const handleConfirmSelection = async () => {
+    if (!selectedSentence) {
+      setSnackbar({ open: true, message: '请先点击选择一句话' });
+      return;
+    }
     
+    const selectedText = selectedSentence.text.trim();
     setIsTextSelectionOpen(false);
     setSnackbar({ open: true, message: '正在定位文本...' });
 
     try {
-      const searchResults = await bookRef.current.spine.search(selectedText);
-      if (searchResults.length === 0) { setSnackbar({ open: true, message: '无法在书中定位此文本' }); return; }
+      const results = await Promise.all(
+        bookRef.current.spine.spineItems.map(item => item.load(bookRef.current.load.bind(bookRef.current))
+          .then(() => item.find(selectedText))
+          .finally(item.unload.bind(item)))
+      );
+      const searchResults = [].concat.apply([], results);
       
+      if (searchResults.length === 0) {
+        setSnackbar({ open: true, message: '无法在书中定位此文本' });
+        return;
+      }
+      
+      // 优先选择当前页面的结果
       const currentLocation = renditionRef.current.currentLocation();
-      const currentSectionIndex = currentLocation.start.index;
-      
-      let finalResult = searchResults.find(res => {
-        try {
-          const cfi = new Epub.Cfi(res.cfi);
-          return cfi.base.endsWith(`/${currentSectionIndex * 2}!/4`);
-        } catch { return false; }
-      }) || searchResults[0];
+      const currentSectionHref = currentLocation.start.href;
+      let finalResult = searchResults.find(res => res.cfi.includes(currentSectionHref)) || searchResults[0];
 
       setTempAnnotation({ text: selectedText, cfiRange: finalResult.cfi });
       setAnnotationModal({ open: true });
 
-    } catch (e) { setSnackbar({ open: true, message: '定位文本时出错' }); }
+    } catch (e) { console.error(e); setSnackbar({ open: true, message: '定位文本时出错' }); }
   };
 
-  const handleSaveAnnotation = async (note) => {
+  const handleSaveAnnotation = async (note) => { /* ... 此函数逻辑不变 ... */ 
     try {
         const response = await axios.post(`/books/${bookId}/annotations`, { content: note, highlighted_text: tempAnnotation.text, cfi: tempAnnotation.cfiRange, page_number: bookLocation.currentPage });
         const newAnno = response.data.annotation;
@@ -191,7 +192,7 @@ function Reader() {
     setTempAnnotation({ text: '', cfiRange: ''});
   };
   
-  const handleDeleteAnnotation = async (annotationId) => {
+  const handleDeleteAnnotation = async (annotationId) => { /* ... 此函数逻辑不变 ... */
     try {
         await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
         const annoToRemove = annotations.find(a => a.id === annotationId);
@@ -201,34 +202,28 @@ function Reader() {
     } catch (err) { setSnackbar({ open: true, message: '删除失败' }); }
   };
   
-  // --- VVVV [构建失败修复] 把误删的函数加回来 VVVV ---
-  const handleGenerateGeminiAnnotation = async () => {
-    setSnackbar({ open: true, message: '此功能正在开发中' });
-  };
-  const handleSendChatMessage = async (message) => {
-    // 这里可以添加真实的聊天逻辑
-    setSnackbar({ open: true, message: '此功能正在开发中' });
-  };
-  // --- ^^^^ 修复结束 ^^^^ ---
+  const handleGenerateGeminiAnnotation = async () => {};
+  const handleSendChatMessage = async (message) => {};
 
   const onTocClick = (href) => renditionRef.current?.display(href).then(() => setShowToc(false));
   const handleJumpToAnnotation = (cfi) => { renditionRef.current?.display(cfi); setShowAnnotationsPanel(false); };
   const handleNextPage = () => renditionRef.current?.next();
   const handlePrevPage = () => renditionRef.current?.prev();
 
-  const handleKeyPress = useCallback((event) => {
+  const handleKeyPress = useCallback((event) => { /* ... 此函数逻辑不变 ... */
     if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase())) return;
     if (event.key === 'ArrowRight') handleNextPage();
     if (event.key === 'ArrowLeft') handlePrevPage();
   }, []);
 
-  useEffect(() => {
+  useEffect(() => { /* ... 此useEffect逻辑不变 ... */
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [handleKeyPress]);
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
+      {/* ... 顶部导航栏 ... */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{title || '...'}</Typography>
@@ -240,6 +235,7 @@ function Reader() {
         </Box>
       </Box>
 
+      {/* ... 书籍渲染区域 ... */}
       <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }} >
         {isLoading && <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress /></Box>}
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
@@ -250,29 +246,44 @@ function Reader() {
         )}
       </Box>
 
+      {/* ... 底部进度条 ... */}
       <Box sx={{ p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: '0 -2px 5px rgba(0,0,0,0.1)' }}>
         <Typography align="center" variant="body2" color="text.secondary">第 {bookLocation.currentPage} / {bookLocation.totalPages} 页</Typography>
         <LinearProgress variant="determinate" value={bookLocation.progress} />
       </Box>
       
+      {/* --- [终极方案] 点选句子面板 --- */}
       <Drawer anchor="bottom" open={isTextSelectionOpen} onClose={() => setIsTextSelectionOpen(false)} sx={{ '& .MuiPaper-root': { maxHeight: '60vh', borderTopLeftRadius: 16, borderTopRightRadius: 16 }}}>
         <Box sx={{p: 2, display: 'flex', flexDirection: 'column', height: '100%'}}>
-           <Typography variant="h6" sx={{mb: 1, flexShrink: 0}}>选择文本以添加批注</Typography>
-           <Typography variant="body2" color="text.secondary" sx={{mb: 2, flexShrink: 0}}>请使用您设备的长按、拖动功能来选择下方文字。</Typography>
-           <Paper 
-             variant="outlined" 
-             sx={{flexGrow: 1, p: 2, overflowY: 'auto', whiteSpace: 'pre-wrap', userSelect: 'text', WebkitUserSelect: 'text', touchAction: 'pan-y' }}
-             onMouseUp={handlePanelSelectionChange}
-             onTouchEnd={handlePanelSelectionChange}
-           >
-             {currentPageText}
+           <Typography variant="h6" sx={{mb: 1, flexShrink: 0}}>请点击一句话来添加批注</Typography>
+           <Paper variant="outlined" sx={{flexGrow: 1, p: 1, overflowY: 'auto' }}>
+             {currentPageSentences.map((sentence, index) => (
+               <Typography 
+                 key={index} 
+                 component="span" 
+                 onClick={() => handleSentenceClick(sentence, index)}
+                 sx={{
+                   cursor: 'pointer',
+                   display: 'inline',
+                   p: '2px',
+                   borderRadius: '4px',
+                   transition: 'background-color 0.2s',
+                   backgroundColor: selectedSentence?.index === index ? 'primary.light' : 'transparent',
+                   color: selectedSentence?.index === index ? 'primary.contrastText' : 'inherit',
+                   '&:hover': { backgroundColor: 'action.hover' }
+                 }}
+               >
+                 {sentence}
+               </Typography>
+             ))}
            </Paper>
-           <Button variant="contained" startIcon={<CheckCircleOutlineIcon />} onClick={handleTextSelection} sx={{mt: 2, flexShrink: 0}}>
+           <Button variant="contained" startIcon={<CheckCircleOutlineIcon />} onClick={handleConfirmSelection} disabled={!selectedSentence} sx={{mt: 2, flexShrink: 0}}>
              为选中内容添加批注
            </Button>
         </Box>
       </Drawer>
 
+      {/* ... 最终的批注输入面板 ... */}
       <Drawer anchor="bottom" open={annotationModal.open} onClose={() => setAnnotationModal({ open: false })}>
         <Box p={2}>
           <Typography variant="h6" noWrap>为 “{tempAnnotation.text}” 添加批注</Typography>
@@ -283,6 +294,7 @@ function Reader() {
         </Box>
       </Drawer>
       
+      {/* ... 其他Drawer和Fab组件 ... */}
       <Drawer anchor="right" open={showAnnotationsPanel} onClose={() => setShowAnnotationsPanel(false)}>
         <Box sx={{ width: {xs: '80vw', sm: 350}, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>所有批注</Typography>
@@ -306,13 +318,7 @@ function Reader() {
         </Box>
       </Drawer>
       <Fab color="primary" sx={{ position: 'fixed', bottom: 32, right: 32, zIndex: 1200 }} onClick={() => setShowGeminiChat(true)}><ChatIcon /></Fab>
-      <GeminiChat 
-        open={showGeminiChat} 
-        onClose={() => setShowGeminiChat(false)} 
-        onSendMessage={handleSendChatMessage} 
-        messages={chatMessages}
-        isSending={isChatSending}
-      />
+      <GeminiChat open={showGeminiChat} onClose={() => setShowGeminiChat(false)} onSendMessage={handleSendChatMessage} messages={chatMessages} isSending={isChatSending}/>
       <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar({ ...snackbar, open: false })} message={snackbar.message} />
     </Box>
   );
