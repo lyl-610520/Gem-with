@@ -94,35 +94,29 @@ function Reader() {
           }
         });
       }
-    } catch (err) {
-      console.error("获取批注失败:", err);
-    }
+    } catch (err) { console.error("获取批注失败:", err); }
   }, [bookId]);
 
   useEffect(() => {
+    // ... (核心加载逻辑保持不变)
     if (renditionRef.current) renditionRef.current.destroy();
     if (bookRef.current) bookRef.current.destroy();
     if (!bookId) { setError("未找到书籍ID"); setIsLoading(false); return; }
     let isMounted = true;
     setIsLoading(true); setError('');
-
     const loadBook = async () => {
       try {
         const fileResponse = await axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' });
         if (!isMounted) return;
-        
         bookRef.current = Epub(fileResponse.data);
         await bookRef.current.ready;
         await bookRef.current.locations.generate(1600);
         if (!isMounted) return;
-        
         setToc(bookRef.current.navigation.toc);
         setBookLocation(prev => ({ ...prev, totalPages: bookRef.current.locations.length() }));
-        
         if (viewerRef.current) {
           renditionRef.current = bookRef.current.renderTo(viewerRef.current, { width: '100%', height: '100%' });
           const savedCfi = localStorage.getItem(`book-progress-${bookId}`);
-          
           const updateLocation = () => {
             if (!isMounted || !renditionRef.current || !bookRef.current.locations) return;
             const currentLocation = renditionRef.current.currentLocation();
@@ -132,39 +126,39 @@ function Reader() {
               localStorage.setItem(`book-progress-${bookId}`, cfi);
             }
           };
-
-          renditionRef.current.on('displayed', async () => {
-            if (!isMounted) return;
-            await fetchAndDrawAnnotations();
-            updateLocation();
-          });
-          
+          renditionRef.current.on('displayed', () => { if(isMounted) { fetchAndDrawAnnotations(); updateLocation(); }});
           await renditionRef.current.display(savedCfi || undefined);
           renditionRef.current.on('relocated', updateLocation);
         }
         if (isMounted) setIsLoading(false);
-      } catch (err) {
-        if (isMounted) { setError("加载失败，请刷新重试"); setIsLoading(false); }
-      }
+      } catch (err) { if (isMounted) { setError("加载失败，请刷新重试"); setIsLoading(false); } }
     };
     loadBook();
     return () => { isMounted = false; if (renditionRef.current) renditionRef.current.destroy(); if (bookRef.current) bookRef.current.destroy(); };
   }, [bookId, fetchAndDrawAnnotations]);
 
+  // [所见即所得] 绝对精准的文本提取方法
   const openAnnotationPanel = async () => {
-    if (!renditionRef.current || !bookRef.current) return;
+    if (!renditionRef.current || !bookRef.current || !viewerRef.current) return;
     try {
-      const range = await renditionRef.current.getCurrentRange();
-      if (!range) {
-          setSnackbar({ open: true, message: '无法获取当前页面范围' });
-          return;
-      }
-      const pageText = await bookRef.current.getRange(range.cfi).then(r => r.toString());
-      const sentences = (pageText.match(/[^。？！；.?!;]+[。？！；.?!;]?/g) || []).filter(s => s.trim());
+      const viewerRect = viewerRef.current.getBoundingClientRect();
+      // 获取左上角和右下角的CFI
+      const startCfi = renditionRef.current.cfiFromPoint(0, 0);
+      const endCfi = renditionRef.current.cfiFromPoint(viewerRect.width, viewerRect.height);
+      // 创建一个精确的范围
+      const rangeCfi = new Epub.Range(startCfi, endCfi).toString();
+      
+      // 获取这个范围内的文本
+      const visibleText = await bookRef.current.getRange(rangeCfi).then(range => range.toString());
+
+      const sentences = (visibleText.match(/[^。？！；.?!;]+[。？！；.?!;]?/g) || []).filter(s => s.trim());
       setCurrentPageSentences(sentences);
       setSelectedSentence(null);
       setIsTextSelectionOpen(true);
-    } catch(e) { console.error(e); setSnackbar({ open: true, message: '提取当前页文本失败' }); }
+    } catch(e) { 
+      console.error("提取文本失败:", e);
+      setSnackbar({ open: true, message: '提取文本失败，请稍后再试' }); 
+    }
   };
   
   const handleSentenceClick = (sentence, index) => setSelectedSentence({ text: sentence, index: index });
@@ -181,7 +175,7 @@ function Reader() {
       
       const currentLocation = renditionRef.current.currentLocation();
       const currentHref = currentLocation.start.href;
-      let finalResult = results.find(res => res.cfi.includes(currentHref)) || results;
+      let finalResult = results.find(res => res.cfi.includes(currentHref)) || results[0];
 
       setTempAnnotation({ text: selectedText, cfiRange: finalResult.cfi });
       setAnnotationModal({ open: true });
@@ -228,6 +222,7 @@ function Reader() {
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
+      {/* ... (顶部导航栏等UI保持不变) ... */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{title || '...'}</Typography>
