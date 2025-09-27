@@ -23,6 +23,27 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 // GeminiChat 组件保持不变，这里省略以保持简洁
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
+  const [input, setInput] = useState('');
+  const messagesEndRef = useRef(null);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  const handleSend = () => { if (input.trim()) { onSendMessage(input.trim()); setInput(''); } };
+  if (!open) return null;
+  return (
+    <Paper elevation={12} sx={{ position: 'fixed', bottom: {xs: 10, sm: 20}, right: {xs: 10, sm: 20}, width: {xs: 'calc(100% - 20px)', sm: 360}, height: {xs: '70vh', sm: 500}, zIndex: 1300, display: 'flex', flexDirection: 'column', borderRadius: '20px', backdropFilter: 'blur(10px)', backgroundColor: 'rgba(255, 255, 255, 0.8)', boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)', overflow: 'hidden' }}>
+      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.1)' }}><Typography variant="h6" sx={{fontWeight: 'bold'}}>与 Gem 伴读</Typography><IconButton onClick={onClose} size="small"><CloseIcon /></IconButton></Box>
+      <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2 }}>
+        {messages.map((msg, index) => (
+          <Box key={index} sx={{ display: 'flex', justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start', mb: 1.5 }}>
+            {msg.sender === 'gemini' && <Avatar sx={{ bgcolor: 'primary.light', mr: 1, width: 32, height: 32 }}><AutoAwesomeIcon fontSize="small" /></Avatar>}
+            <Paper elevation={0} sx={{ p: '10px 14px', borderRadius: msg.sender === 'user' ? '20px 20px 5px 20px' : '20px 20px 20px 5px', bgcolor: msg.sender === 'user' ? 'primary.main' : 'rgba(0,0,0,0.05)', color: msg.sender === 'user' ? 'white' : 'black', maxWidth: '80%' }}><Typography variant="body1" sx={{whiteSpace: 'pre-wrap'}}>{msg.text}</Typography></Paper>
+          </Box>
+        ))}
+        {isSending && <Typography sx={{textAlign: 'center', color: 'text.secondary', fontSize: '0.8rem', my: 1}}>Gem 正在思考...</Typography>}
+        <div ref={messagesEndRef} />
+      </Box>
+      <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSend(); }} sx={{ p: 1, display: 'flex', alignItems: 'center', borderTop: '1px solid rgba(0,0,0,0.1)' }}><InputBase sx={{ ml: 1, flex: 1, bgcolor: 'rgba(0,0,0,0.05)', borderRadius: '20px', px: 2, py: 0.5 }} placeholder="问问关于这一页的事..." value={input} onChange={(e) => setInput(e.target.value)} /><IconButton type="submit" color="primary" disabled={isSending || !input.trim()}><SendIcon /></IconButton></Box>
+    </Paper>
+  );
     // ... (你原来的 GeminiChat 组件代码可以原封不动地放在这里) ...
 }
 
@@ -77,7 +98,7 @@ function Reader() {
     if (!bookId) return;
     try {
       // 从后端获取这本书的所有批注
-      const response = await axios.get(`/api/books/${bookId}`);
+      const response = await axios.get(`/books/${bookId}`);
       const loadedAnnotations = response.data.annotations || [];
       setAnnotations(loadedAnnotations);
       
@@ -115,7 +136,7 @@ function Reader() {
         setError('');
 
         // 1. 获取书籍文件
-        const fileResponse = await axios.get(`/api/books/${bookId}/file`, { responseType: 'arraybuffer' });
+        const fileResponse = await axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' });
         if (!isMounted) return;
 
         // 2. 初始化Epub实例
@@ -199,7 +220,7 @@ function Reader() {
       return;
     }
     try {
-      await axios.post(`/api/books/${bookId}/annotations`, {
+      await axios.post(`/books/${bookId}/annotations`, {
         content: note,
         highlighted_text: tempAnnotation.text,
         cfi: tempAnnotation.cfi,
@@ -231,7 +252,7 @@ function Reader() {
         const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
         
         // 调用后端API (注意，后端需要接收cfi)
-        const response = await axios.post(`/api/books/${bookId}/generate-gemini-annotation`, {
+        const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
             page_content: currentPageText,
             cfi: pageStartCfi // 传递起始CFI
         });
@@ -252,7 +273,7 @@ function Reader() {
     setChatMessages(prev => [...prev, { sender: 'user', text: message }]);
     try {
       const page_content = getCurrentPageText();
-      const response = await axios.post(`/api/books/${bookId}/chat`, { message, page_content });
+      const response = await axios.post(`/books/${bookId}/chat`, { message, page_content });
       setChatMessages(prev => [...prev, { sender: 'gemini', text: response.data.response }]);
     } catch (err) {
       setChatMessages(prev => [...prev, { sender: 'gemini', text: "抱歉，我好像出错了..." }]);
@@ -264,7 +285,7 @@ function Reader() {
   const handleDeleteAnnotation = async (annotationId) => {
     if (!window.confirm("确定要删除这条批注吗？")) return;
     try {
-      await axios.delete(`/api/books/${bookId}/annotations/${annotationId}`);
+      await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
       setSnackbar({ open: true, message: '批注已删除' });
       // 从状态中移除，避免重新请求API，响应更快
       setAnnotations(prev => prev.filter(a => a.id !== annotationId));
