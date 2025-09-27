@@ -98,7 +98,6 @@ function Reader() {
   }, [bookId]);
 
   useEffect(() => {
-    // ... (核心加载逻辑保持不变)
     if (renditionRef.current) renditionRef.current.destroy();
     if (bookRef.current) bookRef.current.destroy();
     if (!bookId) { setError("未找到书籍ID"); setIsLoading(false); return; }
@@ -137,19 +136,21 @@ function Reader() {
     return () => { isMounted = false; if (renditionRef.current) renditionRef.current.destroy(); if (bookRef.current) bookRef.current.destroy(); };
   }, [bookId, fetchAndDrawAnnotations]);
 
-  // [所见即所得] 绝对精准的文本提取方法
-  const openAnnotationPanel = async () => {
-    if (!renditionRef.current || !bookRef.current || !viewerRef.current) return;
+  // [刮骨疗毒] 绝对可靠的文本提取方案
+  const openAnnotationPanel = () => {
+    if (!renditionRef.current || !renditionRef.current.getContents()) {
+      setSnackbar({ open: true, message: '阅读器尚未准备好' });
+      return;
+    }
     try {
-      const viewerRect = viewerRef.current.getBoundingClientRect();
-      // 获取左上角和右下角的CFI
-      const startCfi = renditionRef.current.cfiFromPoint(0, 0);
-      const endCfi = renditionRef.current.cfiFromPoint(viewerRect.width, viewerRect.height);
-      // 创建一个精确的范围
-      const rangeCfi = new Epub.Range(startCfi, endCfi).toString();
-      
-      // 获取这个范围内的文本
-      const visibleText = await bookRef.current.getRange(rangeCfi).then(range => range.toString());
+      // 直接、可靠地从渲染好的iframe中提取可见文本
+      const contents = renditionRef.current.getContents()[0];
+      const visibleText = contents.document.body.innerText;
+
+      if (!visibleText.trim()) {
+        setSnackbar({ open: true, message: '当前页没有可供批注的文本' });
+        return;
+      }
 
       const sentences = (visibleText.match(/[^。？！；.?!;]+[。？！；.?!;]?/g) || []).filter(s => s.trim());
       setCurrentPageSentences(sentences);
@@ -157,7 +158,7 @@ function Reader() {
       setIsTextSelectionOpen(true);
     } catch(e) { 
       console.error("提取文本失败:", e);
-      setSnackbar({ open: true, message: '提取文本失败，请稍后再试' }); 
+      setSnackbar({ open: true, message: '提取文本时发生错误' }); 
     }
   };
   
@@ -222,7 +223,6 @@ function Reader() {
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
-      {/* ... (顶部导航栏等UI保持不变) ... */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{title || '...'}</Typography>
