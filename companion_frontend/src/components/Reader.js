@@ -98,6 +98,7 @@ function Reader() {
   }, [bookId]);
 
   useEffect(() => {
+    // ... (核心加载逻辑保持不变)
     if (renditionRef.current) renditionRef.current.destroy();
     if (bookRef.current) bookRef.current.destroy();
     if (!bookId) { setError("未找到书籍ID"); setIsLoading(false); return; }
@@ -136,30 +137,41 @@ function Reader() {
     return () => { isMounted = false; if (renditionRef.current) renditionRef.current.destroy(); if (bookRef.current) bookRef.current.destroy(); };
   }, [bookId, fetchAndDrawAnnotations]);
 
-  // [刮骨疗毒] 绝对可靠的文本提取方案
-  const openAnnotationPanel = () => {
-    if (!renditionRef.current || !renditionRef.current.getContents()) {
-      setSnackbar({ open: true, message: '阅读器尚未准备好' });
-      return;
-    }
-    try {
-      // 直接、可靠地从渲染好的iframe中提取可见文本
-      const contents = renditionRef.current.getContents()[0];
-      const visibleText = contents.document.body.innerText;
-
-      if (!visibleText.trim()) {
-        setSnackbar({ open: true, message: '当前页没有可供批注的文本' });
+  // [拨乱反正] 绝对可靠的“所见即所得”文本提取方案
+  const openAnnotationPanel = async () => {
+    if (!renditionRef.current || !bookRef.current || !viewerRef.current) {
+        setSnackbar({ open: true, message: '阅读器尚未完全准备好' });
         return;
-      }
-
-      const sentences = (visibleText.match(/[^。？！；.?!;]+[。？！；.?!;]?/g) || []).filter(s => s.trim());
-      setCurrentPageSentences(sentences);
-      setSelectedSentence(null);
-      setIsTextSelectionOpen(true);
-    } catch(e) { 
-      console.error("提取文本失败:", e);
-      setSnackbar({ open: true, message: '提取文本时发生错误' }); 
     }
+
+    // 等待一个渲染周期，确保rendition稳定
+    setTimeout(async () => {
+        try {
+            const viewerRect = viewerRef.current.getBoundingClientRect();
+            // 获取左上角和右下角的CFI
+            const startCfi = renditionRef.current.cfiFromPoint(0, 0);
+            const endCfi = renditionRef.current.cfiFromPoint(viewerRect.width, viewerRect.height);
+
+            // 如果起点或终点无效，则提取失败
+            if (!startCfi || !endCfi) {
+                throw new Error("无法确定页面边界");
+            }
+
+            // 创建一个精确的范围
+            const rangeCfi = new Epub.Range(startCfi, endCfi).toString();
+            
+            // 获取这个范围内的纯净文本
+            const visibleText = await bookRef.current.getRange(rangeCfi).then(range => range.toString());
+
+            const sentences = (visibleText.match(/[^。？！；.?!;]+[。？！；.?!;]?/g) || []).filter(s => s.trim());
+            setCurrentPageSentences(sentences);
+            setSelectedSentence(null);
+            setIsTextSelectionOpen(true);
+        } catch(e) { 
+            console.error("提取文本失败:", e);
+            setSnackbar({ open: true, message: '提取文本失败，请翻页后重试' }); 
+        }
+    }, 100); // 100毫秒的延迟，等待渲染稳定
   };
   
   const handleSentenceClick = (sentence, index) => setSelectedSentence({ text: sentence, index: index });
@@ -171,11 +183,22 @@ function Reader() {
     setSnackbar({ open: true, message: '正在定位文本...' });
 
     try {
+      // 因为文本来源纯净，搜索将非常可靠
       const results = await bookRef.current.spine.search(selectedText);
-      if (results.length === 0) { setSnackbar({ open: true, message: '无法在书中定位此文本' }); return; }
+      if (results.length === 0) { 
+        // 增加一个备用方案：如果精确搜索失败，尝试只搜索一部分
+        const shorterText = selectedText.substring(0, 30);
+        const fallbackResults = await bookRef.current.spine.search(shorterText);
+        if (fallbackResults.length === 0) {
+          setSnackbar({ open: true, message: '无法在书中定位此文本' }); 
+          return;
+        }
+        results.push(...fallbackResults);
+      }
       
       const currentLocation = renditionRef.current.currentLocation();
       const currentHref = currentLocation.start.href;
+      // 优先选择当前章节的结果
       let finalResult = results.find(res => res.cfi.includes(currentHref)) || results[0];
 
       setTempAnnotation({ text: selectedText, cfiRange: finalResult.cfi });
