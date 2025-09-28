@@ -1388,7 +1388,38 @@ def health_check():
     """健康检查"""
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
-    
+
+# companion_backend/app.py
+
+from sqlalchemy import text # <--- [重要] 在文件顶部确保导入了 text
+
+# ... (你其他的app.route代码) ...
+
+# ==========================================================
+# [最终修复手术刀] - 修正 annotation 表的 page_number 约束
+# ==========================================================
+@app.route('/api/database/fix-page-number-constraint', methods=['GET'])
+def fix_page_number_constraint():
+    """
+    一次性API，用于修改线上数据库的表结构，允许 page_number 为空。
+    """
+    try:
+        with db.engine.connect() as connection:
+            # 这条SQL命令会告诉PostgreSQL数据库，修改annotation表，让page_number列可以为NULL
+            sql_command = text("ALTER TABLE annotation ALTER COLUMN page_number DROP NOT NULL;")
+            connection.execute(sql_command)
+            # 在PostgreSQL中，需要提交事务
+            connection.commit()
+            
+        print("✅ [修复成功] 数据库 annotation 表的 page_number 字段已成功更新为 nullable=True。")
+        return jsonify({'success': True, 'message': 'Database schema fixed successfully.'})
+
+    except Exception as e:
+        import traceback
+        error_message = f"执行数据库修复时发生错误: {e}"
+        print(f"❌ [修复失败] {error_message}")
+        return jsonify({'error': error_message, 'traceback': traceback.format_exc()}), 500
+
 # ==========================================================
 # [新增] 定时任务的“秘密开关” (Cron Job "Secret Switch")
 # ==========================================================
