@@ -1,4 +1,4 @@
-// src/components/Reader.js (最后一战 · The Final Stand)
+// src/components/Reader.js (真·最终·完整·无删减版)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -20,7 +20,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
 import CreateIcon from '@mui/icons-material/Create';
 
-// GeminiChat 组件 (保持完整，不省略)
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -51,7 +50,6 @@ function Reader() {
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
   const viewerRef = useRef(null);
-  // [战术一] 用于保存位置的“锚点”
   const locationAnchor = useRef(null);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -77,9 +75,15 @@ function Reader() {
   const [chatMessages, setChatMessages] = useState([]);
   const [isChatSending, setIsChatSending] = useState(false);
 
-  const getCurrentPageText = useCallback(() => { /* ... (no changes) ... */ }, []);
+  const getCurrentPageText = useCallback(() => {
+    if (!renditionRef.current) return "";
+    const contents = renditionRef.current.getContents();
+    if (contents.length > 0 && contents[0].document) {
+      return contents[0].document.body.innerText;
+    }
+    return "";
+  }, []);
   
-  // [战术二] 终极版高亮绘制函数
   const fetchAndDrawAnnotations = useCallback(async (forceDisplay = false) => {
     if (!bookId || !renditionRef.current) return;
     try {
@@ -87,32 +91,26 @@ function Reader() {
       const loadedAnnotations = response.data.annotations || [];
       setAnnotations(loadedAnnotations);
       
-      // 等待一个渲染周期，确保rendition稳定
       setTimeout(() => {
         if (!renditionRef.current) return;
         renditionRef.current.annotations.removeall();
-        console.log("Starting to draw annotations...");
         loadedAnnotations.forEach(anno => {
           if (anno.cfi) {
-            // [战术二] 切换到更稳定的下划线引擎
             renditionRef.current.annotations.underline(
               anno.cfi, 
               {}, 
               (e) => console.log("Underline clicked", anno.cfi),
               "custom-underline", 
-              { "stroke": anno.is_gemini_annotation ? "blue" : "orange", "stroke-width": "2px" }
+              { "stroke": anno.is_gemini_annotation ? "rgba(30, 144, 255, 0.8)" : "rgba(255, 165, 0, 0.8)", "stroke-width": "2px" }
             );
           }
         });
-        console.log("Finished drawing annotations.");
 
-        // [战术一 & 二] 如果需要，强制刷新/传送
         if (forceDisplay && locationAnchor.current) {
-          console.log("Forcing display to anchor:", locationAnchor.current);
           renditionRef.current.display(locationAnchor.current);
-          locationAnchor.current = null; // 用完就丢
+          locationAnchor.current = null;
         }
-      }, 300); // 增加延迟，给足反应时间
+      }, 300);
 
     } catch (err) {
       console.error("获取或绘制批注失败:", err);
@@ -121,15 +119,6 @@ function Reader() {
   }, [bookId]);
 
   useEffect(() => {
-    // ... (loadBook logic is mostly the same) ...
-    // Inside the `loadBook` async function:
-    // ...
-    // renditionRef.current.on('displayed', ...) is now just for initial load
-    renditionRef.current.on('displayed', () => {
-        if (isMounted) fetchAndDrawAnnotations();
-    });
-    // ... rest of the useEffect
-    // The following code is complete, no more omissions
     let isMounted = true;
     if (!bookId) {
       setError("未找到书籍ID");
@@ -176,10 +165,7 @@ function Reader() {
           renditionRef.current.on('selected', (cfiRange, contents) => {
             const selection = contents.window.getSelection();
             if (selection && selection.toString().trim().length > 0) {
-                // [战术一] 在选择时就记下锚点
                 locationAnchor.current = renditionRef.current.currentLocation().start.cfi;
-                console.log("Anchor saved:", locationAnchor.current);
-
                 setTempAnnotation({
                     text: selection.toString().trim(),
                     cfi: cfiRange,
@@ -240,9 +226,17 @@ function Reader() {
     };
   }, [bookId, fetchAndDrawAnnotations]);
 
-  const closeSelectionPopover = () => { /* ... (no changes) ... */ };
+  const closeSelectionPopover = () => {
+    setSelectionPopover(null);
+    if (renditionRef.current) {
+        renditionRef.current.getContents().forEach(content => {
+            if (content.window) {
+                content.window.getSelection().removeAllRanges();
+            }
+        });
+    }
+  };
 
-  // [战术一] 改造保存函数
   const handleSaveAnnotation = async (note) => {
     if (!note.trim()) {
       setSnackbar({ open: true, message: '批注内容不能为空' });
@@ -255,7 +249,6 @@ function Reader() {
         cfi: tempAnnotation.cfi,
       });
       setSnackbar({ open: true, message: '批注已保存' });
-      // 告诉绘制函数，这次需要强制传送！
       await fetchAndDrawAnnotations(true);
     } catch (err) {
       console.error("保存批注失败: ", err);
@@ -265,11 +258,55 @@ function Reader() {
     closeSelectionPopover();
   };
 
-  const handleGenerateGeminiAnnotation = async () => { /* ... (no changes, but benefits from the new drawing logic) ... */ };
-  const handleSendChatMessage = async (message) => { /* ... (no changes) ... */ };
-  const handleDeleteAnnotation = async (annotationId) => { /* ... (no changes, but benefits from the new drawing logic) ... */ };
-  // ... (rest of the functions are unchanged)
-  // The following code is complete, no more omissions
+  const handleGenerateGeminiAnnotation = async () => {
+    setSnackbar({ open: true, message: '正在请求 Gem 为本页生成批注...' });
+    try {
+        const currentPageText = getCurrentPageText();
+        if (currentPageText.length < 50) {
+            setSnackbar({ open: true, message: '当前页内容太少，无法生成批注' });
+            return;
+        }
+        const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
+        const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
+            page_content: currentPageText,
+            cfi: pageStartCfi
+        });
+        if (response.data.success) {
+            setSnackbar({ open: true, message: 'Gem 批注已生成并保存' });
+            await fetchAndDrawAnnotations(true);
+        }
+    } catch (err) {
+        console.error("Gemini annotation generation failed:", err);
+        setSnackbar({ open: true, message: err.response?.data?.error || '生成AI批注失败' });
+    }
+    closeSelectionPopover();
+  };
+
+  const handleSendChatMessage = async (message) => {
+    setIsChatSending(true);
+    setChatMessages(prev => [...prev, { sender: 'user', text: message }]);
+    try {
+      const page_content = getCurrentPageText();
+      const response = await axios.post(`/books/${bookId}/chat`, { message, page_content });
+      setChatMessages(prev => [...prev, { sender: 'gemini', text: response.data.response }]);
+    } catch (err) {
+      setChatMessages(prev => [...prev, { sender: 'gemini', text: "抱歉，我好像出错了..." }]);
+    }
+    setIsChatSending(false);
+  };
+
+  const handleDeleteAnnotation = async (annotationId) => {
+    if (!window.confirm("确定要删除这条批注吗？")) return;
+    try {
+      await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
+      setSnackbar({ open: true, message: '批注已删除' });
+      setAnnotations(prev => prev.filter(a => a.id !== annotationId));
+      await fetchAndDrawAnnotations(true);
+    } catch (err) {
+      setSnackbar({ open: true, message: '删除失败' });
+    }
+  };
+
   const handleNextPage = useCallback(() => { if (!selectionPopover) renditionRef.current?.next(); }, [selectionPopover]);
   const handlePrevPage = useCallback(() => { if (!selectionPopover) renditionRef.current?.prev(); }, [selectionPopover]);
   const onTocClick = (href) => { renditionRef.current?.display(href).then(() => setShowToc(false)); };
@@ -277,17 +314,22 @@ function Reader() {
     if(renditionRef.current) {
         renditionRef.current.display(cfi);
         setShowAnnotationsPanel(false);
-        // 跳转后再次强制绘制，确保高亮可见
         fetchAndDrawAnnotations(true);
     }
   };
 
-  const handleKeyPress = useCallback((event) => { /* ... (no changes) ... */ }, []);
-  useEffect(() => { /* ... (no changes) ... */ }, []);
+  const handleKeyPress = useCallback((event) => {
+    if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase())) return;
+    if (event.key === 'ArrowRight') handleNextPage();
+    if (event.key === 'ArrowLeft') handlePrevPage();
+  }, [handleNextPage, handlePrevPage]);
 
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [handleKeyPress]);
+  
   return (
-    // The entire JSX return block is unchanged from the last full version
-    // The following code is complete, no more omissions
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
@@ -374,7 +416,7 @@ function Reader() {
       </Drawer>
 
       <Fab color="primary" sx={{ position: 'fixed', bottom: 72, right: 16, zIndex: 1200 }} onClick={() => setShowGeminiChat(true)}><ChatIcon /></Fab>
-      <GeminiChat open={showGeminiChat} onClose={() => setShowGeminiChat(false)} onSendMessage={handleSendChatMessage} messages={chatMessages} isSending={isChatSending}/>
+      <GeminiChat open={showAnnotationsPanel} onClose={() => setShowGeminiChat(false)} onSendMessage={handleSendChatMessage} messages={chatMessages} isSending={isChatSending}/>
       
       <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} message={snackbar.message} />
     </Box>
