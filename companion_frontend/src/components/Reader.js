@@ -1,4 +1,4 @@
-// src/components/Reader.js (最终优化版 - 完整代码)
+// src/components/Reader.js (最终修复版 - 完整代码)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -20,7 +20,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
 import CreateIcon from '@mui/icons-material/Create';
 
-// GeminiChat 组件 (完整)
+// GeminiChat 组件 (保持完整，不省略)
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -140,6 +140,7 @@ function Reader() {
             flow: "paginated",
           });
 
+          // [最终修复] 注入CSS，修复iOS渲染错乱并强制禁用原生选择菜单
           renditionRef.current.themes.register("custom", {
             "body": { 
               "padding": "20px !important", 
@@ -147,44 +148,54 @@ function Reader() {
               "font-size": "18px !important",
               "color": "#333 !important",
               "word-wrap": "break-word",
+              "-webkit-touch-callout": "none !important", // <-- 核心！禁用iOS原生菜单
+              "user-select": "text !important", // <-- 确保文本可选
             },
-            "p, div, span": {
-              "line-height": "1.7 !important", 
-              "font-size": "18px !important",
+            "*": {
+              "-webkit-touch-callout": "none !important",
+              "user-select": "text !important",
             }
           });
           renditionRef.current.themes.select("custom");
 
 
           renditionRef.current.on('selected', (cfiRange, contents) => {
-            const selection = contents.window.getSelection();
-            const selectedText = selection.toString().trim();
-            
-            if (selectedText) {
-              setTempAnnotation({ text: selectedText, cfi: cfiRange });
-              const range = selection.getRangeAt(0);
-              const rect = range.getBoundingClientRect();
-              
-              const viewerRect = viewerRef.current.getBoundingClientRect();
-              const relativeRect = {
-                  top: rect.top - viewerRect.top,
-                  left: rect.left - viewerRect.left,
-                  width: rect.width,
-                  height: rect.height,
-              };
+            // 确保只在有实际选择时触发
+            if (contents.window.getSelection().toString().trim().length > 0) {
+                setTempAnnotation({
+                    text: contents.window.getSelection().toString().trim(),
+                    cfi: cfiRange,
+                });
 
-              setSelectionPopover({ anchorEl: viewerRef.current, rect: relativeRect });
+                const range = contents.window.getSelection().getRangeAt(0);
+                const rect = range.getBoundingClientRect();
+                const viewerRect = viewerRef.current.getBoundingClientRect();
+
+                setSelectionPopover({
+                    rect: {
+                        top: rect.top - viewerRect.top,
+                        left: rect.left - viewerRect.left,
+                        width: rect.width,
+                        height: rect.height,
+                    },
+                });
             }
           });
 
           renditionRef.current.on('relocated', (location) => {
             if (!isMounted || !bookRef.current) return;
+
+            // [最终修复] 更健壮的章节名匹配逻辑
             const chapter = bookRef.current.spine.get(location.start.href);
             let currentChapterLabel = '未知章节';
-            if (chapter && chapter.idref) {
-                const tocItem = bookRef.current.navigation.toc.find(item => chapter.href.includes(item.href));
-                if (tocItem) {
-                    currentChapterLabel = tocItem.label.trim();
+            if (chapter) {
+                const foundTocItem = bookRef.current.navigation.toc.find(item => {
+                    const tocHref = item.href.split('#')[0];
+                    const chapterHref = chapter.href.split('#')[0];
+                    return chapterHref.includes(tocHref);
+                });
+                if (foundTocItem) {
+                    currentChapterLabel = foundTocItem.label.trim();
                 }
             }
 
@@ -222,8 +233,6 @@ function Reader() {
   }, [bookId, fetchAndDrawAnnotations]);
 
   const closeSelectionPopover = () => {
-    // We don't clear browser's native selection highlight here
-    // to let user see what they've selected. It will be cleared on next click.
     setSelectionPopover(null);
   }
 
@@ -241,7 +250,8 @@ function Reader() {
       setSnackbar({ open: true, message: '批注已保存' });
       await fetchAndDrawAnnotations();
     } catch (err) {
-      setSnackbar({ open: true, message: '保存失败' });
+      console.error("保存批注失败: ", err);
+      setSnackbar({ open: true, message: err.response?.data?.error || '保存失败' });
     }
     setAnnotationModal({ open: false });
     closeSelectionPopover();
@@ -301,8 +311,8 @@ function Reader() {
     }
   };
 
-  const handleNextPage = useCallback(() => renditionRef.current?.next(), []);
-  const handlePrevPage = useCallback(() => renditionRef.current?.prev(), []);
+  const handleNextPage = useCallback(() => { if (!selectionPopover) renditionRef.current?.next(); }, [selectionPopover]);
+  const handlePrevPage = useCallback(() => { if (!selectionPopover) renditionRef.current?.prev(); }, [selectionPopover]);
   const onTocClick = (href) => { renditionRef.current?.display(href).then(() => setShowToc(false)); };
   const handleJumpToAnnotation = (cfi) => { renditionRef.current?.display(cfi); setShowAnnotationsPanel(false); };
 
@@ -333,16 +343,10 @@ function Reader() {
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
         
         <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading || error ? 'hidden' : 'visible' }} />
-        {!isLoading && !error && (
-          <>
-            <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '25%', height: '100%', zIndex: 10 }} />
-            <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '25%', height: '100%', zIndex: 10 }} />
-            <Box 
-              sx={{ position: 'absolute', top: 0, left: '25%', width: '50%', height: '100%', zIndex: 1 }}
-              onClick={() => { if(selectionPopover) closeSelectionPopover() }}
-            />
-          </>
-        )}
+        
+        {/* [最终修复] 更智能的翻页热区 */}
+        <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '25%', height: '100%', zIndex: 10, cursor: selectionPopover ? 'default' : 'pointer' }} />
+        <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '25%', height: '100%', zIndex: 10, cursor: selectionPopover ? 'default' : 'pointer' }} />
       </Box>
 
       <Popover
