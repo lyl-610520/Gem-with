@@ -1,4 +1,4 @@
-// src/components/Reader.js (终极完整最终修复版)
+// src/components/Reader.js (真正的最终版 - 锚定与召回战术)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -84,53 +84,25 @@ function Reader() {
     return "";
   }, []);
   
-  // [终极修复] 对高亮函数进行手术
   const fetchAndDrawAnnotations = useCallback(async () => {
-    if (!bookId) return;
+    if (!bookId || !renditionRef.current) return;
     try {
       const response = await axios.get(`/books/${bookId}`);
       const loadedAnnotations = response.data.annotations || [];
       setAnnotations(loadedAnnotations);
       
-      if (renditionRef.current && renditionRef.current.getContents()) {
-        // [修复1] 强制延迟，等待渲染稳定
-        setTimeout(() => {
-          if (!renditionRef.current) return; // 在延迟期间，组件可能已卸载
-
-          renditionRef.current.annotations.removeall();
-          loadedAnnotations.forEach(anno => {
-            if (anno.cfi) {
-              const highlightColor = anno.is_gemini_annotation ? 'rgba(135, 206, 250, 0.4)' : 'rgba(255, 255, 0, 0.4)';
-              
-              // [修复2] 增加点击事件和图层提升
-              renditionRef.current.annotations.add(
-                "highlight", 
-                anno.cfi, 
-                {}, 
-                (e) => {
-                  // 增加一个点击事件，可以增强epub.js对高亮的“感知”
-                  console.log("Highlight clicked", anno.cfi);
-                }, 
-                "hl-class", 
-                { 
-                  "fill": highlightColor,
-                  // [修复3] 强制提升图层
-                  "mix-blend-mode": "multiply",
-                  "pointer-events": "auto",
-                }
-              );
-            }
-          });
-        }, 200); // 200毫秒的“魔法延迟”
-      }
+      renditionRef.current.annotations.removeall();
+      loadedAnnotations.forEach(anno => {
+        if (anno.cfi) {
+          const highlightColor = anno.is_gemini_annotation ? 'rgba(135, 206, 250, 0.4)' : 'rgba(255, 255, 0, 0.4)';
+          renditionRef.current.annotations.add("highlight", anno.cfi, {}, () => {}, "hl-class", { "fill": highlightColor });
+        }
+      });
     } catch (err) {
-      console.error("获取批注失败:", err);
-      setSnackbar({ open: true, message: '无法加载批注' });
+      console.error("获取或绘制批注失败:", err);
+      setSnackbar({ open: true, message: '无法加载或显示批注' });
     }
   }, [bookId]);
-
-  // (以下所有其他代码保持不变，直到UI渲染部分)
-  // ...
 
   useEffect(() => {
     let isMounted = true;
@@ -164,36 +136,23 @@ function Reader() {
           renditionRef.current.themes.register("custom", {
             "body": { 
               "padding": "20px !important", 
-              "line-height": "1.7 !important", 
-              "font-size": "18px !important",
-              "color": "#333 !important",
-              "word-wrap": "break-word",
-              "-webkit-touch-callout": "none !important",
-              "user-select": "none !important",
+              "line-height": "1.7 !important", "font-size": "18px !important", "color": "#333 !important",
+              "word-wrap": "break-word", "-webkit-touch-callout": "none !important", "user-select": "none !important",
             },
-            "p, span, div": {
-              "user-select": "text !important",
-            }
+            "p, span, div": { "user-select": "text !important" }
           });
           renditionRef.current.themes.select("custom");
           renditionRef.current.on('selected', (cfiRange, contents) => {
             const selection = contents.window.getSelection();
             if (selection && selection.toString().trim().length > 0) {
-                setTempAnnotation({
-                    text: selection.toString().trim(),
-                    cfi: cfiRange,
-                });
+                setTempAnnotation({ text: selection.toString().trim(), cfi: cfiRange });
                 const range = selection.getRangeAt(0);
                 const rect = range.getBoundingClientRect();
                 const viewerRect = viewerRef.current.getBoundingClientRect();
-                setSelectionPopover({
-                    rect: {
-                        top: rect.top - viewerRect.top,
-                        left: rect.left - viewerRect.left,
-                        width: rect.width,
-                        height: rect.height,
-                    },
-                });
+                setSelectionPopover({ rect: {
+                    top: rect.top - viewerRect.top, left: rect.left - viewerRect.left,
+                    width: rect.width, height: rect.height,
+                }});
             }
           });
           renditionRef.current.on('relocated', (location) => {
@@ -206,9 +165,7 @@ function Reader() {
                     const chapterHref = chapter.href.split('#')[0];
                     return chapterHref.includes(tocHref);
                 });
-                if (foundTocItem) {
-                    currentChapterLabel = foundTocItem.label.trim();
-                }
+                if (foundTocItem) currentChapterLabel = foundTocItem.label.trim();
             }
             setLocation({
               progress: Math.round(location.start.percentage * 100),
@@ -217,7 +174,10 @@ function Reader() {
             localStorage.setItem(`book-progress-${bookId}`, location.start.cfi);
           });
           renditionRef.current.on('displayed', () => {
-            if (isMounted) fetchAndDrawAnnotations();
+            if (isMounted) {
+                // 在页面初次显示时，延迟一点再画，确保稳定
+                setTimeout(() => fetchAndDrawAnnotations(), 300);
+            }
           });
           const savedCfi = localStorage.getItem(`book-progress-${bookId}`);
           await renditionRef.current.display(savedCfi || undefined);
@@ -225,10 +185,8 @@ function Reader() {
         if (isMounted) setIsLoading(false);
       } catch (err) {
         console.error("加载书籍失败:", err);
-        if (isMounted) {
-          setError("加载书籍失败，请刷新重试。");
-          setIsLoading(false);
-        }
+        if (isMounted) setError("加载书籍失败，请刷新重试。");
+        setIsLoading(false);
       }
     };
     loadBook();
@@ -243,56 +201,89 @@ function Reader() {
     setSelectionPopover(null);
     if (renditionRef.current) {
         renditionRef.current.getContents().forEach(content => {
-            if (content.window) {
-                content.window.getSelection().removeAllRanges();
-            }
+            if (content.window) content.window.getSelection().removeAllRanges();
         });
     }
   };
 
+  // [锚定与召回] 战术实施
   const handleSaveAnnotation = async (note) => {
-    if (!note.trim()) {
-      setSnackbar({ open: true, message: '批注内容不能为空' });
-      return;
-    }
+    if (!note.trim() || !renditionRef.current) return;
+    
+    // 1. 锚定：保存当前位置
+    const savedCfi = renditionRef.current.currentLocation().start.cfi;
+    
     try {
       await axios.post(`/books/${bookId}/annotations`, {
-        content: note,
-        highlighted_text: tempAnnotation.text,
-        cfi: tempAnnotation.cfi,
+        content: note, highlighted_text: tempAnnotation.text, cfi: tempAnnotation.cfi,
       });
       setSnackbar({ open: true, message: '批注已保存' });
+      
+      // 2. 执行：画高亮 (可能会引发跳页)
       await fetchAndDrawAnnotations();
+      
+      // 3. 召回：强制返回到保存的位置
+      await renditionRef.current.display(savedCfi);
+
     } catch (err) {
       console.error("保存批注失败: ", err);
-      setSnackbar({ open: true, message: err.response?.data?.error || '保存失败，请检查网络或联系管理员' });
+      setSnackbar({ open: true, message: err.response?.data?.error || '保存失败' });
     }
     setAnnotationModal({ open: false });
     closeSelectionPopover();
   };
-
+  
+  // [锚定与召回] 战术实施
   const handleGenerateGeminiAnnotation = async () => {
-    setSnackbar({ open: true, message: '正在请求 Gem 为本页生成批注...' });
+    if (!renditionRef.current) return;
+    
+    // 1. 锚定
+    const savedCfi = renditionRef.current.currentLocation().start.cfi;
+
+    setSnackbar({ open: true, message: '正在请求 Gem ...' });
     try {
         const currentPageText = getCurrentPageText();
         if (currentPageText.length < 50) {
-            setSnackbar({ open: true, message: '当前页内容太少，无法生成批注' });
+            setSnackbar({ open: true, message: '当前页内容太少' });
             return;
         }
-        const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
         const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
-            page_content: currentPageText,
-            cfi: pageStartCfi
+            page_content: currentPageText, cfi: savedCfi // 用保存的CFI作为AI批注的锚点
         });
         if (response.data.success) {
-            setSnackbar({ open: true, message: 'Gem 批注已生成并保存' });
+            setSnackbar({ open: true, message: 'Gem 批注已生成' });
+            // 2. 执行
             await fetchAndDrawAnnotations();
+            // 3. 召回
+            await renditionRef.current.display(savedCfi);
         }
     } catch (err) {
-        console.error("Gemini annotation generation failed:", err);
+        console.error("Gemini批注生成失败:", err);
         setSnackbar({ open: true, message: err.response?.data?.error || '生成AI批注失败' });
     }
     closeSelectionPopover();
+  };
+
+  // [锚定与召回] 战术实施
+  const handleDeleteAnnotation = async (annotationId) => {
+    if (!window.confirm("确定要删除这条批注吗？") || !renditionRef.current) return;
+    
+    // 1. 锚定
+    const savedCfi = renditionRef.current.currentLocation().start.cfi;
+    
+    try {
+      await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
+      setSnackbar({ open: true, message: '批注已删除' });
+      setAnnotations(prev => prev.filter(a => a.id !== annotationId));
+      
+      // 2. 执行
+      await fetchAndDrawAnnotations();
+      // 3. 召回
+      await renditionRef.current.display(savedCfi);
+      
+    } catch (err) {
+      setSnackbar({ open: true, message: '删除失败' });
+    }
   };
 
   const handleSendChatMessage = async (message) => {
@@ -306,18 +297,6 @@ function Reader() {
       setChatMessages(prev => [...prev, { sender: 'gemini', text: "抱歉，我好像出错了..." }]);
     }
     setIsChatSending(false);
-  };
-
-  const handleDeleteAnnotation = async (annotationId) => {
-    if (!window.confirm("确定要删除这条批注吗？")) return;
-    try {
-      await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
-      setSnackbar({ open: true, message: '批注已删除' });
-      setAnnotations(prev => prev.filter(a => a.id !== annotationId));
-      await fetchAndDrawAnnotations();
-    } catch (err) {
-      setSnackbar({ open: true, message: '删除失败' });
-    }
   };
 
   const handleNextPage = useCallback(() => { if (!selectionPopover) renditionRef.current?.next(); }, [selectionPopover]);
