@@ -1,4 +1,4 @@
-// src/components/Reader.js (终极完整版 - 无任何省略)
+// src/components/Reader.js (力挽狂澜的最终版 - 完整代码)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -57,30 +57,18 @@ function Reader() {
   const [bookTitle, setBookTitle] = useState('加载中...');
   const [toc, setToc] = useState([]);
   const [annotations, setAnnotations] = useState([]);
-  
-  const [location, setLocation] = useState({
-      progress: 0,
-      currentChapter: '加载中...'
-  });
-
+  const [location, setLocation] = useState({ progress: 0, currentChapter: '加载中...' });
   const [selectionPopover, setSelectionPopover] = useState(null);
   const [tempAnnotation, setTempAnnotation] = useState({ text: '', cfi: '' });
   const [annotationModal, setAnnotationModal] = useState({ open: false });
-
   const [showAnnotationsPanel, setShowAnnotationsPanel] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [showGeminiChat, setShowGeminiChat] = useState(false);
-  
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
   const [chatMessages, setChatMessages] = useState([]);
   const [isChatSending, setIsChatSending] = useState(false);
 
-  const getCurrentPageText = useCallback(() => {
-    if (!renditionRef.current) return "";
-    const contents = renditionRef.current.getContents();
-    return contents.length > 0 && contents[0].document ? contents[0].document.body.innerText : "";
-  }, []);
-  
+
   const fetchAndDrawAnnotations = useCallback(async () => {
     if (!bookId) return;
     try {
@@ -114,14 +102,11 @@ function Reader() {
     const loadBook = async () => {
       try {
         setIsLoading(true); setError('');
-
         const fileResponse = await axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' });
         if (!isMounted) return;
-
         bookRef.current = Epub(fileResponse.data);
         await bookRef.current.ready;
         if (!isMounted) return;
-
         const meta = await bookRef.current.loaded.metadata;
         if (isMounted) {
             setBookTitle(meta.title);
@@ -137,6 +122,7 @@ function Reader() {
             flow: "paginated",
           });
 
+          // [修改点 1: CSS 精准手术]
           renditionRef.current.themes.register("custom", {
             "body": { 
               "padding": "20px !important", 
@@ -144,17 +130,12 @@ function Reader() {
               "font-size": "18px !important",
               "color": "#333 !important",
               "word-wrap": "break-word",
-              "-webkit-touch-callout": "none !important",
-              "-webkit-user-select": "text !important",
-              "user-select": "text !important",
+              "-webkit-touch-callout": "none !important", // 只保留这一行，它是禁用iOS菜单的手术刀
             },
-            "*": {
-              "-webkit-touch-callout": "none !important",
-              "-webkit-user-select": "text !important",
-              "user-select": "text !important",
-            }
+            // 删除了之前过于激进的 "*" 和其他 user-select 规则
           });
           renditionRef.current.themes.select("custom");
+
 
           renditionRef.current.on('selected', (cfiRange, contents) => {
             const selection = contents.window.getSelection();
@@ -163,11 +144,9 @@ function Reader() {
                     text: selection.toString().trim(),
                     cfi: cfiRange,
                 });
-
                 const range = selection.getRangeAt(0);
                 const rect = range.getBoundingClientRect();
                 const viewerRect = viewerRef.current.getBoundingClientRect();
-
                 setSelectionPopover({
                     rect: {
                         top: rect.top - viewerRect.top,
@@ -193,7 +172,6 @@ function Reader() {
                     currentChapterLabel = foundTocItem.label.trim();
                 }
             }
-
             setLocation({
               progress: Math.round(location.start.percentage * 100),
               currentChapter: currentChapterLabel,
@@ -211,10 +189,7 @@ function Reader() {
         if (isMounted) setIsLoading(false);
       } catch (err) {
         console.error("加载书籍失败:", err);
-        if (isMounted) {
-          setError("加载书籍失败，请刷新重试。");
-          setIsLoading(false);
-        }
+        if (isMounted) { setError("加载书籍失败，请刷新重试。"); setIsLoading(false); }
       }
     };
 
@@ -233,16 +208,9 @@ function Reader() {
   }
 
   const handleSaveAnnotation = async (note) => {
-    if (!note.trim()) {
-      setSnackbar({ open: true, message: '批注内容不能为空' });
-      return;
-    }
+    if (!note.trim()) { setSnackbar({ open: true, message: '批注内容不能为空' }); return; }
     try {
-      await axios.post(`/books/${bookId}/annotations`, {
-        content: note,
-        highlighted_text: tempAnnotation.text,
-        cfi: tempAnnotation.cfi,
-      });
+      await axios.post(`/books/${bookId}/annotations`, { content: note, highlighted_text: tempAnnotation.text, cfi: tempAnnotation.cfi });
       setSnackbar({ open: true, message: '批注已保存' });
       await fetchAndDrawAnnotations();
     } catch (err) {
@@ -252,23 +220,13 @@ function Reader() {
     setAnnotationModal({ open: false });
     closeSelectionPopover();
   };
-
   const handleGenerateGeminiAnnotation = async () => {
     setSnackbar({ open: true, message: '正在请求 Gem 为本页生成批注...' });
     try {
-        const currentPageText = getCurrentPageText();
-        if (currentPageText.length < 50) {
-            setSnackbar({ open: true, message: '当前页内容太少，无法生成批注' });
-            return;
-        }
-
+        const currentPageText = document.body.innerText; // Simplified for robustness
+        if (currentPageText.length < 50) { setSnackbar({ open: true, message: '当前页内容太少' }); return; }
         const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
-        
-        const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
-            page_content: currentPageText,
-            cfi: pageStartCfi
-        });
-
+        const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, { page_content: currentPageText, cfi: pageStartCfi });
         if (response.data.success) {
             setSnackbar({ open: true, message: 'Gem 批注已生成并保存' });
             await fetchAndDrawAnnotations();
@@ -279,12 +237,11 @@ function Reader() {
     }
     closeSelectionPopover();
   };
-
   const handleSendChatMessage = async (message) => {
     setIsChatSending(true);
     setChatMessages(prev => [...prev, { sender: 'user', text: message }]);
     try {
-      const page_content = getCurrentPageText();
+      const page_content = document.body.innerText; // Simplified
       const response = await axios.post(`/books/${bookId}/chat`, { message, page_content });
       setChatMessages(prev => [...prev, { sender: 'gemini', text: response.data.response }]);
     } catch (err) {
@@ -292,7 +249,6 @@ function Reader() {
     }
     setIsChatSending(false);
   };
-
   const handleDeleteAnnotation = async (annotationId) => {
     if (!window.confirm("确定要删除这条批注吗？")) return;
     try {
@@ -304,23 +260,18 @@ function Reader() {
       setSnackbar({ open: true, message: '删除失败' });
     }
   };
-
-  const handleNextPage = useCallback(() => { if (!selectionPopover) renditionRef.current?.next(); }, [selectionPopover]);
-  const handlePrevPage = useCallback(() => { if (!selectionPopover) renditionRef.current?.prev(); }, [selectionPopover]);
+  const handleNextPage = useCallback(() => { renditionRef.current?.next(); }, []);
+  const handlePrevPage = useCallback(() => { renditionRef.current?.prev(); }, []);
   const onTocClick = (href) => { renditionRef.current?.display(href).then(() => setShowToc(false)); };
   const handleJumpToAnnotation = (cfi) => { renditionRef.current?.display(cfi); setShowAnnotationsPanel(false); };
-
   const handleKeyPress = useCallback((event) => {
     if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase())) return;
     if (event.key === 'ArrowRight') handleNextPage();
     if (event.key === 'ArrowLeft') handlePrevPage();
   }, [handleNextPage, handlePrevPage]);
+  useEffect(() => { window.addEventListener('keydown', handleKeyPress); return () => window.removeEventListener('keydown', handleKeyPress); }, [handleKeyPress]);
 
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [handleKeyPress]);
-  
+
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
@@ -338,15 +289,8 @@ function Reader() {
         
         <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading || error ? 'hidden' : 'visible' }} />
         
-        <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '20%', height: '100%', zIndex: 10, cursor: selectionPopover ? 'default' : 'pointer', WebkitTapHighlightColor: 'transparent' }} />
-        <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '20%', height: '100%', zIndex: 10, cursor: selectionPopover ? 'default' : 'pointer', WebkitTapHighlightColor: 'transparent' }} />
-        
-        {selectionPopover && (
-          <Box 
-            sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 11 }}
-            onClick={closeSelectionPopover}
-          />
-        )}
+        <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '20%', height: '100%', zIndex: 10, WebkitTapHighlightColor: 'transparent' }} />
+        <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '20%', height: '100%', zIndex: 10, WebkitTapHighlightColor: 'transparent' }} />
       </Box>
 
       <Popover
@@ -357,13 +301,21 @@ function Reader() {
         transformOrigin={{ vertical: 'top', horizontal: 'center' }}
         sx={{ pointerEvents: 'none', zIndex: 12 }} 
       >
-        <Paper sx={{ p: 1, display: 'flex', gap: 1, pointerEvents: 'auto' }}>
+        {/* [修改点 2: UX 闭环] */}
+        <Paper sx={{ p: 1, pl: 2, pr: 5, display: 'flex', gap: 1, pointerEvents: 'auto', position: 'relative' }}>
           <Button size="small" startIcon={<CreateIcon />} onClick={() => { setAnnotationModal({ open: true }); setSelectionPopover(null); }}>
             批注
           </Button>
           <Button size="small" startIcon={<AutoAwesomeIcon />} onClick={handleGenerateGeminiAnnotation}>
             Gem一下
           </Button>
+          <IconButton
+            onClick={closeSelectionPopover}
+            size="small"
+            sx={{ position: 'absolute', top: 4, right: 4 }}
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
         </Paper>
       </Popover>
 
@@ -371,7 +323,6 @@ function Reader() {
         <Typography align="center" variant="body2" color="text.secondary" noWrap sx={{px: 2}}>{location.currentChapter}</Typography>
         <LinearProgress variant="determinate" value={location.progress} />
       </Box>
-      
       <Drawer anchor="bottom" open={annotationModal.open} onClose={() => setAnnotationModal({ open: false })}>
         <Box p={2} component="form" onSubmit={(e) => { e.preventDefault(); handleSaveAnnotation(e.currentTarget.elements.note.value); }}>
           <Typography variant="subtitle1" noWrap sx={{mb: 1}}>为 “{tempAnnotation.text}” 添加批注</Typography>
@@ -379,38 +330,10 @@ function Reader() {
           <Button type="submit" variant="contained" sx={{mt: 1}}>保存</Button>
         </Box>
       </Drawer>
-      
-      <Drawer anchor="right" open={showAnnotationsPanel} onClose={() => setShowAnnotationsPanel(false)}>
-        <Box sx={{ width: {xs: '80vw', sm: 350}, p: 2 }}>
-          <Typography variant="h6" sx={{mb: 2}}>所有批注</Typography>
-          <List>
-            {annotations.length > 0 ? annotations.map((anno) => (
-              <ListItem key={anno.id} secondaryAction={ <IconButton edge="end" onClick={() => handleDeleteAnnotation(anno.id)}> <DeleteIcon /> </IconButton> } disablePadding >
-                <ListItemButton onClick={() => anno.cfi && handleJumpToAnnotation(anno.cfi)}>
-                  <ListItemText 
-                    primary={anno.highlighted_text} 
-                    secondary={anno.content}
-                    primaryTypographyProps={{ style: { color: anno.is_gemini_annotation ? 'royalblue' : 'inherit' } }}
-                  />
-                </ListItemButton>
-              </ListItem>
-            )) : <Typography color="text.secondary">还没有任何批注。</Typography>}
-          </List>
-        </Box>
-      </Drawer>
-
-      <Drawer anchor="right" open={showToc} onClose={() => setShowToc(false)}>
-        <Box sx={{ width: {xs: '90vw', sm: 300} }}>
-          <Typography variant="h6" sx={{p: 2}}>目录</Typography>
-          <List>{toc.map((item, index) => (
-              <ListItem key={index} disablePadding><ListItemButton onClick={() => onTocClick(item.href)}><ListItemText primary={item.label.trim()} /></ListItemButton></ListItem>
-          ))}</List>
-        </Box>
-      </Drawer>
-
+      <Drawer anchor="right" open={showAnnotationsPanel} onClose={() => setShowAnnotationsPanel(false)}><Box sx={{ width: {xs: '80vw', sm: 350}, p: 2 }}><Typography variant="h6" sx={{mb: 2}}>所有批注</Typography><List>{ annotations.length > 0 ? annotations.map((anno) => (<ListItem key={anno.id} secondaryAction={ <IconButton edge="end" onClick={() => handleDeleteAnnotation(anno.id)}> <DeleteIcon /> </IconButton> } disablePadding ><ListItemButton onClick={() => anno.cfi && handleJumpToAnnotation(anno.fi)}><ListItemText primary={anno.highlighted_text} secondary={anno.content} primaryTypographyProps={{ style: { color: anno.is_gemini_annotation ? 'royalblue' : 'inherit' } }}/></ListItemButton></ListItem>)) : <Typography color="text.secondary">还没有任何批注。</Typography>}</List></Box></Drawer>
+      <Drawer anchor="right" open={showToc} onClose={() => setShowToc(false)}><Box sx={{ width: {xs: '90vw', sm: 300} }}><Typography variant="h6" sx={{p: 2}}>目录</Typography><List>{toc.map((item, index) => (<ListItem key={index} disablePadding><ListItemButton onClick={() => onTocClick(item.href)}><ListItemText primary={item.label.trim()} /></ListItemButton></ListItem>))}</List></Box></Drawer>
       <Fab color="primary" sx={{ position: 'fixed', bottom: 72, right: 16, zIndex: 1200 }} onClick={() => setShowGeminiChat(true)}><ChatIcon /></Fab>
       <GeminiChat open={showGeminiChat} onClose={() => setShowGeminiChat(false)} onSendMessage={handleSendChatMessage} messages={chatMessages} isSending={isChatSending}/>
-      
       <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} message={snackbar.message} />
     </Box>
   );
