@@ -1,4 +1,4 @@
-// src/components/Reader.js (最终修复版 - 完整代码)
+// src/components/Reader.js (终极完整版 - 无任何省略)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -20,7 +20,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
 import CreateIcon from '@mui/icons-material/Create';
 
-// GeminiChat 组件 (保持完整，不省略)
+// GeminiChat 组件 (完整)
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -78,10 +78,7 @@ function Reader() {
   const getCurrentPageText = useCallback(() => {
     if (!renditionRef.current) return "";
     const contents = renditionRef.current.getContents();
-    if (contents.length > 0 && contents[0].document) {
-      return contents[0].document.body.innerText;
-    }
-    return "";
+    return contents.length > 0 && contents[0].document ? contents[0].document.body.innerText : "";
   }, []);
   
   const fetchAndDrawAnnotations = useCallback(async () => {
@@ -140,7 +137,6 @@ function Reader() {
             flow: "paginated",
           });
 
-          // [最终修复] 注入CSS，修复iOS渲染错乱并强制禁用原生选择菜单
           renditionRef.current.themes.register("custom", {
             "body": { 
               "padding": "20px !important", 
@@ -148,26 +144,27 @@ function Reader() {
               "font-size": "18px !important",
               "color": "#333 !important",
               "word-wrap": "break-word",
-              "-webkit-touch-callout": "none !important", // <-- 核心！禁用iOS原生菜单
-              "user-select": "text !important", // <-- 确保文本可选
+              "-webkit-touch-callout": "none !important",
+              "-webkit-user-select": "text !important",
+              "user-select": "text !important",
             },
             "*": {
               "-webkit-touch-callout": "none !important",
+              "-webkit-user-select": "text !important",
               "user-select": "text !important",
             }
           });
           renditionRef.current.themes.select("custom");
 
-
           renditionRef.current.on('selected', (cfiRange, contents) => {
-            // 确保只在有实际选择时触发
-            if (contents.window.getSelection().toString().trim().length > 0) {
+            const selection = contents.window.getSelection();
+            if (selection && selection.toString().trim().length > 0) {
                 setTempAnnotation({
-                    text: contents.window.getSelection().toString().trim(),
+                    text: selection.toString().trim(),
                     cfi: cfiRange,
                 });
 
-                const range = contents.window.getSelection().getRangeAt(0);
+                const range = selection.getRangeAt(0);
                 const rect = range.getBoundingClientRect();
                 const viewerRect = viewerRef.current.getBoundingClientRect();
 
@@ -184,8 +181,6 @@ function Reader() {
 
           renditionRef.current.on('relocated', (location) => {
             if (!isMounted || !bookRef.current) return;
-
-            // [最终修复] 更健壮的章节名匹配逻辑
             const chapter = bookRef.current.spine.get(location.start.href);
             let currentChapterLabel = '未知章节';
             if (chapter) {
@@ -234,6 +229,7 @@ function Reader() {
 
   const closeSelectionPopover = () => {
     setSelectionPopover(null);
+    renditionRef.current?.getContents().forEach(content => content.window.getSelection().removeAllRanges());
   }
 
   const handleSaveAnnotation = async (note) => {
@@ -255,7 +251,6 @@ function Reader() {
     }
     setAnnotationModal({ open: false });
     closeSelectionPopover();
-    renditionRef.current?.getContents().forEach(content => content.window.getSelection().removeAllRanges());
   };
 
   const handleGenerateGeminiAnnotation = async () => {
@@ -283,7 +278,6 @@ function Reader() {
         setSnackbar({ open: true, message: err.response?.data?.error || '生成AI批注失败' });
     }
     closeSelectionPopover();
-    renditionRef.current?.getContents().forEach(content => content.window.getSelection().removeAllRanges());
   };
 
   const handleSendChatMessage = async (message) => {
@@ -344,9 +338,15 @@ function Reader() {
         
         <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading || error ? 'hidden' : 'visible' }} />
         
-        {/* [最终修复] 更智能的翻页热区 */}
-        <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '25%', height: '100%', zIndex: 10, cursor: selectionPopover ? 'default' : 'pointer' }} />
-        <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '25%', height: '100%', zIndex: 10, cursor: selectionPopover ? 'default' : 'pointer' }} />
+        <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '20%', height: '100%', zIndex: 10, cursor: selectionPopover ? 'default' : 'pointer', WebkitTapHighlightColor: 'transparent' }} />
+        <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '20%', height: '100%', zIndex: 10, cursor: selectionPopover ? 'default' : 'pointer', WebkitTapHighlightColor: 'transparent' }} />
+        
+        {selectionPopover && (
+          <Box 
+            sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 11 }}
+            onClick={closeSelectionPopover}
+          />
+        )}
       </Box>
 
       <Popover
@@ -355,7 +355,7 @@ function Reader() {
         anchorPosition={selectionPopover ? { top: selectionPopover.rect.top + selectionPopover.rect.height + 5, left: selectionPopover.rect.left + selectionPopover.rect.width / 2 } : undefined}
         onClose={closeSelectionPopover}
         transformOrigin={{ vertical: 'top', horizontal: 'center' }}
-        sx={{ pointerEvents: 'none' }}
+        sx={{ pointerEvents: 'none', zIndex: 12 }} 
       >
         <Paper sx={{ p: 1, display: 'flex', gap: 1, pointerEvents: 'auto' }}>
           <Button size="small" startIcon={<CreateIcon />} onClick={() => { setAnnotationModal({ open: true }); setSelectionPopover(null); }}>
@@ -375,10 +375,7 @@ function Reader() {
       <Drawer anchor="bottom" open={annotationModal.open} onClose={() => setAnnotationModal({ open: false })}>
         <Box p={2} component="form" onSubmit={(e) => { e.preventDefault(); handleSaveAnnotation(e.currentTarget.elements.note.value); }}>
           <Typography variant="subtitle1" noWrap sx={{mb: 1}}>为 “{tempAnnotation.text}” 添加批注</Typography>
-          <TextField
-            name="note" autoFocus margin="dense" label="你的想法..." type="text"
-            fullWidth multiline rows={3} variant="outlined"
-          />
+          <TextField name="note" autoFocus margin="dense" label="你的想法..." type="text" fullWidth multiline rows={3} variant="outlined" />
           <Button type="submit" variant="contained" sx={{mt: 1}}>保存</Button>
         </Box>
       </Drawer>
