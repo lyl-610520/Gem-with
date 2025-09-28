@@ -208,7 +208,7 @@ class Annotation(db.Model):
     # [核心改造] 我们不再简单依赖页码，而是使用精确的CFI位置标识符
     cfi = db.Column(db.String(255), nullable=False) # <---  在这里添加这一行！
     # [新增] 批注所在的页码
-    page_number = db.Column(db.Integer, nullable=False)
+    page_number = db.Column(db.Integer, nullable=True)
     is_gemini_annotation = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
