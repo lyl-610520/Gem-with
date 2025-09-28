@@ -1389,39 +1389,6 @@ def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
 
-# companion_backend/app.py
-
-from sqlalchemy import text # 确保文件顶部有这行导入
-
-# ... (你其他的代码) ...
-
-# ==========================================================
-# [最终修复手术刀 - V2 正确版] - 修正 annotation 表的 page_number 约束
-# ==========================================================
-@app.route('/api/database/fix-page-number-constraint', methods=['GET'])
-def fix_page_number_constraint():
-    """
-    一次性API，用于修改线上数据库的表结构，允许 page_number 为空。
-    """
-    try:
-        # 定义我们要执行的SQL命令
-        sql_command = text("ALTER TABLE annotation ALTER COLUMN page_number DROP NOT NULL;")
-        
-        # [核心修正] 我们使用 db.session 来执行和提交，这是Flask-SQLAlchemy的标准做法
-        db.session.execute(sql_command)
-        db.session.commit()
-            
-        print("✅ [修复成功] 数据库 annotation 表的 page_number 字段已成功更新为 nullable=True。")
-        return jsonify({'success': True, 'message': 'Database schema fixed successfully.'})
-
-    except Exception as e:
-        # 如果发生任何错误，回滚事务，保证数据库安全
-        db.session.rollback()
-        import traceback
-        error_message = f"执行数据库修复时发生错误: {e}"
-        print(f"❌ [修复失败] {error_message}")
-        return jsonify({'error': error_message, 'traceback': traceback.format_exc()}), 500
-
 # ==========================================================
 # [新增] 定时任务的“秘密开关” (Cron Job "Secret Switch")
 # ==========================================================
