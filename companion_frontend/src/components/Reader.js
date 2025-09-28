@@ -1,4 +1,4 @@
-// src/components/Reader.js (终极完整最终版)
+// src/components/Reader.js (终极完整最终修复版)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -84,6 +84,7 @@ function Reader() {
     return "";
   }, []);
   
+  // [终极修复] 对高亮函数进行手术
   const fetchAndDrawAnnotations = useCallback(async () => {
     if (!bookId) return;
     try {
@@ -92,19 +93,44 @@ function Reader() {
       setAnnotations(loadedAnnotations);
       
       if (renditionRef.current && renditionRef.current.getContents()) {
-        renditionRef.current.annotations.removeall();
-        loadedAnnotations.forEach(anno => {
-          if (anno.cfi) {
-            const highlightColor = anno.is_gemini_annotation ? 'rgba(135, 206, 250, 0.4)' : 'rgba(255, 255, 0, 0.4)';
-            renditionRef.current.annotations.add("highlight", anno.cfi, {}, () => {}, "hl-class", { "fill": highlightColor });
-          }
-        });
+        // [修复1] 强制延迟，等待渲染稳定
+        setTimeout(() => {
+          if (!renditionRef.current) return; // 在延迟期间，组件可能已卸载
+
+          renditionRef.current.annotations.removeall();
+          loadedAnnotations.forEach(anno => {
+            if (anno.cfi) {
+              const highlightColor = anno.is_gemini_annotation ? 'rgba(135, 206, 250, 0.4)' : 'rgba(255, 255, 0, 0.4)';
+              
+              // [修复2] 增加点击事件和图层提升
+              renditionRef.current.annotations.add(
+                "highlight", 
+                anno.cfi, 
+                {}, 
+                (e) => {
+                  // 增加一个点击事件，可以增强epub.js对高亮的“感知”
+                  console.log("Highlight clicked", anno.cfi);
+                }, 
+                "hl-class", 
+                { 
+                  "fill": highlightColor,
+                  // [修复3] 强制提升图层
+                  "mix-blend-mode": "multiply",
+                  "pointer-events": "auto",
+                }
+              );
+            }
+          });
+        }, 200); // 200毫秒的“魔法延迟”
       }
     } catch (err) {
       console.error("获取批注失败:", err);
       setSnackbar({ open: true, message: '无法加载批注' });
     }
   }, [bookId]);
+
+  // (以下所有其他代码保持不变，直到UI渲染部分)
+  // ...
 
   useEffect(() => {
     let isMounted = true;
@@ -117,20 +143,16 @@ function Reader() {
     const loadBook = async () => {
       try {
         setIsLoading(true); setError('');
-
         const fileResponse = await axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' });
         if (!isMounted) return;
-
         bookRef.current = Epub(fileResponse.data);
         await bookRef.current.ready;
         if (!isMounted) return;
-
         const meta = await bookRef.current.loaded.metadata;
         if (isMounted) {
             setBookTitle(meta.title);
             setToc(bookRef.current.navigation.toc);
         }
-
         if (viewerRef.current) {
           renditionRef.current = bookRef.current.renderTo(viewerRef.current, { 
             width: '100%', 
@@ -139,8 +161,6 @@ function Reader() {
             manager: "continuous",
             flow: "paginated",
           });
-
-          // [终极修复] 注入更激进的CSS，彻底禁用原生菜单
           renditionRef.current.themes.register("custom", {
             "body": { 
               "padding": "20px !important", 
@@ -148,17 +168,14 @@ function Reader() {
               "font-size": "18px !important",
               "color": "#333 !important",
               "word-wrap": "break-word",
-              "-webkit-touch-callout": "none !important", // 核心！
-              "user-select": "none !important", // 先禁止所有选择
+              "-webkit-touch-callout": "none !important",
+              "user-select": "none !important",
             },
-            // 然后只允许 p 和 span 标签可选，这样更精确
             "p, span, div": {
               "user-select": "text !important",
             }
           });
           renditionRef.current.themes.select("custom");
-
-
           renditionRef.current.on('selected', (cfiRange, contents) => {
             const selection = contents.window.getSelection();
             if (selection && selection.toString().trim().length > 0) {
@@ -166,11 +183,9 @@ function Reader() {
                     text: selection.toString().trim(),
                     cfi: cfiRange,
                 });
-
                 const range = selection.getRangeAt(0);
                 const rect = range.getBoundingClientRect();
                 const viewerRect = viewerRef.current.getBoundingClientRect();
-
                 setSelectionPopover({
                     rect: {
                         top: rect.top - viewerRect.top,
@@ -181,10 +196,8 @@ function Reader() {
                 });
             }
           });
-
           renditionRef.current.on('relocated', (location) => {
             if (!isMounted || !bookRef.current) return;
-
             const chapter = bookRef.current.spine.get(location.start.href);
             let currentChapterLabel = '未知章节';
             if (chapter) {
@@ -197,18 +210,15 @@ function Reader() {
                     currentChapterLabel = foundTocItem.label.trim();
                 }
             }
-
             setLocation({
               progress: Math.round(location.start.percentage * 100),
               currentChapter: currentChapterLabel,
             });
             localStorage.setItem(`book-progress-${bookId}`, location.start.cfi);
           });
-          
           renditionRef.current.on('displayed', () => {
             if (isMounted) fetchAndDrawAnnotations();
           });
-
           const savedCfi = localStorage.getItem(`book-progress-${bookId}`);
           await renditionRef.current.display(savedCfi || undefined);
         }
@@ -221,9 +231,7 @@ function Reader() {
         }
       }
     };
-
     loadBook();
-
     return () => {
       isMounted = false;
       if (renditionRef.current) renditionRef.current.destroy();
@@ -231,7 +239,6 @@ function Reader() {
     };
   }, [bookId, fetchAndDrawAnnotations]);
 
-  // [终极修复] 关闭菜单并彻底清除文本选择
   const closeSelectionPopover = () => {
     setSelectionPopover(null);
     if (renditionRef.current) {
@@ -243,7 +250,6 @@ function Reader() {
     }
   };
 
-  // [终极修复] 增加更详细的错误提示
   const handleSaveAnnotation = async (note) => {
     if (!note.trim()) {
       setSnackbar({ open: true, message: '批注内容不能为空' });
@@ -273,14 +279,11 @@ function Reader() {
             setSnackbar({ open: true, message: '当前页内容太少，无法生成批注' });
             return;
         }
-
         const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
-        
         const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
             page_content: currentPageText,
             cfi: pageStartCfi
         });
-
         if (response.data.success) {
             setSnackbar({ open: true, message: 'Gem 批注已生成并保存' });
             await fetchAndDrawAnnotations();
@@ -350,7 +353,6 @@ function Reader() {
         
         <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading || error ? 'hidden' : 'visible' }} />
         
-        {/* [终极修复] 去除安卓翻页点击效果 */}
         <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '25%', height: '100%', zIndex: 10, WebkitTapHighlightColor: 'transparent', cursor: selectionPopover ? 'default' : 'pointer' }} />
         <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '25%', height: '100%', zIndex: 10, WebkitTapHighlightColor: 'transparent', cursor: selectionPopover ? 'default' : 'pointer' }} />
       </Box>
@@ -363,7 +365,6 @@ function Reader() {
         transformOrigin={{ vertical: 'top', horizontal: 'center' }}
         sx={{ pointerEvents: 'none' }}
       >
-        {/* [终极修复] 增加关闭按钮 */}
         <Paper sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 1, pointerEvents: 'auto' }}>
           <Button size="small" startIcon={<CreateIcon />} onClick={() => { setAnnotationModal({ open: true }); setSelectionPopover(null); }}>
             批注
