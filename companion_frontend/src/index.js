@@ -21,6 +21,20 @@ import '@fontsource/long-cang/400.css';     // 梦幻主题手写字体
 // API配置 (保持不变)
 axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 axios.defaults.withCredentials = true;
+axios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token'); // 从浏览器存储里找令牌
+    if (token) {
+      // 如果找到了，就加到请求的“通行证”里
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+// --- ^^^^ 添加结束 ^^^^ ---
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
