@@ -71,7 +71,7 @@ db = SQLAlchemy(app)
 frontend_url = os.getenv('FRONTEND_URL')
 if frontend_url:
     # 如果在Render环境变量里找到了前端URL，就只允许它访问
-    CORS(app, supports_credentials=True, origins=[frontend_url], allow_headers=["Content-Type", "Authorization"], resources={
+    CORS(app, supports_credentials=True, origins=[frontend_url], allow_headers="*", resources={
         r"/api/*": {}, 
         r"/uploads/*": {}
     })
