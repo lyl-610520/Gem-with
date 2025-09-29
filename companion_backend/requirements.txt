@@ -1,15 +1,23 @@
-# 现代化稳定版依赖
-Flask==2.3.3
-Flask-Cors==4.0.0
-Flask-SQLAlchemy==3.0.5
-SQLAlchemy==1.4.47
-google-generativeai==0.5.4
-python-dotenv==1.0.0
-Werkzeug==2.3.7
-requests==2.31.0
-gunicorn==21.2.0
-pg8000==1.30.3
+# [最终修复版] 现代化、稳定且互相兼容的依赖组合
+Flask==3.0.3
+Flask-Cors==4.0.1
+gunicorn==22.0.0
+
+# 数据库核心
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.29
+pg8000==1.31.2
 psycopg2-binary==2.9.9
-pytz
-EbookLib
-Flask-JWT-Extended
+
+# 认证核心
+Flask-JWT-Extended==4.6.0
+Werkzeug==3.0.3
+
+# 工具库
+python-dotenv==1.0.1
+requests==2.32.3
+pytz==2024.1
+ebooklib==0.18
+
+# Gemini AI
+google-generativeai==0.7.1
