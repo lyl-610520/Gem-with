@@ -1,4 +1,4 @@
-// src/components/Reader.js (终极完整最终版)
+// src/components/Reader.js (终极完整修复版)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -74,6 +74,15 @@ function Reader() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
   const [chatMessages, setChatMessages] = useState([]);
   const [isChatSending, setIsChatSending] = useState(false);
+  
+  // [修复] 抽离出独立的绘制高亮函数，以便复用
+  const drawHighlight = useCallback((annotation) => {
+    if (!renditionRef.current || !annotation.cfi) return;
+    const isGemini = annotation.is_gemini_annotation;
+    // 为不同类型的批注分配不同的 CSS 类名，方便管理
+    const className = isGemini ? 'gemini-highlight' : 'user-highlight';
+    renditionRef.current.annotations.add("highlight", annotation.cfi, {}, () => {}, className, {});
+  }, []);
 
   const getCurrentPageText = useCallback(() => {
     if (!renditionRef.current) return "";
@@ -87,24 +96,21 @@ function Reader() {
   const fetchAndDrawAnnotations = useCallback(async () => {
     if (!bookId) return;
     try {
-      const response = await axios.get(`/books/${bookId}`);
+      const response = await axios.get(`/api/books/${bookId}`); // [修正] API 路径
       const loadedAnnotations = response.data.annotations || [];
       setAnnotations(loadedAnnotations);
       
       if (renditionRef.current && renditionRef.current.getContents()) {
         renditionRef.current.annotations.removeall();
         loadedAnnotations.forEach(anno => {
-          if (anno.cfi) {
-            const highlightColor = anno.is_gemini_annotation ? 'rgba(135, 206, 250, 0.4)' : 'rgba(255, 255, 0, 0.4)';
-            renditionRef.current.annotations.add("highlight", anno.cfi, {}, () => {}, "hl-class", { "fill": highlightColor });
-          }
+          drawHighlight(anno); // 使用新的绘制函数
         });
       }
     } catch (err) {
       console.error("获取批注失败:", err);
       setSnackbar({ open: true, message: '无法加载批注' });
     }
-  }, [bookId]);
+  }, [bookId, drawHighlight]);
 
   useEffect(() => {
     let isMounted = true;
@@ -118,7 +124,7 @@ function Reader() {
       try {
         setIsLoading(true); setError('');
 
-        const fileResponse = await axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' });
+        const fileResponse = await axios.get(`/api/books/${bookId}/file`, { responseType: 'arraybuffer' }); // [修正] API 路径
         if (!isMounted) return;
 
         bookRef.current = Epub(fileResponse.data);
@@ -140,24 +146,34 @@ function Reader() {
             flow: "paginated",
           });
 
-          // [终极修复] 注入更激进的CSS，彻底禁用原生菜单
+          // [修复] 注入CSS，从根源上解决高亮不显示问题
           renditionRef.current.themes.register("custom", {
+            "rules": {
+              // 用户批注的样式
+              ".user-highlight": {
+                "fill": "rgba(255, 255, 0, 0.4) !important",
+                "stroke": "rgba(255, 255, 0, 0.6) !important",
+              },
+              // Gemini 批注的样式
+              ".gemini-highlight": {
+                "fill": "rgba(135, 206, 250, 0.4) !important",
+                "stroke": "rgba(135, 206, 250, 0.6) !important",
+              }
+            },
             "body": { 
               "padding": "20px !important", 
               "line-height": "1.7 !important", 
               "font-size": "18px !important",
               "color": "#333 !important",
               "word-wrap": "break-word",
-              "-webkit-touch-callout": "none !important", // 核心！
-              "user-select": "none !important", // 先禁止所有选择
+              "-webkit-touch-callout": "none !important",
+              "user-select": "none !important",
             },
-            // 然后只允许 p 和 span 标签可选，这样更精确
             "p, span, div": {
               "user-select": "text !important",
             }
           });
           renditionRef.current.themes.select("custom");
-
 
           renditionRef.current.on('selected', (cfiRange, contents) => {
             const selection = contents.window.getSelection();
@@ -181,28 +197,33 @@ function Reader() {
                 });
             }
           });
-
+          
+          // [修复] 优化 relocated 逻辑，防止不必要的更新
+          let relocationTimer;
           renditionRef.current.on('relocated', (location) => {
             if (!isMounted || !bookRef.current) return;
-
-            const chapter = bookRef.current.spine.get(location.start.href);
-            let currentChapterLabel = '未知章节';
-            if (chapter) {
-                const foundTocItem = bookRef.current.navigation.toc.find(item => {
-                    const tocHref = item.href.split('#')[0];
-                    const chapterHref = chapter.href.split('#')[0];
-                    return chapterHref.includes(tocHref);
-                });
-                if (foundTocItem) {
-                    currentChapterLabel = foundTocItem.label.trim();
+            
+            // 使用防抖（debounce）来避免过于频繁的更新和保存
+            clearTimeout(relocationTimer);
+            relocationTimer = setTimeout(() => {
+                const chapter = bookRef.current.spine.get(location.start.href);
+                let currentChapterLabel = '未知章节';
+                if (chapter) {
+                    const foundTocItem = bookRef.current.navigation.toc.find(item => {
+                        const tocHref = item.href.split('#')[0];
+                        const chapterHref = chapter.href.split('#')[0];
+                        return chapterHref.includes(tocHref);
+                    });
+                    if (foundTocItem) {
+                        currentChapterLabel = foundTocItem.label.trim();
+                    }
                 }
-            }
-
-            setLocation({
-              progress: Math.round(location.start.percentage * 100),
-              currentChapter: currentChapterLabel,
-            });
-            localStorage.setItem(`book-progress-${bookId}`, location.start.cfi);
+                setLocation({
+                  progress: Math.round(location.start.percentage * 100),
+                  currentChapter: currentChapterLabel,
+                });
+                localStorage.setItem(`book-progress-${bookId}`, location.start.cfi);
+            }, 250); // 250毫秒延迟
           });
           
           renditionRef.current.on('displayed', () => {
@@ -231,7 +252,6 @@ function Reader() {
     };
   }, [bookId, fetchAndDrawAnnotations]);
 
-  // [终极修复] 关闭菜单并彻底清除文本选择
   const closeSelectionPopover = () => {
     setSelectionPopover(null);
     if (renditionRef.current) {
@@ -243,30 +263,43 @@ function Reader() {
     }
   };
 
-  // [终极修复] 增加更详细的错误提示
+  // [修复] 核心修复点：采用“精准添加”模式，彻底解决跳页问题
   const handleSaveAnnotation = async (note) => {
     if (!note.trim()) {
       setSnackbar({ open: true, message: '批注内容不能为空' });
       return;
     }
     try {
-      await axios.post(`/books/${bookId}/annotations`, {
+      // 1. 发送请求到后端保存
+      const response = await axios.post(`/api/books/${bookId}/annotations`, { // [修正] API 路径
         content: note,
         highlighted_text: tempAnnotation.text,
         cfi: tempAnnotation.cfi,
       });
+
+      // 2. 后端会返回刚刚创建成功的批注对象
+      const newAnnotation = response.data.annotation;
+
+      // 3. 直接将新的批注添加到当前视图，而不是刷新全部
+      drawHighlight(newAnnotation);
+      
+      // 4. 更新 React 的 state，让侧边栏列表也同步更新
+      setAnnotations(prev => [...prev, newAnnotation]);
+
       setSnackbar({ open: true, message: '批注已保存' });
-      await fetchAndDrawAnnotations();
     } catch (err) {
       console.error("保存批注失败: ", err);
-      setSnackbar({ open: true, message: err.response?.data?.error || '保存失败，请检查网络或联系管理员' });
+      setSnackbar({ open: true, message: err.response?.data?.error || '保存失败，请检查网络' });
     }
+    // 5. 关闭模态框和选择菜单
     setAnnotationModal({ open: false });
     closeSelectionPopover();
   };
 
+
   const handleGenerateGeminiAnnotation = async () => {
     setSnackbar({ open: true, message: '正在请求 Gem 为本页生成批注...' });
+    closeSelectionPopover(); // 先关闭菜单，避免干扰
     try {
         const currentPageText = getCurrentPageText();
         if (currentPageText.length < 50) {
@@ -276,20 +309,21 @@ function Reader() {
 
         const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
         
-        const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
+        const response = await axios.post(`/api/books/${bookId}/generate-gemini-annotation`, { // [修正] API 路径
             page_content: currentPageText,
             cfi: pageStartCfi
         });
 
         if (response.data.success) {
+            const newAnnotation = response.data.annotation;
+            drawHighlight(newAnnotation); // 精准添加 Gemini 的高亮
+            setAnnotations(prev => [...prev, newAnnotation]); // 更新 state
             setSnackbar({ open: true, message: 'Gem 批注已生成并保存' });
-            await fetchAndDrawAnnotations();
         }
     } catch (err) {
         console.error("Gemini annotation generation failed:", err);
         setSnackbar({ open: true, message: err.response?.data?.error || '生成AI批注失败' });
     }
-    closeSelectionPopover();
   };
 
   const handleSendChatMessage = async (message) => {
@@ -297,7 +331,7 @@ function Reader() {
     setChatMessages(prev => [...prev, { sender: 'user', text: message }]);
     try {
       const page_content = getCurrentPageText();
-      const response = await axios.post(`/books/${bookId}/chat`, { message, page_content });
+      const response = await axios.post(`/api/books/${bookId}/chat`, { message, page_content }); // [修正] API 路径
       setChatMessages(prev => [...prev, { sender: 'gemini', text: response.data.response }]);
     } catch (err) {
       setChatMessages(prev => [...prev, { sender: 'gemini', text: "抱歉，我好像出错了..." }]);
@@ -308,10 +342,14 @@ function Reader() {
   const handleDeleteAnnotation = async (annotationId) => {
     if (!window.confirm("确定要删除这条批注吗？")) return;
     try {
-      await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
+      await axios.delete(`/api/books/${bookId}/annotations/${annotationId}`); // [修正] API 路径
       setSnackbar({ open: true, message: '批注已删除' });
+      // [修复] 从 state 中移除后，直接调用全局刷新，这是最简单的处理删除的方式
+      const removedAnnotation = annotations.find(a => a.id === annotationId);
+      if(removedAnnotation && renditionRef.current) {
+         renditionRef.current.annotations.remove(removedAnnotation.cfi, "highlight");
+      }
       setAnnotations(prev => prev.filter(a => a.id !== annotationId));
-      await fetchAndDrawAnnotations();
     } catch (err) {
       setSnackbar({ open: true, message: '删除失败' });
     }
@@ -336,7 +374,7 @@ function Reader() {
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
-        <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
+        <IconButton component={Link} to="/"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{bookTitle}</Typography>
         <Box>
           <Tooltip title="批注列表"><IconButton onClick={() => setShowAnnotationsPanel(true)}><NotesIcon /></IconButton></Tooltip>
@@ -350,7 +388,6 @@ function Reader() {
         
         <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading || error ? 'hidden' : 'visible' }} />
         
-        {/* [终极修复] 去除安卓翻页点击效果 */}
         <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '25%', height: '100%', zIndex: 10, WebkitTapHighlightColor: 'transparent', cursor: selectionPopover ? 'default' : 'pointer' }} />
         <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '25%', height: '100%', zIndex: 10, WebkitTapHighlightColor: 'transparent', cursor: selectionPopover ? 'default' : 'pointer' }} />
       </Box>
@@ -363,7 +400,6 @@ function Reader() {
         transformOrigin={{ vertical: 'top', horizontal: 'center' }}
         sx={{ pointerEvents: 'none' }}
       >
-        {/* [终极修复] 增加关闭按钮 */}
         <Paper sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 1, pointerEvents: 'auto' }}>
           <Button size="small" startIcon={<CreateIcon />} onClick={() => { setAnnotationModal({ open: true }); setSelectionPopover(null); }}>
             批注
@@ -397,13 +433,13 @@ function Reader() {
         <Box sx={{ width: {xs: '80vw', sm: 350}, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>所有批注</Typography>
           <List>
-            {annotations.length > 0 ? annotations.map((anno) => (
+            {annotations.length > 0 ? annotations.sort((a,b) => a.cfi.localeCompare(b.cfi)).map((anno) => (
               <ListItem key={anno.id} secondaryAction={ <IconButton edge="end" onClick={() => handleDeleteAnnotation(anno.id)}> <DeleteIcon /> </IconButton> } disablePadding >
                 <ListItemButton onClick={() => anno.cfi && handleJumpToAnnotation(anno.cfi)}>
                   <ListItemText 
                     primary={anno.highlighted_text} 
                     secondary={anno.content}
-                    primaryTypographyProps={{ style: { color: anno.is_gemini_annotation ? 'royalblue' : 'inherit' } }}
+                    primaryTypographyProps={{ style: { color: anno.is_gemini_annotation ? 'royalblue' : 'inherit', fontStyle: 'italic', opacity: 0.8 } }}
                   />
                 </ListItemButton>
               </ListItem>
