@@ -96,7 +96,7 @@ function Reader() {
   const fetchAndDrawAnnotations = useCallback(async () => {
     if (!bookId) return;
     try {
-      const response = await axios.get(`/api/books/${bookId}`); // [修正] API 路径
+      const response = await axios.get(`/books/${bookId}`); // [修正] API 路径
       const loadedAnnotations = response.data.annotations || [];
       setAnnotations(loadedAnnotations);
       
@@ -124,7 +124,7 @@ function Reader() {
       try {
         setIsLoading(true); setError('');
 
-        const fileResponse = await axios.get(`/api/books/${bookId}/file`, { responseType: 'arraybuffer' }); // [修正] API 路径
+        const fileResponse = await axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' }); // [修正] API 路径
         if (!isMounted) return;
 
         bookRef.current = Epub(fileResponse.data);
@@ -271,7 +271,7 @@ function Reader() {
     }
     try {
       // 1. 发送请求到后端保存
-      const response = await axios.post(`/api/books/${bookId}/annotations`, { // [修正] API 路径
+      const response = await axios.post(`/books/${bookId}/annotations`, { // [修正] API 路径
         content: note,
         highlighted_text: tempAnnotation.text,
         cfi: tempAnnotation.cfi,
@@ -309,7 +309,7 @@ function Reader() {
 
         const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
         
-        const response = await axios.post(`/api/books/${bookId}/generate-gemini-annotation`, { // [修正] API 路径
+        const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, { // [修正] API 路径
             page_content: currentPageText,
             cfi: pageStartCfi
         });
@@ -331,7 +331,7 @@ function Reader() {
     setChatMessages(prev => [...prev, { sender: 'user', text: message }]);
     try {
       const page_content = getCurrentPageText();
-      const response = await axios.post(`/api/books/${bookId}/chat`, { message, page_content }); // [修正] API 路径
+      const response = await axios.post(`/books/${bookId}/chat`, { message, page_content }); // [修正] API 路径
       setChatMessages(prev => [...prev, { sender: 'gemini', text: response.data.response }]);
     } catch (err) {
       setChatMessages(prev => [...prev, { sender: 'gemini', text: "抱歉，我好像出错了..." }]);
@@ -342,7 +342,7 @@ function Reader() {
   const handleDeleteAnnotation = async (annotationId) => {
     if (!window.confirm("确定要删除这条批注吗？")) return;
     try {
-      await axios.delete(`/api/books/${bookId}/annotations/${annotationId}`); // [修正] API 路径
+      await axios.delete(`/books/${bookId}/annotations/${annotationId}`); // [修正] API 路径
       setSnackbar({ open: true, message: '批注已删除' });
       // [修复] 从 state 中移除后，直接调用全局刷新，这是最简单的处理删除的方式
       const removedAnnotation = annotations.find(a => a.id === annotationId);
