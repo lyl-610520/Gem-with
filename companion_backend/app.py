@@ -28,24 +28,18 @@ from ebooklib import epub
 import base64
 import tempfile
 import traceback
+# --- 新增下面这行 ---
+from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, JWTManager
 
 # 加载环境变量
 load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
-# --- VVVV  从这里开始修改/添加  VVVV ---
-
-# [核心修复] 明确指定Cookie的作用域，解决跨子域名问题
-# 我们将从环境变量中读取主域名，例如 .onrender.com
-cookie_domain = os.getenv('COOKIE_DOMAIN') 
-if cookie_domain:
-    app.config['SESSION_COOKIE_DOMAIN'] = cookie_domain
-    print(f"✅ Cookie 作用域已设置为: {cookie_domain}")
-
-app.config['SESSION_COOKIE_SAMESITE'] = 'None'
-app.config['SESSION_COOKIE_SECURE'] = True
-# ^^^^ 添加到这里结束 ^^^^
+# --- 把上面那一大堆关于 Cookie 的配置全部删除，换成下面这三行 ---
+app.config["JWT_SECRET_KEY"] = app.config['SECRET_KEY'] # JWT需要一个自己的密钥
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24) # 令牌24小时后过期
+jwt = JWTManager(app) # 初始化JWT工具
 # 智能数据库连接配置
 database_url = os.getenv('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
@@ -320,8 +314,7 @@ def update_user_activity(user_id):
         user.last_active = datetime.utcnow()
         db.session.commit()
 
-# API路由
-@app.route('/api/auth/login', methods=['POST'])
+# API路由@app.route('/api/auth/login', methods=['POST'])
 def login():
     """用户登录"""
     data = request.get_json()
@@ -332,16 +325,16 @@ def login():
     if not all([qq_id, username, password]):
         return jsonify({'error': '缺少必要参数'}), 400
     
-    # 查找用户
     user = User.query.filter_by(qq_id=qq_id, username=username).first()
     
     if user and check_password_hash(user.password_hash, password):
-        session['user_id'] = user.id
-        session['qq_id'] = user.qq_id
+        # --- 不再使用 session，而是生成一个加密的“令牌” ---
+        access_token = create_access_token(identity=user.id)
         update_user_activity(user.id)
         
         return jsonify({
             'success': True,
+            'token': access_token, # <--- 把令牌发给前端
             'user': {
                 'id': user.id,
                 'username': user.username,
@@ -362,29 +355,27 @@ def register():
     
     if not all([qq_id, username, password]):
         return jsonify({'error': '缺少必要参数'}), 400
-    
-    # 检查用户是否已存在
+
     if User.query.filter_by(qq_id=qq_id).first():
         return jsonify({'error': '该QQ号已注册'}), 400
     
     if User.query.filter_by(username=username).first():
         return jsonify({'error': '用户名已存在'}), 400
     
-    # 创建新用户
     user = User(
         qq_id=qq_id,
         username=username,
         password_hash=generate_password_hash(password)
     )
-    
     db.session.add(user)
     db.session.commit()
     
-    session['user_id'] = user.id
-    session['qq_id'] = user.qq_id
+    # --- 注册成功后，也直接生成一个“令牌” ---
+    access_token = create_access_token(identity=user.id)
     
     return jsonify({
         'success': True,
+        'token': access_token, # <--- 把令牌发给前端
         'user': {
             'id': user.id,
             'username': user.username,
@@ -396,16 +387,14 @@ def register():
 @app.route('/api/auth/logout', methods=['POST'])
 def logout():
     """用户登出"""
-    session.clear()
     return jsonify({'success': True})
 
 @app.route('/api/user/profile', methods=['GET'])
+@jwt_required()
 def get_profile():
     """获取用户资料"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    user = User.query.get(session['user_id'])
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
     if not user:
         return jsonify({'error': '用户不存在'}), 404
     
@@ -418,14 +407,13 @@ def get_profile():
     })
 
 @app.route('/api/user/profile', methods=['PUT'])
+@jwt_required()
 def update_profile():
     """更新用户资料"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
     
     data = request.get_json()
-    user = User.query.get(session['user_id'])
-    
     if 'theme' in data:
         user.theme = data['theme']
     if 'custom_color' in data:
@@ -439,37 +427,26 @@ def update_profile():
 # 日记相关API
 # --- [核心重构] 日记相关API (V2) ---
 
-# companion_backend/app.py
-
 @app.route('/api/diary', methods=['GET'])
+@jwt_required()
 def get_diaries():
     """[时区修正版] 获取指定日期的日记列表"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
     
     date_str = request.args.get('date')
     if not date_str:
         return jsonify({'error': '需要提供日期参数'}), 400
 
     try:
-        # [新增] 定义我们的目标时区为北京时间
         beijing_tz = pytz.timezone('Asia/Shanghai')
-        
-        # 将前端传来的日期字符串解析为一个“天”
         target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-
-        # [改造] 创建一个基于“北京时间”的当天的开始时间 (例如: 2025-09-25 00:00:00+08:00)
         start_of_day_local = beijing_tz.localize(datetime.combine(target_date, datetime.min.time()))
-        # [改造] 创建一个基于“北京时间”的当天的结束时间 (例如: 2025-09-25 23:59:59+08:00)
         end_of_day_local = beijing_tz.localize(datetime.combine(target_date, datetime.max.time()))
-
-        # [关键] 因为数据库存的是UTC时间，所以我们需要把“北京时间范围”转换成“UTC时间范围”来进行查询
         start_of_day_utc = start_of_day_local.astimezone(pytz.utc)
         end_of_day_utc = end_of_day_local.astimezone(pytz.utc)
 
         diaries_query = Diary.query.filter(
-            Diary.user_id == session['user_id'],
-            # [改造] 现在使用UTC时间范围进行精确查询
+            Diary.user_id == current_user_id,
             Diary.created_at >= start_of_day_utc,
             Diary.created_at <= end_of_day_utc
         ).order_by(Diary.created_at.desc()).all()
@@ -483,15 +460,14 @@ def get_diaries():
         } for diary in diaries_query]
         
         return jsonify({'diaries': diaries_data})
-
     except (ValueError, pytz.UnknownTimeZoneError):
         return jsonify({'error': '无效的日期或时区格式'}), 400
 
 @app.route('/api/diary', methods=['POST'])
+@jwt_required()
 def create_diary():
     """[改造版] 用户创建自己的日记 (不再立即触发Gemini)"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
     
     data = request.get_json()
     content = data.get('content')
@@ -501,17 +477,16 @@ def create_diary():
         return jsonify({'error': '日记内容不能为空'}), 400
     
     user_diary = Diary(
-        user_id=session['user_id'],
+        user_id=current_user_id,
         content=content,
         mood=mood,
-        is_gemini_written=False # 明确这是用户的日记
+        is_gemini_written=False
     )
     db.session.add(user_diary)
     db.session.commit()
     
-    update_user_activity(session['user_id'])
+    update_user_activity(current_user_id)
     
-    # [改造] 只返回用户自己写的这篇日记
     user_diary_data = {
         'id': user_diary.id,
         'content': user_diary.content,
@@ -521,15 +496,12 @@ def create_diary():
     }
     return jsonify({'success': True, 'diary': user_diary_data}), 201
 
-# 把这个新函数粘贴到 trigger_gemini_diary 函数的上方
-
 def generate_gemini_diary_for_user(user_id):
     """为指定用户生成Gemini日记的核心逻辑"""
     today = datetime.utcnow().date()
     start_of_day = datetime.combine(today, datetime.min.time())
     end_of_day = datetime.combine(today, datetime.max.time())
 
-    # 1. 检查Gemini今天是否已经为该用户写过
     existing_gemini_diary = Diary.query.filter(
         Diary.user_id == user_id,
         Diary.is_gemini_written == True,
@@ -541,7 +513,6 @@ def generate_gemini_diary_for_user(user_id):
         print(f"Gemini今天已经为用户 {user_id} 写过日记了。")
         return {'message': 'Gemini今天已经写过日记了。'}, 200
 
-    # 2. 查找用户今天写的所有日记
     user_diaries_today = Diary.query.filter(
         Diary.user_id == user_id,
         Diary.is_gemini_written == False,
@@ -553,10 +524,8 @@ def generate_gemini_diary_for_user(user_id):
     if not user_diary_summary:
         user_diary_summary = "用户今天没有写日记。"
 
-    # 3. [全新高级Prompt] 指导Gemini创作
     gemini_prompt = f"""
 现在是深夜，你需要写一篇属于你自己的日记。
-
 # 你的任务:
 1.  **回顾对方的一天**: 这是对方今天写的日记摘要：
     ---
@@ -570,34 +539,23 @@ def generate_gemini_diary_for_user(user_id):
       "mood": "你选择的心情",
       "content": "你的日记正文"
     }}
-
 """
     
     ai_response_text = get_gemini_response(gemini_prompt, user_id=user_id)
     
     try:
-        # [改造] 使用正则表达式从可能包含Markdown标记的文本中提取纯净的JSON部分
-        # 查找第一个 { 和最后一个 } 之间的所有内容
         json_match = re.search(r'\{.*\}', ai_response_text, re.DOTALL)
-        
-        # 如果成功找到了匹配的JSON部分
         if json_match:
             json_str = json_match.group(0)
             ai_response_json = json.loads(json_str)
             new_mood = ai_response_json.get('mood', 'calm')
             new_content = ai_response_json.get('content', '今天在思考...')
         else:
-            # 如果在返回的文本里压根找不到 {}，就认为整个返回都是内容
             raise ValueError("在Gemini的回复中没有找到JSON对象")
-
     except (json.JSONDecodeError, AttributeError, ValueError):
-        # 如果解析仍然失败，则将原始文本（清理掉常见标记后）作为内容
         new_mood = 'calm'
-        # 尽力清理掉返回文本两端的 ```json, ```, ` 等符号
         new_content = ai_response_text.strip().lstrip('`json').lstrip('`').rstrip('`')
 
-    # 4. 保存Gemini的日记到数据库
-    # (和原代码完全一样)
     gemini_diary = Diary(
         user_id=user_id,
         content=new_content,
@@ -617,24 +575,20 @@ def generate_gemini_diary_for_user(user_id):
     print(f"成功为用户 {user_id} 生成了Gemini日记。")
     return {'success': True, 'gemini_diary': gemini_diary_data}, 201
     
-# V V V 用下面的完整函数替换掉你原来的 V V V
 @app.route('/api/diary/trigger-gemini', methods=['POST'])
+@jwt_required()
 def trigger_gemini_diary():
     """[改造版API] 手动触发当前登录用户的Gemini日记生成"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    # 直接调用核心逻辑函数
-    result, status_code = generate_gemini_diary_for_user(session['user_id'])
+    current_user_id = get_jwt_identity()
+    result, status_code = generate_gemini_diary_for_user(current_user_id)
     return jsonify(result), status_code
     
 @app.route('/api/diary/<int:diary_id>', methods=['DELETE'])
+@jwt_required()
 def delete_diary(diary_id):
     """删除日记"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    diary = Diary.query.filter_by(id=diary_id, user_id=session['user_id']).first()
+    current_user_id = get_jwt_identity()
+    diary = Diary.query.filter_by(id=diary_id, user_id=current_user_id).first()
     if not diary:
         return jsonify({'error': '日记不存在'}), 404
     
@@ -644,40 +598,26 @@ def delete_diary(diary_id):
     return jsonify({'success': True})
 
 # 打卡相关API
-# companion_backend/app.py
-
-# ==========================================================
-# V V V  用下面的代码块替换你原来的 get_checkins 函数 V V V
-# ==========================================================
-# companion_backend/app.py
-
 @app.route('/api/checkin', methods=['GET'])
+@jwt_required()
 def get_checkins():
     """[时区修正版] 获取指定日期的打卡记录"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
     
     date_str = request.args.get('date')
     if not date_str:
         return jsonify({'error': '需要提供日期参数'}), 400
 
     try:
-        # [新增] 同样使用北京时间
         beijing_tz = pytz.timezone('Asia/Shanghai')
-        
         target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-
-        # [改造] 创建北京时间的日始末
         start_of_day_local = beijing_tz.localize(datetime.combine(target_date, datetime.min.time()))
         end_of_day_local = beijing_tz.localize(datetime.combine(target_date, datetime.max.time()))
-
-        # [改造] 转换为UTC时间范围
         start_of_day_utc = start_of_day_local.astimezone(pytz.utc)
         end_of_day_utc = end_of_day_local.astimezone(pytz.utc)
 
         checkins_query = Checkin.query.filter(
-            Checkin.user_id == session['user_id'],
-            # [改造] 使用UTC时间范围查询
+            Checkin.user_id == current_user_id,
             Checkin.created_at >= start_of_day_utc,
             Checkin.created_at <= end_of_day_utc
         ).order_by(Checkin.created_at.desc()).all()
@@ -691,18 +631,14 @@ def get_checkins():
         } for checkin in checkins_query]
         
         return jsonify({'checkins': checkins_data})
-
     except (ValueError, pytz.UnknownTimeZoneError):
         return jsonify({'error': '无效的日期或时区格式'}), 400
 
-# ==========================================================
-# V V V  用下面的代码块替换你原来的 create_checkin 函数 V V V
-# ==========================================================
 @app.route('/api/checkin', methods=['POST'])
+@jwt_required()
 def create_checkin():
     """[改造版] 创建打卡并返回新记录"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
     
     data = request.get_json()
     checkin_type = data.get('checkin_type')
@@ -711,17 +647,15 @@ def create_checkin():
     if not checkin_type:
         return jsonify({'error': '打卡类型不能为空'}), 400
     
-    # 1. 创建用户打卡
     user_checkin = Checkin(
-        user_id=session['user_id'],
+        user_id=current_user_id,
         checkin_type=checkin_type,
         content=content,
-        is_gemini_checkin=False # 明确这是用户的打卡
+        is_gemini_checkin=False
     )
     db.session.add(user_checkin)
     db.session.commit()
     
-    # 准备好用户打卡的数据用于返回
     user_checkin_data = {
         'id': user_checkin.id,
         'checkin_type': user_checkin.checkin_type,
@@ -731,14 +665,12 @@ def create_checkin():
     }
 
     gemini_checkin_data = None
-    # 2. 如果用户活跃，让Gemini也打卡
-    if check_user_activity(session['user_id']):
+    if check_user_activity(current_user_id):
         gemini_prompt = f"用户进行了'{checkin_type}'打卡，内容：'{content}'。请遵循你的人设，也进行一个相关的打卡，分享你的想法或鼓励。"
-        gemini_content = get_gemini_response(gemini_prompt, user_id=session['user_id'])
+        gemini_content = get_gemini_response(gemini_prompt, user_id=current_user_id)
         
         gemini_checkin = Checkin(
-            user_id=session['user_id'],
-            # [修正] Gemini的打卡类型也用原始类型，通过 is_gemini_checkin 来区分
+            user_id=current_user_id,
             checkin_type=checkin_type, 
             content=gemini_content,
             is_gemini_checkin=True
@@ -746,7 +678,6 @@ def create_checkin():
         db.session.add(gemini_checkin)
         db.session.commit()
         
-        # 准备好Gemini打卡的数据用于返回
         gemini_checkin_data = {
             'id': gemini_checkin.id,
             'checkin_type': gemini_checkin.checkin_type,
@@ -755,30 +686,23 @@ def create_checkin():
             'created_at': gemini_checkin.created_at.isoformat() + 'Z'
         }
 
-    update_user_activity(session['user_id'])
+    update_user_activity(current_user_id)
     
-    # [改造] 将新创建的打卡记录返回给前端
     return jsonify({
         'success': True, 
         'user_checkin': user_checkin_data,
-        'gemini_checkin': gemini_checkin_data # 如果没有则为 null
+        'gemini_checkin': gemini_checkin_data
     }), 201
-    
 
-# ==========================================================
 # [全新] 阅读功能 API (Reading Feature APIs)
-# ==========================================================
-
-# companion_backend/app.py
-
 @app.route('/api/books', methods=['POST'])
+@jwt_required()
 def upload_book():
     """[最终健壮版] 上传并解析新书，使用临时文件"""
-    if 'user_id' not in session: return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
     
-    # ... (上传限额的安检程序，保持不变) ...
     try:
-        book_count = Book.query.filter_by(user_id=session['user_id']).count()
+        book_count = Book.query.filter_by(user_id=current_user_id).count()
         if book_count >= 5:
             return jsonify({'error': '书架已满！请删除旧书后重试。'}), 403
     except Exception as e:
@@ -790,28 +714,23 @@ def upload_book():
     if file.filename == '' or not file.filename.endswith('.epub'):
         return jsonify({'error': '请选择一个.epub文件'}), 400
 
-    temp_filepath = None # 先初始化一个变量
+    temp_filepath = None
     try:
-        # [核心改造] 创建一个安全的临时文件来接收上传内容
         with tempfile.NamedTemporaryFile(delete=False, suffix='.epub') as temp_file:
             file.save(temp_file)
-            temp_filepath = temp_file.name # 获取这个临时文件的真实路径
+            temp_filepath = temp_file.name
 
-        # [核心改造] 使用文件路径来让 EbookLib 读取
         book_epub = epub.read_epub(temp_filepath)
         
-        # 重新打开临时文件，读取其内容用于Base64编码
         with open(temp_filepath, 'rb') as f:
             file_content = f.read()
         
-        # 文件大小限制
-        MAX_FILE_SIZE = 10 * 1024 * 1024 # 10 MB
+        MAX_FILE_SIZE = 10 * 1024 * 1024
         if len(file_content) > MAX_FILE_SIZE:
             return jsonify({'error': '文件过大，请上传小于10MB的EPUB文件。'}), 413
 
         epub_base64_data = base64.b64encode(file_content).decode('utf-8')
         
-        # ... (提取 title, author, cover_image_data 的逻辑，和之前完全一样) ...
         title = book_epub.get_metadata('DC', 'title')[0][0] if book_epub.get_metadata('DC', 'title') else '未命名书籍'
         author = book_epub.get_metadata('DC', 'creator')[0][0] if book_epub.get_metadata('DC', 'creator') else '未知作者'
         cover_image_data = None
@@ -821,7 +740,7 @@ def upload_book():
             break
 
         new_book = Book(
-            user_id=session['user_id'],
+            user_id=current_user_id,
             title=title, author=author,
             epub_data_base64=epub_base64_data,
             cover_image_data=cover_image_data
@@ -833,27 +752,22 @@ def upload_book():
             'id': new_book.id, 'title': new_book.title, 'author': new_book.author,
             'cover_image_data': new_book.cover_image_data
         }}), 201
-
     except Exception as e:
-        # 使用 traceback 来打印更详细的错误信息，方便我们调试
         print(f"Base64或EPUB处理失败: {e}")
         traceback.print_exc()
         return jsonify({'error': '文件处理失败，可能文件已损坏或格式不标准。'}), 500
-        
     finally:
-        # [核心改造] 无论成功还是失败，都必须清理掉临时文件
         if temp_filepath and os.path.exists(temp_filepath):
             os.remove(temp_filepath)
             print(f"已清理临时文件: {temp_filepath}")
 
 @app.route('/api/books', methods=['GET'])
+@jwt_required()
 def get_books():
     """[Base64版] 获取书架列表 (不包含书籍内容)"""
-    if 'user_id' not in session: return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
+    books = Book.query.filter_by(user_id=current_user_id).order_by(Book.created_at.desc()).all()
     
-    books = Book.query.filter_by(user_id=session['user_id']).order_by(Book.created_at.desc()).all()
-    
-    # [核心] 书架列表只发送元数据，不发送整本书，避免卡顿
     books_data = [{
         'id': book.id,
         'title': book.title,
@@ -863,45 +777,32 @@ def get_books():
     
     return jsonify({'books': books_data})
 
-# companion_backend/app.py
-
-@app.route('/api/books/<int:book_id>/file') # [核心改造] 新的URL
+@app.route('/api/books/<int:book_id>/file')
 def get_book_file(book_id):
     """[最终性能版] 直接提供EPUB文件流"""
-    # 这个接口不需要登录验证，因为文件名本身是无法猜测的
-    # 如果需要，也可以加上登录验证
-    
-    # [核心] 我们只从数据库请求包含书籍内容的那个字段，极大地提升查询效率
     book_data = Book.query.with_entities(Book.epub_data_base64).filter_by(id=book_id).first()
     
     if not book_data or not book_data.epub_data_base64:
         return "Book content not found", 404
 
     try:
-        # [核心] 1. 将Base64字符串解码回原始的二进制数据
         epub_binary_data = base64.b64decode(book_data.epub_data_base64)
-        
-        # [核心] 2. 使用 io.BytesIO 将二进制数据包装成一个“内存中的文件”
         epub_file_in_memory = io.BytesIO(epub_binary_data)
-        
-        # [核心] 3. 使用 Flask 的 send_file，像文件服务器一样，把这个内存中的文件直接发送给前端
-        # mimetype 告诉浏览器这是一个EPUB文件
         return send_file(
             epub_file_in_memory,
             mimetype='application/epub+zip',
-            as_attachment=False # False表示在浏览器中直接打开，而不是下载
+            as_attachment=False
         )
     except Exception as e:
         print(f"发送EPUB文件失败: {e}")
         return "Failed to serve book file", 500
         
 @app.route('/api/books/<int:book_id>', methods=['GET'])
+@jwt_required()
 def get_book_details(book_id):
     """获取单本书的详细内容和所有批注"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    book = Book.query.filter_by(id=book_id, user_id=session['user_id']).first_or_404()
+    current_user_id = get_jwt_identity()
+    book = Book.query.filter_by(id=book_id, user_id=current_user_id).first_or_404()
     
     annotations = Annotation.query.filter_by(book_id=book.id).order_by(Annotation.created_at.asc()).all()
     
@@ -923,29 +824,26 @@ def get_book_details(book_id):
         'annotations': annotations_data
     })
 
-# companion_backend/app.py
-
 @app.route('/api/books/<int:book_id>/annotations', methods=['POST'])
+@jwt_required()
 def add_annotation(book_id):
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
     
     data = request.get_json()
     content = data.get('content')
     highlighted_text = data.get('highlighted_text')
-    cfi = data.get('cfi') # <---  获取CFI
+    cfi = data.get('cfi')
     page_number = data.get('page_number')
     
-    # [核心改造] CFI是必须的！
     if not all([content, cfi]):
         return jsonify({'error': '缺少必要参数(content, cfi)'}), 400
 
     new_annotation = Annotation(
-        user_id=session['user_id'],
+        user_id=current_user_id,
         book_id=book_id,
         content=content,
         highlighted_text=highlighted_text,
-        cfi=cfi, # <---  保存CFI
+        cfi=cfi,
         page_number=page_number,
         is_gemini_annotation=False
     )
@@ -956,7 +854,7 @@ def add_annotation(book_id):
         'id': new_annotation.id,
         'content': new_annotation.content,
         'highlighted_text': new_annotation.highlighted_text,
-        'cfi': new_annotation.cfi, # <---  返回CFI
+        'cfi': new_annotation.cfi,
         'page_number': new_annotation.page_number,
         'is_gemini_annotation': new_annotation.is_gemini_annotation,
         'created_at': new_annotation.created_at.isoformat() + 'Z'
@@ -964,20 +862,16 @@ def add_annotation(book_id):
     
     return jsonify({'success': True, 'annotation': anno_data}), 201
 
-# companion_backend/app.py
-
-# VVVV  [全新功能] 在 add_annotation 下方，粘贴这个函数 VVVV
 @app.route('/api/books/<int:book_id>/annotations/<int:annotation_id>', methods=['DELETE'])
+@jwt_required()
 def delete_annotation(book_id, annotation_id):
     """删除一条批注"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
     
-    # 查找批注，并确保它属于当前用户，防止误删
     annotation = Annotation.query.filter_by(
         id=annotation_id, 
         book_id=book_id, 
-        user_id=session['user_id']
+        user_id=current_user_id
     ).first()
     
     if not annotation:
@@ -987,19 +881,17 @@ def delete_annotation(book_id, annotation_id):
     db.session.commit()
     
     return jsonify({'success': True, 'message': '批注已删除'})
-# ^^^^  粘贴到这里结束 ^^^^
 
 @app.route('/api/books/<int:book_id>/chat', methods=['POST'])
+@jwt_required()
 def chat_about_book(book_id):
     """[核心] 在阅读时与Gemini聊天"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    book = Book.query.filter_by(id=book_id, user_id=session['user_id']).first_or_404()
+    current_user_id = get_jwt_identity()
+    book = Book.query.filter_by(id=book_id, user_id=current_user_id).first_or_404()
     
     data = request.get_json()
     user_message = data.get('message')
-    page_content = data.get('page_content') # 前端需要把当前页的内容发过来
+    page_content = data.get('page_content')
 
     if not user_message or not page_content:
         return jsonify({'error': '缺少消息或页面上下文'}), 400
@@ -1008,54 +900,47 @@ def chat_about_book(book_id):
 你正在和用户一起阅读一本书。
 书名：《{book.title}》
 作者：{book.author}
-
 --- 当前页面的内容如下 ---
 {page_content}
 --- 页面内容结束 ---
-
 现在，请针对用户提出的问题进行回答。你的回答应该简洁、专注，并紧密结合当前页面的内容。
-
 用户问："{user_message}"
 """
     
-    gemini_response = get_gemini_response(prompt, user_id=session['user_id'])
+    gemini_response = get_gemini_response(prompt, user_id=current_user_id)
     
     return jsonify({'response': gemini_response})
 
 @app.route('/api/books/<int:book_id>/generate-gemini-annotation', methods=['POST'])
+@jwt_required()
 def generate_gemini_annotation(book_id):
     """[核心] 触发Gemini为当前页面写批注"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-        
-    book = Book.query.filter_by(id=book_id, user_id=session['user_id']).first_or_404()
+    current_user_id = get_jwt_identity()
+    book = Book.query.filter_by(id=book_id, user_id=current_user_id).first_or_404()
+    
     data = request.get_json()
     page_content = data.get('page_content')
-    cfi = data.get('cfi') # <--- [修改1] 从前端获取CFI！
+    cfi = data.get('cfi')
 
-    # [修改2] 增加对 cfi 的校验
     if not page_content or not cfi:
         return jsonify({'error': '缺少页面内容或CFI'}), 400
 
     prompt = f"""
 你是一位深刻的读者，你正在阅读《{book.title}》这本书。
 请仔细阅读下面这一页的内容，并结合你的人设写下一条有见地的、简洁的批注。
-
 --- 页面内容 ---
 {page_content}
 --- 页面内容结束 ---
-
 你的批注内容：
 """
-    gemini_annotation_content = get_gemini_response(prompt, user_id=session['user_id'])
+    gemini_annotation_content = get_gemini_response(prompt, user_id=current_user_id)
     
-    # 将Gemini的批注存入数据库
     new_annotation = Annotation(
-        user_id=session['user_id'],
+        user_id=current_user_id,
         book_id=book_id,
         content=gemini_annotation_content,
         cfi=cfi,
-        is_gemini_annotation=True # 标记为Gemini的批注
+        is_gemini_annotation=True
     )
     db.session.add(new_annotation)
     db.session.commit()
@@ -1073,12 +958,11 @@ def generate_gemini_annotation(book_id):
     return jsonify({'success': True, 'annotation': anno_data}), 201
     
 @app.route('/api/books/<int:book_id>', methods=['DELETE'])
+@jwt_required()
 def delete_book(book_id):
     """删除一本书"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    book = Book.query.filter_by(id=book_id, user_id=session['user_id']).first()
+    current_user_id = get_jwt_identity()
+    book = Book.query.filter_by(id=book_id, user_id=current_user_id).first()
     
     if not book:
         return jsonify({'error': '书籍不存在或无权删除'}), 404
@@ -1088,22 +972,20 @@ def delete_book(book_id):
     
     return jsonify({'success': True, 'message': '书籍已删除'})
 
-    
 # 音乐相关API
 @app.route('/api/music/session', methods=['POST'])
+@jwt_required()
 def create_music_session():
     """创建音乐会话"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
     
     data = request.get_json()
     playlist = data.get('playlist', [])
     
-    # 创建或更新音乐会话
-    music_session = MusicSession.query.filter_by(user_id=session['user_id']).first()
+    music_session = MusicSession.query.filter_by(user_id=current_user_id).first()
     if not music_session:
         music_session = MusicSession(
-            user_id=session['user_id'],
+            user_id=current_user_id,
             playlist=json.dumps(playlist)
         )
         db.session.add(music_session)
@@ -1115,31 +997,27 @@ def create_music_session():
     
     db.session.commit()
     
-    # 存储到活跃会话中
-    active_music_sessions[session['user_id']] = {
+    active_music_sessions[current_user_id] = {
         'playlist': playlist,
         'current_track': 0,
         'is_playing': False
     }
     
-    update_user_activity(session['user_id'])
+    update_user_activity(current_user_id)
     
     return jsonify({'success': True})
 
 @app.route('/api/music/play', methods=['POST'])
+@jwt_required()
 def play_music():
     """播放音乐"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    user_id = session['user_id']
-    if user_id not in active_music_sessions:
+    current_user_id = get_jwt_identity()
+    if current_user_id not in active_music_sessions:
         return jsonify({'error': '没有活跃的音乐会话'}), 400
     
-    active_music_sessions[user_id]['is_playing'] = True
+    active_music_sessions[current_user_id]['is_playing'] = True
     
-    # 更新数据库
-    music_session = MusicSession.query.filter_by(user_id=user_id).first()
+    music_session = MusicSession.query.filter_by(user_id=current_user_id).first()
     if music_session:
         music_session.is_playing = True
         music_session.updated_at = datetime.utcnow()
@@ -1148,19 +1026,16 @@ def play_music():
     return jsonify({'success': True})
 
 @app.route('/api/music/pause', methods=['POST'])
+@jwt_required()
 def pause_music():
     """暂停音乐"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    user_id = session['user_id']
-    if user_id not in active_music_sessions:
+    current_user_id = get_jwt_identity()
+    if current_user_id not in active_music_sessions:
         return jsonify({'error': '没有活跃的音乐会话'}), 400
     
-    active_music_sessions[user_id]['is_playing'] = False
+    active_music_sessions[current_user_id]['is_playing'] = False
     
-    # 更新数据库
-    music_session = MusicSession.query.filter_by(user_id=user_id).first()
+    music_session = MusicSession.query.filter_by(user_id=current_user_id).first()
     if music_session:
         music_session.is_playing = False
         music_session.updated_at = datetime.utcnow()
@@ -1169,23 +1044,20 @@ def pause_music():
     return jsonify({'success': True})
 
 @app.route('/api/music/next', methods=['POST'])
+@jwt_required()
 def next_track():
     """下一首"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    user_id = session['user_id']
-    if user_id not in active_music_sessions:
+    current_user_id = get_jwt_identity()
+    if current_user_id not in active_music_sessions:
         return jsonify({'error': '没有活跃的音乐会话'}), 400
     
-    session_data = active_music_sessions[user_id]
+    session_data = active_music_sessions[current_user_id]
     playlist = session_data['playlist']
     
     if playlist:
         session_data['current_track'] = (session_data['current_track'] + 1) % len(playlist)
         
-        # 更新数据库
-        music_session = MusicSession.query.filter_by(user_id=user_id).first()
+        music_session = MusicSession.query.filter_by(user_id=current_user_id).first()
         if music_session:
             music_session.current_track = session_data['current_track']
             music_session.updated_at = datetime.utcnow()
@@ -1194,82 +1066,59 @@ def next_track():
     return jsonify({'success': True})
 
 @app.route('/api/music/status', methods=['GET'])
+@jwt_required()
 def get_music_status():
     """获取音乐状态"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    user_id = session['user_id']
-    if user_id not in active_music_sessions:
+    current_user_id = get_jwt_identity()
+    if current_user_id not in active_music_sessions:
         return jsonify({'current_track': 0, 'is_playing': False, 'playlist': []})
     
-    session_data = active_music_sessions[user_id]
+    session_data = active_music_sessions[current_user_id]
     return jsonify({
         'current_track': session_data['current_track'],
         'is_playing': session_data['is_playing'],
         'playlist': session_data['playlist']
     })
 
-# 人设和记忆同步API
-# --- [核心改造] 人设和记忆同步API (数据库版) ---
-
-# 这是一个辅助函数，用来查找或创建用户，避免代码重复
+# 人设和记忆同步API (这些接口由机器人调用，通常不走JWT，保持原样)
 def find_or_create_user_by_qq(qq_id):
     user = User.query.filter_by(qq_id=qq_id).first()
     if not user:
-        # 如果陪伴空间里还没有这个QQ用户，就自动为他创建一个
-        # 用户名和密码是临时的，用户可以在网页端自行修改
         temp_username = f"user_{qq_id}"
-        # 检查临时用户名是否已存在
         if User.query.filter_by(username=temp_username).first():
             temp_username = f"user_{qq_id}_{secrets.token_hex(4)}"
-            
         user = User(
             qq_id=qq_id,
             username=temp_username,
-            password_hash=generate_password_hash(secrets.token_hex(16)) # 生成一个随机的临时密码
+            password_hash=generate_password_hash(secrets.token_hex(16))
         )
         db.session.add(user)
-        # 我们这里直接提交，以获取user.id
         db.session.commit()
         print(f"ℹ️ 用户 {qq_id} 不存在，已自动创建新用户。")
     return user
 
 @app.route('/api/sync/persona', methods=['POST'])
 def sync_persona():
-    """[改造版] 同步QQ机器人的人设数据到数据库"""
     data = request.get_json()
     persona_text = data.get('persona')
     qq_id = data.get('qq_id')
-
     if not qq_id:
         return jsonify({'error': '缺少qq_id参数'}), 400
-
     user = find_or_create_user_by_qq(qq_id)
-    
-    # 如果传来的人设为空，则恢复默认人设
     user.persona = persona_text if persona_text else '一个乐于助人的AI助手'
     db.session.commit()
-    
     print(f"✅ [数据库] 已同步用户 {qq_id} 的人设。")
     return jsonify({'success': True, 'message': f'Persona for {qq_id} updated.'})
 
 @app.route('/api/sync/memory', methods=['POST'])
 def sync_memory():
-    """[改造版] 同步QQ机器人的记忆数据到数据库"""
     data = request.get_json()
     memories = data.get('memories', [])
     qq_id = data.get('qq_id')
-
     if not qq_id:
         return jsonify({'error': '缺少qq_id参数'}), 400
-
     user = find_or_create_user_by_qq(qq_id)
-
-    # 1. 为了保证完全同步，先删除该用户的所有旧记忆
     LongTermMemory.query.filter_by(user_id=user.id).delete()
-    
-    # 2. 遍历从机器人发来的新记忆列表，并存入数据库
     for mem_item in memories:
         if 'content' in mem_item and 'time' in mem_item:
             new_memory = LongTermMemory(
@@ -1278,79 +1127,48 @@ def sync_memory():
                 memory_time_str=mem_item['time']
             )
             db.session.add(new_memory)
-    
     db.session.commit()
-    
     print(f"✅ [数据库] 已同步用户 {qq_id} 的记忆，共 {len(memories)} 条。")
     return jsonify({'success': True, 'message': f'Memories for {qq_id} synced.'})
 
 # 聊天相关API
-# --- [新增] 双向同步核心API ---
-
 @app.route('/api/fetch/data/<string:qq_id>', methods=['GET'])
 def fetch_data_for_bot(qq_id):
-    """
-    [新增] 为QQ机器人提供一个拉取最新数据的接口。
-    这是实现双向同步的关键。
-    """
     user = User.query.filter_by(qq_id=qq_id).first()
-    
     if not user:
         return jsonify({'error': '该QQ用户在陪伴空间无记录'}), 404
-
-    # 1. 获取人设
     persona_data = user.persona
-
-    # 2. 获取所有长期记忆
     memories = LongTermMemory.query.filter_by(user_id=user.id).order_by(LongTermMemory.id.asc()).all()
-    memory_data = [
-        {"time": mem.memory_time_str, "content": mem.content} 
-        for mem in memories
-    ]
-    
+    memory_data = [{"time": mem.memory_time_str, "content": mem.content} for mem in memories]
     print(f"🔄 QQ机器人 {qq_id} 正在从云端拉取最新数据...")
-    
-    return jsonify({
-        'success': True,
-        'qq_id': qq_id,
-        'persona': persona_data,
-        'memories': memory_data
-    })
+    return jsonify({'success': True, 'qq_id': qq_id, 'persona': persona_data, 'memories': memory_data})
+
 @app.route('/api/chat', methods=['POST'])
+@jwt_required()
 def chat_with_gemini():
     """与Gemini聊天"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
     
     data = request.get_json()
     message = data.get('message')
-    
     if not message:
         return jsonify({'error': '消息不能为空'}), 400
     
-    # 获取用户上下文
-    user = User.query.get(session['user_id'])
-    recent_diaries = Diary.query.filter_by(user_id=session['user_id'])\
-        .order_by(Diary.created_at.desc()).limit(3).all()
-    
+    user = User.query.get(current_user_id)
+    recent_diaries = Diary.query.filter_by(user_id=current_user_id).order_by(Diary.created_at.desc()).limit(3).all()
     context = f"用户：{user.username}，最近日记：{[d.content[:50] + '...' for d in recent_diaries]}"
     
-    # 获取Gemini回复
-    response = get_gemini_response(message, context, session['user_id'])
-    
-    update_user_activity(session['user_id'])
-    
+    response = get_gemini_response(message, context, current_user_id)
+    update_user_activity(current_user_id)
     return jsonify({'response': response})
 
 # 游戏相关API
 @app.route('/api/games/scores', methods=['GET'])
+@jwt_required()
 def get_game_scores():
     """获取游戏分数"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
-    
-    scores = GameScore.query.filter_by(user_id=session['user_id'])\
-        .order_by(GameScore.score.desc()).limit(10).all()
+    current_user_id = get_jwt_identity()
+    scores = GameScore.query.filter_by(user_id=current_user_id).order_by(GameScore.score.desc()).limit(10).all()
     
     return jsonify({
         'scores': [{
@@ -1363,10 +1181,10 @@ def get_game_scores():
     })
 
 @app.route('/api/games/scores', methods=['POST'])
+@jwt_required()
 def save_game_score():
     """保存游戏分数"""
-    if 'user_id' not in session:
-        return jsonify({'error': '未登录'}), 401
+    current_user_id = get_jwt_identity()
     
     data = request.get_json()
     game_type = data.get('game_type')
@@ -1377,7 +1195,7 @@ def save_game_score():
         return jsonify({'error': '缺少必要参数'}), 400
     
     game_score = GameScore(
-        user_id=session['user_id'],
+        user_id=current_user_id,
         game_type=game_type,
         score=score,
         level=level
@@ -1386,7 +1204,7 @@ def save_game_score():
     db.session.add(game_score)
     db.session.commit()
     
-    update_user_activity(session['user_id'])
+    update_user_activity(current_user_id)
     
     return jsonify({'success': True, 'score_id': game_score.id})
 
