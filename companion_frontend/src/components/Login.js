@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { getQQIdFromURL } from '../utils/syncData'; // 你的工具函数保持不变
+import { getQQIdFromURL } from '../utils/syncData';
 
-// [核心改造] 从MUI导入我们需要的所有UI组件
 import {
   Container,
   Box,
@@ -14,8 +13,6 @@ import {
   Alert,
   Link
 } from '@mui/material';
-
-// [新增] 导入一个MUI图标，增加趣味性
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 
 function Login({ onLogin }) {
@@ -29,7 +26,6 @@ function Login({ onLogin }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // 从URL获取QQ号 (逻辑保持不变)
   useEffect(() => {
     const qqId = getQQIdFromURL(window.location.href);
     if (qqId) {
@@ -56,8 +52,13 @@ function Login({ onLogin }) {
     try {
       const endpoint = isLogin ? '/auth/login' : '/auth/register';
       const response = await axios.post(endpoint, formData);
+      
+      // [核心修改] 把后端返回的令牌(token)存到浏览器里
+      if (response.data.success && response.data.token) {
+        localStorage.setItem('token', response.data.token);
+      }
+      
       setSuccess(`${isLogin ? '登录' : '注册'}成功！正在进入空间...`);
-      // 延迟一点时间让用户看到成功信息，然后调用onLogin切换页面
       setTimeout(() => {
         onLogin(response.data);
       }, 1000);
@@ -69,7 +70,6 @@ function Login({ onLogin }) {
   };
 
   return (
-    // Container组件会自动处理居中和最大宽度，实现响应式
     <Container component="main" maxWidth="xs">
       <Box
         sx={{
@@ -79,16 +79,15 @@ function Login({ onLogin }) {
           alignItems: 'center',
         }}
       >
-        {/* Paper组件自带阴影和主题背景色，替代了原来的LoginCard */}
         <Paper 
-          elevation={6} // 阴影深度
+          elevation={6}
           sx={{ 
-            p: 4, // p代表padding, 4代表 4 * 8px = 32px
+            p: 4,
             width: '100%',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            backdropFilter: 'blur(10px)', // 保留你的毛玻璃效果
+            backdropFilter: 'blur(10px)',
             backgroundColor: (theme) => 
               theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.7)',
           }}
@@ -100,12 +99,10 @@ function Login({ onLogin }) {
             {isLogin ? '欢迎回来，与Gemini一起度过美好时光' : '创建账户，开始你的陪伴之旅'}
           </Typography>
 
-          {/* Alert组件比div好看得多 */}
           {error && <Alert severity="error" sx={{ width: '100%', mb: 2 }}>{error}</Alert>}
           {success && <Alert severity="success" sx={{ width: '100%', mb: 2 }}>{success}</Alert>}
 
           <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1, width: '100%' }}>
-            {/* TextField是MUI的输入框，集成了Label、Input和各种样式 */}
             <TextField
               margin="normal"
               required
@@ -139,14 +136,13 @@ function Login({ onLogin }) {
               onChange={handleInputChange}
             />
             
-            {/* MUI的Button组件，自带加载中状态 */}
             <Button
               type="submit"
               fullWidth
-              variant="contained" // "contained"是实心按钮样式
+              variant="contained"
               size="large"
               disabled={loading}
-              sx={{ mt: 3, mb: 2, py: 1.5 }} // mt=marginTop, mb=marginBottom, py=padding-top/bottom
+              sx={{ mt: 3, mb: 2, py: 1.5 }}
               startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <LockOpenIcon />}
             >
               {loading ? '处理中...' : (isLogin ? '登录' : '注册')}
