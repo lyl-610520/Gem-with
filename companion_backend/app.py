@@ -40,6 +40,17 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
 app.config["JWT_SECRET_KEY"] = app.config['SECRET_KEY'] # JWT需要一个自己的密钥
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24) # 令牌24小时后过期
 jwt = JWTManager(app) # 初始化JWT工具
+# --- VVVV  在这里添加下面这两行“侦探代码” VVVV ---
+@jwt.unauthorized_loader
+def unauthorized_callback(reason):
+    print(f"Unauthorized request detected. Reason: {reason}")
+    return jsonify({"msg": "Missing Authorization Header"}), 401
+
+@jwt.invalid_token_loader
+def invalid_token_callback(error):
+    print(f"Invalid token detected. Error: {error}")
+    return jsonify({"msg": "Token is invalid"}), 422
+# --- ^^^^ 添加结束 ^^^^ ---
 # 智能数据库连接配置
 database_url = os.getenv('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
