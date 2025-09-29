@@ -34,7 +34,15 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
-# vvvv 在这里添加下面这两行 vvvv
+# --- VVVV  从这里开始修改/添加  VVVV ---
+
+# [核心修复] 明确指定Cookie的作用域，解决跨子域名问题
+# 我们将从环境变量中读取主域名，例如 .onrender.com
+cookie_domain = os.getenv('COOKIE_DOMAIN') 
+if cookie_domain:
+    app.config['SESSION_COOKIE_DOMAIN'] = cookie_domain
+    print(f"✅ Cookie 作用域已设置为: {cookie_domain}")
+
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'
 app.config['SESSION_COOKIE_SECURE'] = True
 # ^^^^ 添加到这里结束 ^^^^
