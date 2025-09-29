@@ -314,7 +314,8 @@ def update_user_activity(user_id):
         user.last_active = datetime.utcnow()
         db.session.commit()
 
-# API路由@app.route('/api/auth/login', methods=['POST'])
+# API路由
+@app.route('/api/auth/login', methods=['POST'])
 def login():
     """用户登录"""
     data = request.get_json()
