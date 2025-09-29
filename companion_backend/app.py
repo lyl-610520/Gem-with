@@ -340,13 +340,13 @@ def login():
     user = User.query.filter_by(qq_id=qq_id, username=username).first()
     
     if user and check_password_hash(user.password_hash, password):
-        # --- 不再使用 session，而是生成一个加密的“令牌” ---
-        access_token = create_access_token(identity=user.id)
+        # [最终修复] 把 user.id 转换成字符串
+        access_token = create_access_token(identity=str(user.id))
         update_user_activity(user.id)
         
         return jsonify({
             'success': True,
-            'token': access_token, # <--- 把令牌发给前端
+            'token': access_token,
             'user': {
                 'id': user.id,
                 'username': user.username,
@@ -382,12 +382,12 @@ def register():
     db.session.add(user)
     db.session.commit()
     
-    # --- 注册成功后，也直接生成一个“令牌” ---
-    access_token = create_access_token(identity=user.id)
+    # [最终修复] 把 user.id 转换成字符串
+    access_token = create_access_token(identity=str(user.id))
     
     return jsonify({
         'success': True,
-        'token': access_token, # <--- 把令牌发给前端
+        'token': access_token,
         'user': {
             'id': user.id,
             'username': user.username,
@@ -432,13 +432,12 @@ def update_profile():
         user.custom_color = data['custom_color']
     
     db.session.commit()
-    update_user_activity(user.id)
+    # [最终修复] get_jwt_identity() 返回的是字符串, 需要转成整数才能用于非数据库操作
+    update_user_activity(int(current_user_id))
     
     return jsonify({'success': True})
 
 # 日记相关API
-# --- [核心重构] 日记相关API (V2) ---
-
 @app.route('/api/diary', methods=['GET'])
 @jwt_required()
 def get_diaries():
@@ -497,7 +496,7 @@ def create_diary():
     db.session.add(user_diary)
     db.session.commit()
     
-    update_user_activity(current_user_id)
+    update_user_activity(int(current_user_id))
     
     user_diary_data = {
         'id': user_diary.id,
@@ -677,7 +676,7 @@ def create_checkin():
     }
 
     gemini_checkin_data = None
-    if check_user_activity(current_user_id):
+    if check_user_activity(int(current_user_id)):
         gemini_prompt = f"用户进行了'{checkin_type}'打卡，内容：'{content}'。请遵循你的人设，也进行一个相关的打卡，分享你的想法或鼓励。"
         gemini_content = get_gemini_response(gemini_prompt, user_id=current_user_id)
         
@@ -698,7 +697,7 @@ def create_checkin():
             'created_at': gemini_checkin.created_at.isoformat() + 'Z'
         }
 
-    update_user_activity(current_user_id)
+    update_user_activity(int(current_user_id))
     
     return jsonify({
         'success': True, 
@@ -1009,13 +1008,13 @@ def create_music_session():
     
     db.session.commit()
     
-    active_music_sessions[current_user_id] = {
+    active_music_sessions[int(current_user_id)] = {
         'playlist': playlist,
         'current_track': 0,
         'is_playing': False
     }
     
-    update_user_activity(current_user_id)
+    update_user_activity(int(current_user_id))
     
     return jsonify({'success': True})
 
@@ -1024,10 +1023,11 @@ def create_music_session():
 def play_music():
     """播放音乐"""
     current_user_id = get_jwt_identity()
-    if current_user_id not in active_music_sessions:
+    user_id_int = int(current_user_id)
+    if user_id_int not in active_music_sessions:
         return jsonify({'error': '没有活跃的音乐会话'}), 400
     
-    active_music_sessions[current_user_id]['is_playing'] = True
+    active_music_sessions[user_id_int]['is_playing'] = True
     
     music_session = MusicSession.query.filter_by(user_id=current_user_id).first()
     if music_session:
@@ -1042,10 +1042,12 @@ def play_music():
 def pause_music():
     """暂停音乐"""
     current_user_id = get_jwt_identity()
-    if current_user_id not in active_music_sessions:
+    user_id_int = int(current_user_id)
+
+    if user_id_int not in active_music_sessions:
         return jsonify({'error': '没有活跃的音乐会话'}), 400
     
-    active_music_sessions[current_user_id]['is_playing'] = False
+    active_music_sessions[user_id_int]['is_playing'] = False
     
     music_session = MusicSession.query.filter_by(user_id=current_user_id).first()
     if music_session:
@@ -1060,10 +1062,11 @@ def pause_music():
 def next_track():
     """下一首"""
     current_user_id = get_jwt_identity()
-    if current_user_id not in active_music_sessions:
-        return jsonify({'error': '没有活跃的音乐会话'}), 400
+    user_id_int = int(current_user_id)
+    if user_id_int not in active_music_sessions:
+        return jsonify({'error': '没有活跃的音乐会話'}), 400
     
-    session_data = active_music_sessions[current_user_id]
+    session_data = active_music_sessions[user_id_int]
     playlist = session_data['playlist']
     
     if playlist:
@@ -1082,10 +1085,11 @@ def next_track():
 def get_music_status():
     """获取音乐状态"""
     current_user_id = get_jwt_identity()
-    if current_user_id not in active_music_sessions:
+    user_id_int = int(current_user_id)
+    if user_id_int not in active_music_sessions:
         return jsonify({'current_track': 0, 'is_playing': False, 'playlist': []})
     
-    session_data = active_music_sessions[current_user_id]
+    session_data = active_music_sessions[user_id_int]
     return jsonify({
         'current_track': session_data['current_track'],
         'is_playing': session_data['is_playing'],
@@ -1171,7 +1175,7 @@ def chat_with_gemini():
     context = f"用户：{user.username}，最近日记：{[d.content[:50] + '...' for d in recent_diaries]}"
     
     response = get_gemini_response(message, context, current_user_id)
-    update_user_activity(current_user_id)
+    update_user_activity(int(current_user_id))
     return jsonify({'response': response})
 
 # 游戏相关API
@@ -1216,7 +1220,7 @@ def save_game_score():
     db.session.add(game_score)
     db.session.commit()
     
-    update_user_activity(current_user_id)
+    update_user_activity(int(current_user_id))
     
     return jsonify({'success': True, 'score_id': game_score.id})
 
