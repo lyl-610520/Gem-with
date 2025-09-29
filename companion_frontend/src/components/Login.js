@@ -60,7 +60,7 @@ function Login({ onLogin }) {
       
       setSuccess(`${isLogin ? '登录' : '注册'}成功！正在进入空间...`);
       setTimeout(() => {
-        window.location.reload();
+        onLogin(response.data);
       }, 1000);
     } catch (error) {
       setError(error.response?.data?.error || '操作失败，请重试');
