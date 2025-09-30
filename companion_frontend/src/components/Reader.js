@@ -1,4 +1,4 @@
-// src/components/Reader.js (终极完整修复版)
+// src/components/Reader.js (移动端专项修复最终版)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -51,6 +51,8 @@ function Reader() {
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
   const viewerRef = useRef(null);
+  // [移动端专项修复] 增加一个 Ref 来标记是否正在进行批注操作
+  const isAnnotatingRef = useRef(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -75,11 +77,9 @@ function Reader() {
   const [chatMessages, setChatMessages] = useState([]);
   const [isChatSending, setIsChatSending] = useState(false);
   
-  // [修复] 抽离出独立的绘制高亮函数，以便复用
   const drawHighlight = useCallback((annotation) => {
     if (!renditionRef.current || !annotation.cfi) return;
     const isGemini = annotation.is_gemini_annotation;
-    // 为不同类型的批注分配不同的 CSS 类名，方便管理
     const className = isGemini ? 'gemini-highlight' : 'user-highlight';
     renditionRef.current.annotations.add("highlight", annotation.cfi, {}, () => {}, className, {});
   }, []);
@@ -96,14 +96,15 @@ function Reader() {
   const fetchAndDrawAnnotations = useCallback(async () => {
     if (!bookId) return;
     try {
-      const response = await axios.get(`/books/${bookId}`); // [修正] API 路径
+      // API 路径现在由 axios 拦截器统一处理，这里用相对路径
+      const response = await axios.get(`/books/${bookId}`); 
       const loadedAnnotations = response.data.annotations || [];
       setAnnotations(loadedAnnotations);
       
       if (renditionRef.current && renditionRef.current.getContents()) {
         renditionRef.current.annotations.removeall();
         loadedAnnotations.forEach(anno => {
-          drawHighlight(anno); // 使用新的绘制函数
+          drawHighlight(anno);
         });
       }
     } catch (err) {
@@ -124,7 +125,7 @@ function Reader() {
       try {
         setIsLoading(true); setError('');
 
-        const fileResponse = await axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' }); // [修正] API 路径
+        const fileResponse = await axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' });
         if (!isMounted) return;
 
         bookRef.current = Epub(fileResponse.data);
@@ -146,15 +147,12 @@ function Reader() {
             flow: "paginated",
           });
 
-          // [修复] 注入CSS，从根源上解决高亮不显示问题
           renditionRef.current.themes.register("custom", {
             "rules": {
-              // 用户批注的样式
               ".user-highlight": {
                 "fill": "rgba(255, 255, 0, 0.4) !important",
                 "stroke": "rgba(255, 255, 0, 0.6) !important",
               },
-              // Gemini 批注的样式
               ".gemini-highlight": {
                 "fill": "rgba(135, 206, 250, 0.4) !important",
                 "stroke": "rgba(135, 206, 250, 0.6) !important",
@@ -175,35 +173,49 @@ function Reader() {
           });
           renditionRef.current.themes.select("custom");
 
+          // --- VVVV [移动端专项修复] 修改 'selected' 事件处理 VVVV ---
           renditionRef.current.on('selected', (cfiRange, contents) => {
-            const selection = contents.window.getSelection();
-            if (selection && selection.toString().trim().length > 0) {
-                setTempAnnotation({
-                    text: selection.toString().trim(),
-                    cfi: cfiRange,
-                });
+            // 使用 setTimeout 延迟处理，避开 iOS 原生菜单的冲突
+            setTimeout(() => {
+              if (!isMounted) return;
 
-                const range = selection.getRangeAt(0);
-                const rect = range.getBoundingClientRect();
-                const viewerRect = viewerRef.current.getBoundingClientRect();
+              const selection = contents.window.getSelection();
+              const selectedText = selection ? selection.toString().trim() : '';
 
-                setSelectionPopover({
-                    rect: {
-                        top: rect.top - viewerRect.top,
-                        left: rect.left - viewerRect.left,
-                        width: rect.width,
-                        height: rect.height,
-                    },
-                });
-            }
+              if (selectedText.length > 0) {
+                  setTempAnnotation({
+                      text: selectedText,
+                      cfi: cfiRange,
+                  });
+
+                  const range = selection.getRangeAt(0);
+                  const rect = range.getBoundingClientRect();
+                  const viewerRect = viewerRef.current.getBoundingClientRect();
+
+                  setSelectionPopover({
+                      rect: {
+                          top: rect.top - viewerRect.top,
+                          left: rect.left - viewerRect.left,
+                          width: rect.width,
+                          height: rect.height,
+                      },
+                  });
+              }
+            }, 100); // 100毫秒的延迟足够让浏览器事件平息
           });
+          // --- ^^^^ 'selected' 事件处理修改结束 ^^^^ ---
           
-          // [修复] 优化 relocated 逻辑，防止不必要的更新
+          // --- VVVV [移动端专项修复] 修改 'relocated' 事件处理 VVVV ---
           let relocationTimer;
           renditionRef.current.on('relocated', (location) => {
             if (!isMounted || !bookRef.current) return;
             
-            // 使用防抖（debounce）来避免过于频繁的更新和保存
+            // 如果正在批注（比如键盘弹起），则忽略任何位置变化，防止跳页
+            if (isAnnotatingRef.current) {
+              console.log("正在批注，忽略本次 relocated 事件");
+              return;
+            }
+            
             clearTimeout(relocationTimer);
             relocationTimer = setTimeout(() => {
                 const chapter = bookRef.current.spine.get(location.start.href);
@@ -223,8 +235,9 @@ function Reader() {
                   currentChapter: currentChapterLabel,
                 });
                 localStorage.setItem(`book-progress-${bookId}`, location.start.cfi);
-            }, 250); // 250毫秒延迟
+            }, 250);
           });
+          // --- ^^^^ 'relocated' 事件处理修改结束 ^^^^ ---
           
           renditionRef.current.on('displayed', () => {
             if (isMounted) fetchAndDrawAnnotations();
@@ -263,61 +276,50 @@ function Reader() {
     }
   };
 
-  // [修复] 核心修复点：采用“精准添加”模式，彻底解决跳页问题
   const handleSaveAnnotation = async (note) => {
     if (!note.trim()) {
       setSnackbar({ open: true, message: '批注内容不能为空' });
       return;
     }
     try {
-      // 1. 发送请求到后端保存
-      const response = await axios.post(`/books/${bookId}/annotations`, { // [修正] API 路径
+      const response = await axios.post(`/books/${bookId}/annotations`, {
         content: note,
         highlighted_text: tempAnnotation.text,
         cfi: tempAnnotation.cfi,
       });
-
-      // 2. 后端会返回刚刚创建成功的批注对象
       const newAnnotation = response.data.annotation;
-
-      // 3. 直接将新的批注添加到当前视图，而不是刷新全部
       drawHighlight(newAnnotation);
-      
-      // 4. 更新 React 的 state，让侧边栏列表也同步更新
       setAnnotations(prev => [...prev, newAnnotation]);
-
       setSnackbar({ open: true, message: '批注已保存' });
     } catch (err) {
       console.error("保存批注失败: ", err);
       setSnackbar({ open: true, message: err.response?.data?.error || '保存失败，请检查网络' });
     }
-    // 5. 关闭模态框和选择菜单
     setAnnotationModal({ open: false });
+    // [移动端专项修复] 保存后也要清除标记
+    isAnnotatingRef.current = false; 
     closeSelectionPopover();
   };
 
-
   const handleGenerateGeminiAnnotation = async () => {
     setSnackbar({ open: true, message: '正在请求 Gem 为本页生成批注...' });
-    closeSelectionPopover(); // 先关闭菜单，避免干扰
+    closeSelectionPopover();
     try {
         const currentPageText = getCurrentPageText();
         if (currentPageText.length < 50) {
             setSnackbar({ open: true, message: '当前页内容太少，无法生成批注' });
             return;
         }
-
         const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
-        
-        const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, { // [修正] API 路径
+        const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
             page_content: currentPageText,
             cfi: pageStartCfi
         });
 
         if (response.data.success) {
             const newAnnotation = response.data.annotation;
-            drawHighlight(newAnnotation); // 精准添加 Gemini 的高亮
-            setAnnotations(prev => [...prev, newAnnotation]); // 更新 state
+            drawHighlight(newAnnotation);
+            setAnnotations(prev => [...prev, newAnnotation]);
             setSnackbar({ open: true, message: 'Gem 批注已生成并保存' });
         }
     } catch (err) {
@@ -331,7 +333,7 @@ function Reader() {
     setChatMessages(prev => [...prev, { sender: 'user', text: message }]);
     try {
       const page_content = getCurrentPageText();
-      const response = await axios.post(`/books/${bookId}/chat`, { message, page_content }); // [修正] API 路径
+      const response = await axios.post(`/books/${bookId}/chat`, { message, page_content });
       setChatMessages(prev => [...prev, { sender: 'gemini', text: response.data.response }]);
     } catch (err) {
       setChatMessages(prev => [...prev, { sender: 'gemini', text: "抱歉，我好像出错了..." }]);
@@ -342,9 +344,8 @@ function Reader() {
   const handleDeleteAnnotation = async (annotationId) => {
     if (!window.confirm("确定要删除这条批注吗？")) return;
     try {
-      await axios.delete(`/books/${bookId}/annotations/${annotationId}`); // [修正] API 路径
+      await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
       setSnackbar({ open: true, message: '批注已删除' });
-      // [修复] 从 state 中移除后，直接调用全局刷新，这是最简单的处理删除的方式
       const removedAnnotation = annotations.find(a => a.id === annotationId);
       if(removedAnnotation && renditionRef.current) {
          renditionRef.current.annotations.remove(removedAnnotation.cfi, "highlight");
@@ -374,7 +375,8 @@ function Reader() {
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
-        <IconButton component={Link} to="/"><HomeIcon /></IconButton>
+        {/* [修正] Home 按钮的链接，应该指向书架页 */}
+        <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{bookTitle}</Typography>
         <Box>
           <Tooltip title="批注列表"><IconButton onClick={() => setShowAnnotationsPanel(true)}><NotesIcon /></IconButton></Tooltip>
@@ -401,9 +403,15 @@ function Reader() {
         sx={{ pointerEvents: 'none' }}
       >
         <Paper sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 1, pointerEvents: 'auto' }}>
-          <Button size="small" startIcon={<CreateIcon />} onClick={() => { setAnnotationModal({ open: true }); setSelectionPopover(null); }}>
+          {/* --- VVVV [移动端专项修复] 点击批注时，设置标记 VVVV --- */}
+          <Button size="small" startIcon={<CreateIcon />} onClick={() => { 
+            isAnnotatingRef.current = true; // <--- 在此设置标记
+            setAnnotationModal({ open: true }); 
+            setSelectionPopover(null); 
+          }}>
             批注
           </Button>
+          {/* --- ^^^^ 修改结束 ^^^^ --- */}
           <Button size="small" startIcon={<AutoAwesomeIcon />} onClick={handleGenerateGeminiAnnotation}>
             Gem一下
           </Button>
@@ -418,7 +426,12 @@ function Reader() {
         <LinearProgress variant="determinate" value={location.progress} />
       </Box>
       
-      <Drawer anchor="bottom" open={annotationModal.open} onClose={() => setAnnotationModal({ open: false })}>
+      {/* --- VVVV [移动端专项修复] 关闭批注模态框时，清除标记 VVVV --- */}
+      <Drawer anchor="bottom" open={annotationModal.open} onClose={() => {
+        setAnnotationModal({ open: false });
+        isAnnotatingRef.current = false; // <--- 在此清除标记
+      }}>
+      {/* --- ^^^^ 修改结束 ^^^^ --- */}
         <Box p={2} component="form" onSubmit={(e) => { e.preventDefault(); handleSaveAnnotation(e.currentTarget.elements.note.value); }}>
           <Typography variant="subtitle1" noWrap sx={{mb: 1}}>为 “{tempAnnotation.text}” 添加批注</Typography>
           <TextField
