@@ -25,7 +25,8 @@ import requests
 import io
 from PIL import Image
 import yt_dlp
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import cv2
 from datetime import datetime
 import random
@@ -40,9 +41,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import ffmpeg
-from google.generativeai import types
 import httpx
 import minimax_mcp
 import traceback
@@ -137,12 +136,10 @@ last_message_ids = {}
 friend_list_cache = []
 bot_qq_id = None
 current_key_index = 0
-model = None
 conversation_history = {}
 ignore_list = [] 
 user_strikes = {} # <--- 新增全局变量，记录警告状态和次数
-model = None # 用于聊天
-image_model = None # <--- 新增！专门用于画图
+client = None
 
 # --- 从外部文件加载表情映射表 ---
 def load_emoji_mapping(file_path="emoji_mapping.json"):
@@ -198,8 +195,10 @@ def process_voice_message(url):
         print(f"   - ✅ MP3 已保存至临时文件: {temp_mp3_path}")
         
         # 4. 调用 genai.upload_file 上传文件
+        if not client and not initialize_model():
+            return "[系统提示：客户端未初始化，无法上传语音文件]"
         print("   - ⏳ 正在上传语音文件至 Gemini...")
-        audio_file = genai.upload_file(path=temp_mp3_path, display_name="User Voice")
+        audio_file = client.files.upload(file=temp_mp3_path, display_name="User Voice")
         print("   - ✅ 语音文件上传成功！")
 
         # 5. 返回包含“文字”和“文件凭证”的列表
@@ -390,78 +389,67 @@ async def text_to_speech_hub(text, output_file, user_id):
         return None
 # ▲▲▲ 最终版函数结束 ▲▲▲
 def initialize_model():
-    """【最终简化版】初始化函数"""
-    global model, image_model, current_key_index # <--- 修改 global
+    """【最终融合版】初始化函数"""
+    global client, current_key_index
     
     print(f"--- 正在使用 Key #{current_key_index + 1} 进行初始化 ---")
     try:
         api_key=API_KEYS[current_key_index]
         
-        try:
-            print("   - [1/2] 正在配置 API Key...")
-            genai.configure(api_key=api_key, transport='rest')
-            
-            print("   - [2/2] 正在初始化所有模型...")
-            # 用于聊天的模型
-            model = genai.GenerativeModel('gemini-2.5-pro') 
-            # [核心] 专门用于生成图片的模型
-            image_model = genai.GenerativeModel('gemini-2.0-flash-preview-image-generation') # 或者你文档里的 'gemini-2.5-flash-image'
+        print("   - 正在创建全新的 GenAI 客户端...")
+        client = genai.Client(api_key=api_key)
+        
+        # 测试一下客户端是否能正常获取到你指定的模型
+        print("   - 正在检查模型 gemini-2.5-pro...")
+        client.models.get('gemini-2.5-pro')
+        print("   - 正在检查模型 gemini-2.0-flash-preview-image-generation...")
+        client.models.get('gemini-2.0-flash-preview-image-generation')
 
-        except Exception as e:
-            print(f"❌ 初始化过程中断！详细错误信息如下：")
-            traceback.print_exc()
-            return False
-
-        print(f"✅ Gemini 初始化成功！聊天模型【gemini-2.5-pro】，图片模型【已就绪】，正使用 Key #{current_key_index + 1}")
+        print(f"✅ 全新 GenAI 客户端初始化成功！正使用 Key #{current_key_index + 1}")
         return True
         
     except Exception as e:
-        print(f"❌ Key #{current_key_index + 1} 初始化失败 (外层捕获): {e}")
+        print(f"❌ Key #{current_key_index + 1} 初始化失败: {e}")
+        traceback.print_exc()
         return False
 
 import time # 确保你的文件顶部导入了time库
 
 def rotate_key_and_retry(history, session_id, user_id, system_prompt_override=None):
+    """【全新迁移版】密钥轮换函数"""
     global current_key_index
     initial_index = current_key_index
     while True:
         print(f"🔑 Key #{current_key_index + 1} 调用失败，正在尝试切换...")
         
-        # ▼▼▼【新增的核心代码】▼▼▼
-        # 增加一个2秒的切换延迟，给API一个喘息的机会，避免请求雪崩
         time.sleep(2) 
-        # ▲▲▲【修改结束】▲▲▲
 
         current_key_index = (current_key_index + 1) % len(API_KEYS)
         if initialize_model():
+            # 初始化成功后，用新的 client 重新调用
             return call_gemini_with_history(history, session_id, user_id, system_prompt_override)
         if current_key_index == initial_index:
             return "糟糕！我所有的能量核心都过载了，暂时无法思考...请稍后再试。"
 
 # call_gemini_with_history 函数内...
 def call_gemini_with_history(history, session_id, user_id, system_prompt_override=None):
-    if not model and not initialize_model(): return "模型未初始化，请检查API Key和网络。"
+    """【最终融合版】聊天核心函数 (保留了你所有的重试和错误处理逻辑)"""
+    if not client and not initialize_model(): return "客户端未初始化，请检查API Key和网络。"
     
-    safety_settings_for_users = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    }
-
-    # ▼▼▼【核心修正】为主人定义一个“完全不拦截”的策略 ▼▼▼
-    safety_settings_for_owner = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-    }
-    # ▲▲▲【修正结束】▲▲▲
-    if str(user_id) == str(BOT_OWNER_QQ):
-        active_safety_settings = safety_settings_for_owner
-        print("👑 检测到主人消息，所有安全限制已解除。")
-    else:
-        active_safety_settings = safety_settings_for_users
+    safety_settings_for_users = [
+        types.SafetySetting(category='HARM_CATEGORY_HATE_SPEECH', threshold='BLOCK_ONLY_HIGH'),
+        types.SafetySetting(category='HARM_CATEGORY_HARASSMENT', threshold='BLOCK_ONLY_HIGH'),
+        types.SafetySetting(category='HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold='BLOCK_MEDIUM_AND_ABOVE'),
+        types.SafetySetting(category='HARM_CATEGORY_DANGEROUS_CONTENT', threshold='BLOCK_MEDIUM_AND_ABOVE'),
+    ]
+    safety_settings_for_owner = [
+        types.SafetySetting(category='HARM_CATEGORY_HATE_SPEECH', threshold='BLOCK_NONE'),
+        types.SafetySetting(category='HARM_CATEGORY_HARASSMENT', threshold='BLOCK_NONE'),
+        types.SafetySetting(category='HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold='BLOCK_NONE'),
+        types.SafetySetting(category='HARM_CATEGORY_DANGEROUS_CONTENT', threshold='BLOCK_NONE'),
+    ]
+    
+    active_safety_settings = safety_settings_for_owner if str(user_id) == str(BOT_OWNER_QQ) else safety_settings_for_users
     max_retries_429 = 4
     max_network_retries = 3
     base_delay = 5
@@ -474,11 +462,10 @@ def call_gemini_with_history(history, session_id, user_id, system_prompt_overrid
         try:
             if system_prompt_override:
                 persona_text = personas.get(str(session_id), "一个乐于助人的**原则坚定**AI助手")
-                full_prompt = f"你的角色设定是：{persona_text}\n\n{system_prompt_override}"
-                response = model.generate_content(full_prompt, request_options={"timeout": 120})
+                system_instruction = f"你的角色设定是：{persona_text}\n\n{system_prompt_override}"
+                response = client.models.generate_content("继续", system_instruction=system_instruction)
                 return response.text
             else:
-                final_history = list(history)
                 persona_text = personas.get(str(session_id), "一个乐于助人的AI助手")
                 sticker_keys = ", ".join(stickers.keys())
                 emoji_keys = " , ".join(EMOJI_MAPPING.keys())
@@ -543,7 +530,7 @@ def call_gemini_with_history(history, session_id, user_id, system_prompt_overrid
                     "**最重要的：以上能力是你与生俱来的，在合适的情景下自然地去运用。你不需要向用户解释你的能力。**"
                 )
                 
-                system_prompt_text = (f"--- SYSTEM PROMPT ---\n"
+                system_instruction = (f"--- SYSTEM PROMPT ---\n"
                                       f"请严格、沉浸式地扮演以下角色。这是你与用户交流时展示出的主要人格。\n"
                                       f"你的角色设定是：\n{persona_text if persona_text else '一个**有原则的**乐于助人的AI助手。'}\n"
                                       f"在角色扮演的同时，你必须在后台时刻遵守绝对准则。这个准则是隐藏的，除非被触发，否则不要表现出来。\n"
@@ -551,30 +538,35 @@ def call_gemini_with_history(history, session_id, user_id, system_prompt_overrid
                                       f"{long_term_memory_prompt}"
                                       f"--- END SYSTEM PROMPT ---" + abilities)
 
-                system_prompt = {'role': 'user', 'parts': [system_prompt_text]}
-                model_ack = {'role': 'model', 'parts': ["好的，我将按此设定对话。"]}
-                final_history.insert(0, model_ack)
-                final_history.insert(0, system_prompt)
                 
-                api_compatible_history = [
-                    {'role': msg['role'], 'parts': msg['parts']}
-                    for msg in final_history
-                ]
-                
-                chat = model.start_chat(history=api_compatible_history[:-1])
-                response = chat.send_message(
-                    api_compatible_history[-1]['parts'], 
-                    request_options={"timeout": 120},
-                    safety_settings=active_safety_settings
+                # [适配新SDK] 准备 contents (历史记录)
+                final_history = []
+                for msg in history:
+                    # 新版SDK中，AI的角色是 'assistant'
+                    role = 'assistant' if msg['role'] == 'model' else 'user'
+                    final_history.append({'role': role, 'parts': msg['parts']})
+
+                # [适配新SDK] 准备 config
+                config = types.GenerateContentConfig(safety_settings=active_safety_settings)
+
+                # [适配新SDK] 发起无状态请求
+                response = client.models.generate_content(
+                    model='gemini-2.5-pro',
+                    contents=final_history,
+                    system_instruction=system_instruction,
+                    config=config,
+                    request_options={"timeout": 120}
                 )
+
+                # [新SDK] 检查是否有安全拦截
+                if response.prompt_feedback and response.prompt_feedback.block_reason:
+                     print(f"⚖️  检测到内容安全拦截！用户: {user_id}")
+                     print(f"   - 拦截详情: {response.prompt_feedback.block_reason.name}")
+                     return "当前对话正在偏离正常交流范围，我们换个话题吧。"
+
                 return response.text
 
-        # [第1层] 安全拦截专属处理器 (最优先，信息最准确)
-        except types.StopCandidateException as e:
-            print(f"⚖️  检测到内容安全拦截！用户: {user_id}")
-            print(f"   - 拦截详情: {e}") 
-            # 返回预设的、针对安全问题的标准回复
-            return "当前对话正在偏离正常交流范围，我们换个话题吧。"
+       
 
         # [第2层] 网络/SSL/代理问题专属处理器 (解决你遇到的SSL报错问题)
         except (requests.exceptions.SSLError, 
@@ -880,15 +872,19 @@ def parse_douyin_video_with_selenium(url):
         print(f"   - ✅ 视频下载成功，保存至: {video_path}")
         
         # --- 后续流程与之前完全一样 ---
+        if not client and not initialize_model():
+            return "[系统提示：客户端未初始化，无法上传抖音视频]"
         print("   - ⏳ 正在上传完整视频至 Gemini...")
-        video_file = genai.upload_file(path=video_path, display_name="Douyin Video")
+        video_file = client.files.upload(file=video_path, display_name="Douyin Video")
         
         print("   - 正在等待Gemini处理视频文件...")
-        while video_file.state.name == "PROCESSING":
+        while video_file.state == types.FileState.PROCESSING:
             time.sleep(5)
-            video_file = genai.get_file(video_file.name)
+            video_file = client.files.get(name=video_file.name) # 新的获取文件状态方法
         
-        if video_file.state.name != "ACTIVE":
+        if video_file.state != types.FileState.ACTIVE:
+        
+        
             return f"[系统提示：上传的抖音视频文件处理失败，状态: {video_file.state.name}]"
         
         print("   - ✅ 视频文件处理完毕！现在提交给AI。")
@@ -930,16 +926,17 @@ def parse_video_unified(url, size_threshold_mb=50):
             if not os.path.exists(video_path): return "[系统提示：视频下载失败。]"
             print(f"   - ✅ 视频下载成功: {video_path}")
             
+            if not client and not initialize_model():
+                return "[系统提示：客户端未初始化，无法上传视频]"
             print("   - ⏳ 正在上传完整视频至 Gemini...")
-            video_file = genai.upload_file(path=video_path, display_name=title)
+            video_file = client.files.upload(file=video_path, display_name=title)
             
-            # --- [核心修复 2]：教会机器人“耐心等待” ---
             print("   - 正在等待Gemini处理视频文件，这可能需要一些时间...")
-            while video_file.state.name == "PROCESSING":
+            while video_file.state == types.FileState.PROCESSING:
                 time.sleep(5) # 每5秒检查一次
-                video_file = genai.get_file(video_file.name) # 获取最新状态
+                video_file = client.files.get(name=video_file.name) # 新的获取文件状态方法
             
-            if video_file.state.name != "ACTIVE":
+            if video_file.state != types.FileState.ACTIVE:
                 print(f"   - ❌ 视频文件处理失败，状态: {video_file.state.name}")
                 return f"[系统提示：上传的视频文件处理失败，无法提交给AI。]"
             
@@ -1171,72 +1168,72 @@ def get_forwarded_msg_content(msg_id):
 
 def generate_image_and_reply(prompt_text, is_editing, session_id, user_id, message_type, ws):
     """
-    核心图片生成与编辑函数。
-    - prompt_text: 从AI回复中提取的绘画或编辑描述。
-    - is_editing: 布尔值，为True表示编辑模式，为False表示从头绘画。
-    - session_id, user_id, message_type, ws: 用于发送回复和管理上下文。
+    【最终融合版】核心图片生成与编辑函数
+    - 使用新SDK，但保留了图片编辑逻辑
     """
-    global conversation_history, image_model
-    if not image_model:
-        send_text_reply("抱歉，我的绘画模块好像还没准备好，请稍后再试。", session_id, user_id, message_type, ws)
+    global client, conversation_history
+    if not client:
+        send_text_reply("抱歉，我的客户端好像还没准备好，请稍后再试。", session_id, user_id, message_type, ws)
         return
 
     print(f"🎨 开始执行{'图片编辑' if is_editing else '图片生成'}任务: {prompt_text}")
     
-    # 构造发送给API的 contents 列表
+    # [最终融合版] 构造发送给API的 contents 列表，并完整保留编辑逻辑
     contents_for_api = [prompt_text]
     
-    # [核心] 如果是编辑模式，寻找上一张生成的图片作为上下文
-    last_generated_image = None
     if is_editing:
-        # 从后往前遍历历史记录，找到最近的一张由模型生成的图片
         history = conversation_history.get(session_id, [])
         for msg in reversed(history):
             if msg.get('role') == 'model' and msg.get('generated_image_data'):
                 last_generated_image = Image.open(io.BytesIO(msg.get('generated_image_data')))
                 print("   - ✅ 找到了上一张生成的图片，进入编辑模式。")
+                # 将上一张图也加入到请求内容中，新版多模态模型能理解这种上下文
+                contents_for_api.append(last_generated_image)
                 break
         
-        if last_generated_image:
-            # 将图片对象加入到 contents 列表的末尾
-            contents_for_api.append(last_generated_image)
-        else:
+        if len(contents_for_api) < 2: # 如果没找到图片
             send_text_reply("哎呀，我找不到上一张可以编辑的图片了，我们还是重新画一张吧？", session_id, user_id, message_type, ws)
             return
 
     try:
-        # --- [最终核心修正] ---
-        # 1. 我们定义一个专门用于生成图片的“工具”。
-        image_tool = Tool(image_generator=ImageGenerator())
+        # --- [最终融合版] 使用多模态模型来处理画图和P图 ---
+        # 这种方式可能比专门的 imagegen 模型慢，但可以处理编辑请求
+        print(f"   - 正在调用 { 'gemini-2.5-pro' if is_editing else 'gemini-2.0-flash-preview-image-generation' } 模型生成/编辑图片...")
+        
+        # 根据是否编辑，选择不同模型
+        model_to_use = 'gemini-2.5-pro' if is_editing else 'gemini-2.0-flash-preview-image-generation'
 
-        # 2. 在调用API时，我们不仅传入提示词，还把这个“工具”一并传入。
-        #    这就等于明确告诉API：“听我命令，使用你的图片生成功能！”
-        print("   - 正在调用 Gemini API (已指定使用 ImageGenerator 工具)...")
-        response = image_model.generate_content(
+        response = client.models.generate_content(
+            model=model_to_use,
             contents=contents_for_api,
-            tools=[image_tool]
+            # 图片生成也需要安全设置
+            config=types.GenerateContentConfig(
+                safety_settings=[
+                    types.SafetySetting(category='HARM_CATEGORY_HATE_SPEECH', threshold='BLOCK_NONE'),
+                    types.SafetySetting(category='HARM_CATEGORY_HARASSMENT', threshold='BLOCK_NONE'),
+                    types.SafetySetting(category='HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold='BLOCK_NONE'),
+                    types.SafetySetting(category='HARM_CATEGORY_DANGEROUS_CONTENT', threshold='BLOCK_NONE'),
+                ]
+            )
         )
-        print("   - ✅ API 响应成功！正在解析内容...")
 
-        generated_text = ""
+        # --- 解析响应 ---
         generated_image_data = None
-
-        # --- 解析响应 (增加健壮性检查) ---
         if not response.candidates:
-            raise ValueError("API 返回了空的候选内容，可能是因为安全策略拦截或提示无效。")
+            raise ValueError("返回了空的候选内容，可能是因为安全策略拦截或提示无效。")
 
+        # 强大的多模态模型返回的图片数据在 part.inline_data 中
         for part in response.candidates[0].content.parts:
-            if hasattr(part, 'text') and part.text is not None:
-                generated_text += part.text
-            elif hasattr(part, 'inline_data') and part.inline_data is not None:
+            if hasattr(part, 'inline_data') and part.inline_data:
                 generated_image_data = part.inline_data.data
+                break
         
         if not generated_image_data:
-            reply_text = generated_text or "抱歉，这次我没能成功画出图片，也许是提示太复杂了，我们换个说法试试？"
+            reply_text = response.text or "抱歉，这次我没能成功画出图片，我们换个说法试试？"
             send_text_reply(reply_text, session_id, user_id, message_type, ws)
             return
 
-        # --- 发送图片给用户 ---
+        # --- 发送图片给用户 (后续逻辑不变) ---
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png", dir="tts_cache") as temp_img:
             temp_img.write(generated_image_data)
             image_path = temp_img.name
@@ -1244,23 +1241,16 @@ def generate_image_and_reply(prompt_text, is_editing, session_id, user_id, messa
         abs_path = os.path.abspath(image_path).replace('\\', '/')
         cq_image = f"[CQ:image,file=file:///{abs_path}]"
         
-        final_message = (generated_text.strip() + "\n" + cq_image) if generated_text.strip() else cq_image
-        
         action = {
             "action": "send_group_msg" if message_type == "group" else "send_private_msg",
-            "params": {
-                "message": f"[CQ:at,qq={user_id}] {final_message}" if message_type == "group" else final_message,
-                "user_id": int(user_id),
-                "group_id": int(session_id)
-            }
+            "params": { "message": f"[CQ:at,qq={user_id}] {cq_image}" if message_type == "group" else cq_image, "user_id": int(user_id), "group_id": int(session_id) }
         }
         ws.send(json.dumps(action))
         print(f"   - ✅ 图片已成功发送给用户 {user_id}。")
 
-        # --- [最关键的一步] 将生成结果存入对话历史，实现记忆 ---
         bot_message_entry = {
             'role': 'model',
-            'parts': [generated_text or "[图片]"],
+            'parts': ["[图片]"],
             'local_file_paths': [image_path],
             'generated_image_data': generated_image_data 
         }
@@ -1269,7 +1259,7 @@ def generate_image_and_reply(prompt_text, is_editing, session_id, user_id, messa
     except Exception as e:
         print(f"❌ 图片生成或编辑失败: {e}")
         traceback.print_exc()
-        error_text = f"糟糕，我的画笔出错了... 错误详情: {str(e)}"
+        error_text = f"糟糕，我的画笔出错了... "
         send_text_reply(error_text, session_id, user_id, message_type, ws)
 
 # 一个辅助函数，用于发送纯文本回复
