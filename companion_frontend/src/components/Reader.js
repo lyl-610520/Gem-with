@@ -102,8 +102,8 @@ function Reader() {
         setIsLoading(true); setError('');
 
         const [fileResponse, detailsResponse] = await Promise.all([
-            axios.get(`/api/books/${bookId}/file`, { responseType: 'arraybuffer' }),
-            axios.get(`/api/books/${bookId}`)
+            axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' }),
+            axios.get(`/books/${bookId}`)
         ]);
 
         if (!isMounted) return;
@@ -247,7 +247,7 @@ function Reader() {
     }
     closeSelectionPopover();
     try {
-      const response = await axios.post(`/api/books/${bookId}/annotations`, {
+      const response = await axios.post(`/books/${bookId}/annotations`, {
         content: note,
         highlighted_text: tempAnnotation.text,
         cfi: tempAnnotation.cfi,
@@ -275,7 +275,7 @@ function Reader() {
         }
         const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
         
-        const response = await axios.post(`/api/books/${bookId}/generate-gemini-annotation`, {
+        const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
             page_content: currentPageText,
             cfi: pageStartCfi,
             highlighted_text: `[Gemini对本页的批注] ${currentPageText.substring(0, 50)}...`
@@ -298,7 +298,7 @@ function Reader() {
     setChatMessages(prev => [...prev, { sender: 'user', text: message }]);
     try {
       const page_content = getCurrentPageText();
-      const response = await axios.post(`/api/books/${bookId}/chat`, { message, page_content });
+      const response = await axios.post(`/books/${bookId}/chat`, { message, page_content });
       setChatMessages(prev => [...prev, { sender: 'gemini', text: response.data.response }]);
     } catch (err) {
       setChatMessages(prev => [...prev, { sender: 'gemini', text: "抱歉，我好像出错了..." }]);
@@ -309,7 +309,7 @@ function Reader() {
   const handleDeleteAnnotation = async (annotationId) => {
     if (!window.confirm("确定要删除这条批注吗？")) return;
     try {
-      await axios.delete(`/api/books/${bookId}/annotations/${annotationId}`);
+      await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
       const removedAnnotation = annotations.find(a => a.id === annotationId);
       if(removedAnnotation && renditionRef.current) {
          renditionRef.current.annotations.remove(removedAnnotation.cfi, "highlight");
