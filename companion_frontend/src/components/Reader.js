@@ -18,7 +18,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
 import CreateIcon from '@mui/icons-material/Create';
 
-// GeminiChat 组件 (这部分无需修改，保持原样)
+// GeminiChat 组件 (保持原样)
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -77,11 +77,7 @@ function Reader() {
     if (!renditionRef.current || !annotation.cfi) return;
     const isGemini = annotation.is_gemini_annotation;
     const className = isGemini ? 'gemini-highlight' : 'user-highlight';
-    // ★ [修改] 使用 annotation.id 作为第三个参数，确保每个高亮都有唯一标识，方便后续操作
-    renditionRef.current.annotations.add("highlight", annotation.cfi, { id: annotation.id }, (e) => {
-        // 你可以在这里添加点击高亮区域的事件，比如弹出批注内容
-        console.log("Highlight clicked", e.target);
-    }, className, {});
+    renditionRef.current.annotations.add("highlight", annotation.cfi, { id: annotation.id }, (e) => {}, className, {});
   }, []);
 
   const getCurrentPageText = useCallback(() => {
@@ -105,7 +101,6 @@ function Reader() {
       try {
         setIsLoading(true); setError('');
 
-        // 同时获取书籍文件和批注信息，并行处理
         const [fileResponse, detailsResponse] = await Promise.all([
             axios.get(`/api/books/${bookId}/file`, { responseType: 'arraybuffer' }),
             axios.get(`/api/books/${bookId}`)
@@ -150,17 +145,14 @@ function Reader() {
           });
           renditionRef.current.themes.select("custom");
 
-          // ★ [核心修改] 优化 selection 事件处理，确保按钮弹出
           renditionRef.current.on('selected', (cfiRange, contents) => {
             if (!isMounted) return;
-            // 使用 setTimeout 确保在浏览器完成选择渲染后再执行
             setTimeout(() => {
                 const selection = contents.window.getSelection();
                 const selectionText = selection ? selection.toString().trim() : '';
 
                 if (selectionText.length > 0 && renditionRef.current && renditionRef.current.location) {
                     const range = selection.getRangeAt(0);
-                    // 使用 epubjs 实例的方法来从 Range 对象生成 CFI，这是最准确的方式
                     const newCfi = renditionRef.current.location.cfiFromRange(range);
                     
                     setTempAnnotation({
@@ -174,7 +166,7 @@ function Reader() {
                     setSelectionPopover({
                         rect: {
                             top: rect.top - viewerRect.top,
-                            left: rect.left - viewerRect.left + rect.width / 2, // 居中
+                            left: rect.left - viewerRect.left + rect.width / 2,
                         },
                     });
                 }
@@ -205,10 +197,7 @@ function Reader() {
                 });
                 localStorage.setItem(`book-progress-${bookId}`, location.start.cfi);
 
-                // ★ [核心修改] 每次翻页后，重新绘制当前页面的高亮
-                // 清除所有旧高亮
                 renditionRef.current.annotations.removeall(); 
-                // 仅绘制所有已加载的批注
                 loadedAnnotations.forEach(anno => {
                   if (anno.cfi) {
                     drawHighlight(anno);
@@ -238,11 +227,10 @@ function Reader() {
       if (renditionRef.current) renditionRef.current.destroy();
       if (bookRef.current) bookRef.current.destroy();
     };
-  }, [bookId, drawHighlight]); // drawHighlight 是用 useCallback 包裹的，依赖稳定
+  }, [bookId, drawHighlight]);
 
   const closeSelectionPopover = () => {
     setSelectionPopover(null);
-    // 清除文字选择痕迹
     if (renditionRef.current) {
         renditionRef.current.getContents().forEach(content => {
             if (content.window) {
@@ -252,13 +240,12 @@ function Reader() {
     }
   };
 
-  // ★ [核心修改] 优化保存逻辑，避免重新获取所有批注，从而防止跳页
   const handleSaveAnnotation = async (note) => {
     if (!note.trim()) {
       setSnackbar({ open: true, message: '批注内容不能为空' });
       return;
     }
-    closeSelectionPopover(); // 先关闭弹窗
+    closeSelectionPopover();
     try {
       const response = await axios.post(`/api/books/${bookId}/annotations`, {
         content: note,
@@ -266,13 +253,8 @@ function Reader() {
         cfi: tempAnnotation.cfi,
       });
       const newAnnotation = response.data.annotation;
-      
-      // ★ 直接在当前页面上绘制新的高亮
       drawHighlight(newAnnotation); 
-      
-      // ★ 更新React状态
       setAnnotations(prev => [...prev, newAnnotation]);
-      
       setSnackbar({ open: true, message: '批注已保存' });
     } catch (err) {
       console.error("保存批注失败: ", err);
@@ -281,31 +263,27 @@ function Reader() {
     setAnnotationModal({ open: false });
   };
 
-  // ★ [核心修改] 优化Gemini批注生成逻辑，避免跳页
   const handleGenerateGeminiAnnotation = async () => {
-    closeSelectionPopover(); // 立即关闭按钮
+    closeSelectionPopover();
     setSnackbar({ open: true, message: '正在请求 Gem 为您生成批注...' });
     
     try {
         const currentPageText = getCurrentPageText();
-        if (currentPageText.length < 30) { // 内容太少没意义
+        if (currentPageText.length < 30) {
             setSnackbar({ open: true, message: '当前页内容太少，无法生成有意义的批注' });
             return;
         }
-        // 使用当前视图的起始位置作为批注的CFI
         const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
         
         const response = await axios.post(`/api/books/${bookId}/generate-gemini-annotation`, {
             page_content: currentPageText,
             cfi: pageStartCfi,
-            highlighted_text: `[Gemini对本页的批注] ${currentPageText.substring(0, 50)}...` // 给出一个默认的高亮文本
+            highlighted_text: `[Gemini对本页的批注] ${currentPageText.substring(0, 50)}...`
         });
         
         if (response.data.success) {
             const newAnnotation = response.data.annotation;
-             // ★ 直接在当前页面上绘制新的高亮
             drawHighlight(newAnnotation);
-            // ★ 更新React状态
             setAnnotations(prev => [...prev, newAnnotation]);
             setSnackbar({ open: true, message: 'Gem 批注已生成并保存' });
         }
@@ -334,7 +312,6 @@ function Reader() {
       await axios.delete(`/api/books/${bookId}/annotations/${annotationId}`);
       const removedAnnotation = annotations.find(a => a.id === annotationId);
       if(removedAnnotation && renditionRef.current) {
-         // ★ [核心修改] 使用CFI和"highlight"类型来精确移除高亮
          renditionRef.current.annotations.remove(removedAnnotation.cfi, "highlight");
       }
       setAnnotations(prev => prev.filter(a => a.id !== annotationId));
@@ -349,7 +326,6 @@ function Reader() {
   const onTocClick = (href) => { if(renditionRef.current) { renditionRef.current.display(href).then(() => setShowToc(false)); }};
   const handleJumpToAnnotation = (cfi) => { if(renditionRef.current) { renditionRef.current.display(cfi); setShowAnnotationsPanel(false); }};
 
-  // ★ [新增] 当弹窗打开时，禁用翻页快捷键
   const handleKeyPress = useCallback((event) => {
     if (annotationModal.open || showGeminiChat || selectionPopover) return;
     if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase())) return;
@@ -379,27 +355,31 @@ function Reader() {
         
         <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading || error ? 'hidden' : 'visible' }} />
         
-        {/* ★ 翻页区域优化，弹窗时禁用 */}
         <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '25%', height: '100%', zIndex: 9, WebkitTapHighlightColor: 'transparent', cursor: selectionPopover || annotationModal.open ? 'default' : 'pointer' }} />
         <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '25%', height: '100%', zIndex: 9, WebkitTapHighlightColor: 'transparent', cursor: selectionPopover || annotationModal.open ? 'default' : 'pointer' }} />
       </Box>
 
+      {/* ★★★ 最终修正版 Popover ★★★ */}
       <Popover
         open={Boolean(selectionPopover)}
         anchorReference="anchorPosition"
         anchorPosition={selectionPopover ? { top: selectionPopover.rect.top, left: selectionPopover.rect.left } : undefined}
-        onClose={closeSelectionPopover}
+        onClose={closeSelectionPopover} // 现在这个会正常工作了
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
         transformOrigin={{ vertical: 'top', horizontal: 'center' }}
-        sx={{ pointerEvents: 'none' }}
+        // 删除了 sx={{ pointerEvents: 'none' }}
       >
-        <Paper sx={{ p: 0.5, display: 'flex', alignItems: 'center', gap: 0.5, pointerEvents: 'auto', borderRadius: '12px' }}>
+        <Paper sx={{ p: 0.5, display: 'flex', alignItems: 'center', gap: 0.5, borderRadius: '12px' }}>
           <Button size="small" startIcon={<CreateIcon />} onClick={() => { setAnnotationModal({ open: true }); setSelectionPopover(null); }}>
             批注
           </Button>
           <Button size="small" startIcon={<AutoAwesomeIcon />} onClick={handleGenerateGeminiAnnotation}>
             Gem一下
           </Button>
+          {/* 恢复了关闭按钮，提供明确的退出操作 */}
+          <IconButton size="small" onClick={closeSelectionPopover}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
         </Paper>
       </Popover>
 
