@@ -43,12 +43,14 @@ function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   );
 }
 
+
 function Reader() {
   const { bookId } = useParams();
   
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
   const viewerRef = useRef(null);
+  const selectionTimeoutRef = useRef(null); // 用于 selection 事件的防抖
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -77,7 +79,7 @@ function Reader() {
     if (!renditionRef.current || !annotation.cfi) return;
     const isGemini = annotation.is_gemini_annotation;
     const className = isGemini ? 'gemini-highlight' : 'user-highlight';
-    renditionRef.current.annotations.add("highlight", annotation.cfi, { id: annotation.id }, (e) => {}, className, {});
+    renditionRef.current.annotations.add("highlight", annotation.cfi, { id: annotation.id }, () => {}, className, {});
   }, []);
 
   const getCurrentPageText = useCallback(() => {
@@ -108,8 +110,8 @@ function Reader() {
 
         if (!isMounted) return;
 
-        const loadedAnnotations = detailsResponse.data.annotations || [];
-        setAnnotations(loadedAnnotations);
+        const initialAnnotations = detailsResponse.data.annotations || [];
+        setAnnotations(initialAnnotations);
 
         bookRef.current = Epub(fileResponse.data);
         await bookRef.current.ready;
@@ -127,7 +129,6 @@ function Reader() {
             flow: "paginated",
             width: '100%', 
             height: '100%',
-            allowScriptedContent: true,
           });
 
           renditionRef.current.themes.register("custom", {
@@ -144,33 +145,44 @@ function Reader() {
             },
           });
           renditionRef.current.themes.select("custom");
-
-          renditionRef.current.on('selected', (cfiRange, contents) => {
-            if (!isMounted) return;
-            setTimeout(() => {
+          
+          renditionRef.current.on('displayed', (view) => {
+              if (!isMounted) return;
+              
+              const handleSelection = () => {
+                const contents = renditionRef.current.getContents()[0];
+                if (!contents || !contents.window) return;
+                
                 const selection = contents.window.getSelection();
                 const selectionText = selection ? selection.toString().trim() : '';
 
-                if (selectionText.length > 0 && renditionRef.current && renditionRef.current.location) {
+                if (selectionText.length > 0 && renditionRef.current.location) {
                     const range = selection.getRangeAt(0);
-                    const newCfi = renditionRef.current.location.cfiFromRange(range);
+                    const cfi = renditionRef.current.location.cfiFromRange(range);
                     
-                    setTempAnnotation({
-                        text: selectionText,
-                        cfi: newCfi,
-                    });
-
+                    setTempAnnotation({ text: selectionText, cfi: cfi });
+                    
                     const rect = range.getBoundingClientRect();
                     const viewerRect = viewerRef.current.getBoundingClientRect();
-
+                    
                     setSelectionPopover({
                         rect: {
                             top: rect.top - viewerRect.top,
                             left: rect.left - viewerRect.left + rect.width / 2,
-                        },
+                        }
                     });
                 }
-            }, 100);
+              };
+
+              const debouncedSelectionHandler = () => {
+                  clearTimeout(selectionTimeoutRef.current);
+                  selectionTimeoutRef.current = setTimeout(handleSelection, 150);
+              };
+
+              const iframeDoc = view.document;
+              iframeDoc.addEventListener('selectionchange', debouncedSelectionHandler);
+              iframeDoc.addEventListener('mouseup', debouncedSelectionHandler);
+              iframeDoc.addEventListener('touchend', debouncedSelectionHandler);
           });
           
           let relocationTimer;
@@ -196,12 +208,10 @@ function Reader() {
                   currentChapter: currentChapterLabel,
                 });
                 localStorage.setItem(`book-progress-${bookId}`, location.start.cfi);
-
-                renditionRef.current.annotations.removeall(); 
-                loadedAnnotations.forEach(anno => {
-                  if (anno.cfi) {
-                    drawHighlight(anno);
-                  }
+                
+                renditionRef.current.annotations.removeall();
+                annotations.forEach(anno => {
+                  if (anno.cfi) drawHighlight(anno);
                 });
 
             }, 250);
@@ -224,16 +234,17 @@ function Reader() {
 
     return () => {
       isMounted = false;
+      clearTimeout(selectionTimeoutRef.current);
       if (renditionRef.current) renditionRef.current.destroy();
       if (bookRef.current) bookRef.current.destroy();
     };
-  }, [bookId, drawHighlight]);
+  }, [bookId, drawHighlight, annotations]);
 
   const closeSelectionPopover = () => {
     setSelectionPopover(null);
     if (renditionRef.current) {
         renditionRef.current.getContents().forEach(content => {
-            if (content.window) {
+            if (content && content.window) {
                 content.window.getSelection().removeAllRanges();
             }
         });
@@ -359,15 +370,13 @@ function Reader() {
         <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '25%', height: '100%', zIndex: 9, WebkitTapHighlightColor: 'transparent', cursor: selectionPopover || annotationModal.open ? 'default' : 'pointer' }} />
       </Box>
 
-      {/* ★★★ 最终修正版 Popover ★★★ */}
       <Popover
         open={Boolean(selectionPopover)}
         anchorReference="anchorPosition"
         anchorPosition={selectionPopover ? { top: selectionPopover.rect.top, left: selectionPopover.rect.left } : undefined}
-        onClose={closeSelectionPopover} // 现在这个会正常工作了
+        onClose={closeSelectionPopover}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
         transformOrigin={{ vertical: 'top', horizontal: 'center' }}
-        // 删除了 sx={{ pointerEvents: 'none' }}
       >
         <Paper sx={{ p: 0.5, display: 'flex', alignItems: 'center', gap: 0.5, borderRadius: '12px' }}>
           <Button size="small" startIcon={<CreateIcon />} onClick={() => { setAnnotationModal({ open: true }); setSelectionPopover(null); }}>
@@ -376,7 +385,6 @@ function Reader() {
           <Button size="small" startIcon={<AutoAwesomeIcon />} onClick={handleGenerateGeminiAnnotation}>
             Gem一下
           </Button>
-          {/* 恢复了关闭按钮，提供明确的退出操作 */}
           <IconButton size="small" onClick={closeSelectionPopover}>
             <CloseIcon fontSize="small" />
           </IconButton>
