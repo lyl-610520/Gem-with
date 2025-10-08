@@ -50,7 +50,7 @@ function Reader() {
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
   const viewerRef = useRef(null);
-  const selectionTimeoutRef = useRef(null); // 用于 selection 事件的防抖
+  const selectionTimeoutRef = useRef(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -58,6 +58,13 @@ function Reader() {
   const [toc, setToc] = useState([]);
   const [annotations, setAnnotations] = useState([]);
   
+  // ★★★ [核心修复-1] 创建一个 Ref 来持有最新的 annotations state ★★★
+  const annotationsRef = useRef(annotations);
+  useEffect(() => {
+    annotationsRef.current = annotations;
+  }, [annotations]);
+
+
   const [location, setLocation] = useState({
       progress: 0,
       currentChapter: '加载中...'
@@ -135,50 +142,32 @@ function Reader() {
             "rules": {
               ".user-highlight": { "fill": "rgba(255, 255, 0, 0.4) !important", "fill-opacity": "1", "mix-blend-mode": "multiply" },
               ".gemini-highlight": { "fill": "rgba(135, 206, 250, 0.4) !important", "fill-opacity": "1", "mix-blend-mode": "multiply" },
-            },
-            "body": { 
-              "padding": "20px 40px !important", 
-              "line-height": "1.7 !important", 
-              "font-size": "18px !important",
-              "color": "#333 !important",
-              "word-wrap": "break-word",
-            },
+            }, "body": { "padding": "20px 40px !important", "line-height": "1.7 !important", "font-size": "18px !important", "color": "#333 !important", "word-wrap": "break-word" },
           });
           renditionRef.current.themes.select("custom");
           
           renditionRef.current.on('displayed', (view) => {
               if (!isMounted) return;
-              
               const handleSelection = () => {
                 const contents = renditionRef.current.getContents()[0];
                 if (!contents || !contents.window) return;
-                
                 const selection = contents.window.getSelection();
                 const selectionText = selection ? selection.toString().trim() : '';
-
                 if (selectionText.length > 0 && renditionRef.current.location) {
                     const range = selection.getRangeAt(0);
                     const cfi = renditionRef.current.location.cfiFromRange(range);
-                    
                     setTempAnnotation({ text: selectionText, cfi: cfi });
-                    
                     const rect = range.getBoundingClientRect();
                     const viewerRect = viewerRef.current.getBoundingClientRect();
-                    
                     setSelectionPopover({
-                        rect: {
-                            top: rect.top - viewerRect.top,
-                            left: rect.left - viewerRect.left + rect.width / 2,
-                        }
+                        rect: { top: rect.top - viewerRect.top, left: rect.left - viewerRect.left + rect.width / 2 }
                     });
                 }
               };
-
               const debouncedSelectionHandler = () => {
                   clearTimeout(selectionTimeoutRef.current);
                   selectionTimeoutRef.current = setTimeout(handleSelection, 150);
               };
-
               const iframeDoc = view.document;
               iframeDoc.addEventListener('selectionchange', debouncedSelectionHandler);
               iframeDoc.addEventListener('mouseup', debouncedSelectionHandler);
@@ -188,7 +177,6 @@ function Reader() {
           let relocationTimer;
           renditionRef.current.on('relocated', (location) => {
             if (!isMounted || !bookRef.current) return;
-            
             clearTimeout(relocationTimer);
             relocationTimer = setTimeout(() => {
                 const chapter = bookRef.current.spine.get(location.start.href);
@@ -199,18 +187,14 @@ function Reader() {
                         const chapterHref = chapter.href.split('#')[0];
                         return chapterHref.includes(tocHref);
                     });
-                    if (foundTocItem) {
-                        currentChapterLabel = foundTocItem.label.trim();
-                    }
+                    if (foundTocItem) { currentChapterLabel = foundTocItem.label.trim(); }
                 }
-                setLocation({
-                  progress: Math.round(location.start.percentage * 100),
-                  currentChapter: currentChapterLabel,
-                });
+                setLocation({ progress: Math.round(location.start.percentage * 100), currentChapter: currentChapterLabel });
                 localStorage.setItem(`book-progress-${bookId}`, location.start.cfi);
                 
                 renditionRef.current.annotations.removeall();
-                annotations.forEach(anno => {
+                // ★★★ [核心修复-2] 使用 ref.current 来访问最新的批注 ★★★
+                annotationsRef.current.forEach(anno => {
                   if (anno.cfi) drawHighlight(anno);
                 });
 
@@ -235,10 +219,11 @@ function Reader() {
     return () => {
       isMounted = false;
       clearTimeout(selectionTimeoutRef.current);
-      if (renditionRef.current) renditionRef.current.destroy();
-      if (bookRef.current) bookRef.current.destroy();
+      if (renditionRef.current) { renditionRef.current.destroy(); }
+      if (bookRef.current) { bookRef.current.destroy(); }
     };
-  }, [bookId, drawHighlight, annotations]);
+  // ★★★ [核心修复-3] 移除 annotations 依赖，打破无限循环！★★★
+  }, [bookId, drawHighlight]);
 
   const closeSelectionPopover = () => {
     setSelectionPopover(null);
@@ -349,6 +334,7 @@ function Reader() {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [handleKeyPress]);
   
+  // (JSX 部分完全不变，所以省略以保持简洁)
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1, zIndex: 10 }}>
