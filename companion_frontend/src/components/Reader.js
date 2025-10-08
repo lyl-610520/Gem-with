@@ -18,7 +18,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
 import CreateIcon from '@mui/icons-material/Create';
 
-// GeminiChat 组件 (保持原样)
+// GeminiChat 组件 (这部分无需修改)
 function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -95,13 +95,15 @@ function Reader() {
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
   const viewerRef = useRef(null);
+  const annotationsRef = useRef([]); // 使用 ref 来存储批注，避免闭包问题
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [bookTitle, setBookTitle] = useState('加载中...');
   const [toc, setToc] = useState([]);
-  const [annotations, setAnnotations] = useState([]);
-
+  
+  const [, setForceRender] = useState(0); // 用于强制刷新状态的技巧
+  
   const [location, setLocation] = useState({
     progress: 0,
     currentChapter: '加载中...'
@@ -121,28 +123,12 @@ function Reader() {
 
   const drawHighlight = useCallback((annotation) => {
     if (!renditionRef.current || !annotation.cfi) return;
-    
     try {
       const isGemini = annotation.is_gemini_annotation;
-      // 使用 annotations.highlight 方法并直接传入样式
-      renditionRef.current.annotations.highlight(
-        annotation.cfi,
-        { id: annotation.id },
-        (e) => {
-          console.log('高亮被点击:', annotation);
-        },
-        'hl', // a class name
-        {
-          fill: isGemini ? 'rgba(135, 206, 250, 0.4)' : 'rgba(255, 255, 0, 0.4)',
-          'fill-opacity': '1', // Opacity is handled by the RGBA color
-          'mix-blend-mode': 'multiply'
-        }
-      );
+      const className = isGemini ? 'gemini-highlight' : 'user-highlight';
+      renditionRef.current.annotations.add("highlight", annotation.cfi, { id: annotation.id }, () => {}, className, {});
     } catch (err) {
-      // 捕获并忽略 CFI 找不到的错误，这在书籍内容变化时可能发生
-      if (!err.message.includes("CFI could not be found")) {
-         console.error('绘制高亮失败:', annotation.cfi, err);
-      }
+      console.error('绘制高亮失败:', err, 'CFI:', annotation.cfi);
     }
   }, []);
 
@@ -163,20 +149,21 @@ function Reader() {
       return;
     }
 
-    // 存储 annotations 的引用，以便在事件监听器中访问最新值
-    const annotationsRef = React.createRef();
-    annotationsRef.current = annotations;
-
     const loadBook = async () => {
       try {
         setIsLoading(true); 
         setError('');
 
-        const fileResponse = await axios.get(`/api/books/${bookId}/file`, { 
-          responseType: 'arraybuffer' 
-        });
+        const [detailsResponse, fileResponse] = await Promise.all([
+          axios.get(`/books/${bookId}`),
+          axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' })
+        ]);
         
         if (!isMounted) return;
+        
+        // 预加载批注数据
+        annotationsRef.current = detailsResponse.data.annotations || [];
+        setForceRender(prev => prev + 1); // 触发一次渲染以更新批注列表
 
         bookRef.current = Epub(fileResponse.data);
         await bookRef.current.ready;
@@ -184,12 +171,9 @@ function Reader() {
         if (!isMounted) return;
 
         const meta = await bookRef.current.loaded.metadata;
-        const initialAnnotationsResponse = await axios.get(`/api/books/${bookId}`);
-
         if (isMounted) {
           setBookTitle(meta.title);
           setToc(bookRef.current.navigation.toc);
-          setAnnotations(initialAnnotationsResponse.data.annotations || []);
         }
 
         if (viewerRef.current) {
@@ -198,10 +182,21 @@ function Reader() {
             flow: "paginated",
             width: '100%', 
             height: '100%',
-            allowScriptedContent: true,
           });
 
-          renditionRef.current.themes.register("custom", { "body": { "padding": "20px !important", "line-height": "1.7 !important", "font-size": "18px !important", "color": "#333 !important", "word-wrap": "break-word" } });
+          renditionRef.current.themes.register("custom", {
+            "rules": {
+              ".user-highlight": { "fill": "rgba(255, 255, 0, 0.4) !important", "fill-opacity": "1" },
+              ".gemini-highlight": { "fill": "rgba(135, 206, 250, 0.4) !important", "fill-opacity": "1" },
+            },
+            "body": { 
+              "padding": "20px !important", 
+              "line-height": "1.7 !important", 
+              "font-size": "18px !important",
+              "color": "#333 !important",
+              "word-wrap": "break-word",
+            },
+          });
           renditionRef.current.themes.select("custom");
 
           renditionRef.current.on('selected', (cfiRange, contents) => {
@@ -209,14 +204,24 @@ function Reader() {
             try {
               const selection = contents.window.getSelection();
               if (!selection || selection.rangeCount === 0) return;
+              
               const selectedText = selection.toString().trim();
-              if (selectedText.length === 0) return;
+              if (selectedText.length === 0) {
+                  closeSelectionMenu();
+                  return;
+              };
 
               setTempAnnotation({ text: selectedText, cfi: cfiRange });
               const range = selection.getRangeAt(0);
               const rect = range.getBoundingClientRect();
-              setSelectionMenu({ top: rect.bottom + 5, left: rect.left + (rect.width / 2) });
-            } catch (err) { console.error('处理选择失败:', err); }
+              
+              setSelectionMenu({
+                top: rect.bottom + 5, // 5px 间距
+                left: rect.left + (rect.width / 2),
+              });
+            } catch (err) {
+              console.error('处理选择失败:', err);
+            }
           });
 
           let relocationTimer;
@@ -227,23 +232,31 @@ function Reader() {
               const chapter = bookRef.current.spine.get(location.start.href);
               let currentChapterLabel = '未知章节';
               if (chapter) {
-                const foundTocItem = bookRef.current.navigation.toc.find(item => item.href.split('#')[0] === chapter.href.split('#')[0]);
+                const foundTocItem = bookRef.current.navigation.toc.find(item => {
+                  const tocHref = item.href.split('#')[0];
+                  const chapterHref = chapter.href.split('#')[0];
+                  return chapterHref.includes(tocHref);
+                });
                 if (foundTocItem) currentChapterLabel = foundTocItem.label.trim();
               }
-              setLocation({ progress: Math.round(location.start.percentage * 100), currentChapter: currentChapterLabel });
+              setLocation({
+                progress: Math.round(location.start.percentage * 100),
+                currentChapter: currentChapterLabel,
+              });
               localStorage.setItem(`book-progress-${bookId}`, location.start.cfi);
             }, 250);
           });
           
           renditionRef.current.on('rendered', () => {
             if (!isMounted) return;
-            // 使用 ref 获取最新的 annotations 数组
-            const currentAnnotations = annotationsRef.current || [];
-            currentAnnotations.forEach(anno => {
+            // 清除所有旧高亮
+            renditionRef.current.annotations.removeall();
+            // 重新绘制所有批注的高亮
+            annotationsRef.current.forEach(anno => {
               if (anno.cfi) drawHighlight(anno);
             });
           });
-          
+
           const savedCfi = localStorage.getItem(`book-progress-${bookId}`);
           await renditionRef.current.display(savedCfi || undefined);
         }
@@ -251,7 +264,10 @@ function Reader() {
         if (isMounted) setIsLoading(false);
       } catch (err) {
         console.error("加载书籍失败:", err);
-        if (isMounted) { setError("加载书籍失败,请刷新重试。"); setIsLoading(false); }
+        if (isMounted) {
+          setError("加载书籍失败,请刷新重试。");
+          setIsLoading(false);
+        }
       }
     };
 
@@ -276,14 +292,20 @@ function Reader() {
   };
 
   const handleSaveAnnotation = async (note) => {
-    if (!note.trim()) { setSnackbar({ open: true, message: '批注内容不能为空' }); return; }
+    if (!note.trim()) {
+      setSnackbar({ open: true, message: '批注内容不能为空' });
+      return;
+    }
     try {
-      const response = await axios.post(`/api/books/${bookId}/annotations`, {
-        content: note, highlighted_text: tempAnnotation.text, cfi: tempAnnotation.cfi,
+      const response = await axios.post(`/books/${bookId}/annotations`, {
+        content: note,
+        highlighted_text: tempAnnotation.text,
+        cfi: tempAnnotation.cfi,
       });
       const newAnnotation = response.data.annotation;
       drawHighlight(newAnnotation);
-      setAnnotations(prev => [...prev, newAnnotation]);
+      annotationsRef.current.push(newAnnotation); // 更新 ref
+      setForceRender(prev => prev + 1); // 强制刷新
       setSnackbar({ open: true, message: '批注已保存' });
     } catch (err) {
       console.error("保存批注失败: ", err);
@@ -298,15 +320,20 @@ function Reader() {
     closeSelectionMenu();
     try {
       const currentPageText = getCurrentPageText();
-      if (currentPageText.length < 50) { setSnackbar({ open: true, message: '当前页内容太少,无法生成批注' }); return; }
+      if (currentPageText.length < 50) {
+        setSnackbar({ open: true, message: '当前页内容太少,无法生成批注' });
+        return;
+      }
       const pageStartCfi = renditionRef.current.currentLocation().start.cfi;
-      const response = await axios.post(`/api/books/${bookId}/generate-gemini-annotation`, {
-        page_content: currentPageText, cfi: pageStartCfi
+      const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
+        page_content: currentPageText,
+        cfi: pageStartCfi
       });
       if (response.data.success) {
         const newAnnotation = response.data.annotation;
         drawHighlight(newAnnotation);
-        setAnnotations(prev => [...prev, newAnnotation]);
+        annotationsRef.current.push(newAnnotation); // 更新 ref
+        setForceRender(prev => prev + 1); // 强制刷新
         setSnackbar({ open: true, message: 'Gem 批注已生成并保存' });
       }
     } catch (err) {
@@ -320,29 +347,35 @@ function Reader() {
     setChatMessages(prev => [...prev, { sender: 'user', text: message }]);
     try {
       const page_content = getCurrentPageText();
-      const response = await axios.post(`/api/books/${bookId}/chat`, { message, page_content });
+      const response = await axios.post(`/books/${bookId}/chat`, { message, page_content });
       setChatMessages(prev => [...prev, { sender: 'gemini', text: response.data.response }]);
-    } catch (err) { setChatMessages(prev => [...prev, { sender: 'gemini', text: "抱歉,我好像出错了..." }]); }
+    } catch (err) {
+      setChatMessages(prev => [...prev, { sender: 'gemini', text: "抱歉,我好像出错了..." }]);
+    }
     setIsChatSending(false);
   };
 
   const handleDeleteAnnotation = async (annotationId) => {
     if (!window.confirm("确定要删除这条批注吗?")) return;
     try {
-      await axios.delete(`/api/books/${bookId}/annotations/${annotationId}`);
+      await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
       setSnackbar({ open: true, message: '批注已删除' });
-      const removedAnnotation = annotations.find(a => a.id === annotationId);
+      const removedAnnotation = annotationsRef.current.find(a => a.id === annotationId);
       if (removedAnnotation && renditionRef.current) {
-        renditionRef.current.annotations.remove(removedAnnotation.cfi, "highlight");
+         renditionRef.current.annotations.remove(removedAnnotation.cfi, "highlight");
       }
-      setAnnotations(prev => prev.filter(a => a.id !== annotationId));
-    } catch (err) { setSnackbar({ open: true, message: '删除失败' }); }
+      annotationsRef.current = annotationsRef.current.filter(a => a.id !== annotationId); // 更新 ref
+      setForceRender(prev => prev + 1); // 强制刷新
+    } catch (err) {
+      setSnackbar({ open: true, message: '删除失败' });
+    }
   };
 
   const handleNextPage = useCallback(() => { if (!selectionMenu && renditionRef.current) renditionRef.current.next(); }, [selectionMenu]);
   const handlePrevPage = useCallback(() => { if (!selectionMenu && renditionRef.current) renditionRef.current.prev(); }, [selectionMenu]);
-  const onTocClick = (href) => { if (renditionRef.current) { renditionRef.current.display(href).then(() => setShowToc(false)); } };
-  const handleJumpToAnnotation = (cfi) => { if (renditionRef.current) { renditionRef.current.display(cfi); setShowAnnotationsPanel(false); } };
+  const onTocClick = (href) => { if (renditionRef.current) renditionRef.current.display(href).then(() => setShowToc(false)); };
+  const handleJumpToAnnotation = (cfi) => { if (renditionRef.current) { renditionRef.current.display(cfi); setShowAnnotationsPanel(false); }};
+
   const handleKeyPress = useCallback((event) => {
     if (annotationModal.open || showGeminiChat) return;
     if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase())) return;
@@ -351,8 +384,8 @@ function Reader() {
   }, [handleNextPage, handlePrevPage, annotationModal.open, showGeminiChat]);
 
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
+    document.addEventListener('keydown', handleKeyPress);
+    return () => document.removeEventListener('keydown', handleKeyPress);
   }, [handleKeyPress]);
 
   return (
@@ -366,18 +399,20 @@ function Reader() {
         </Box>
       </Box>
 
-      <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }}>
+      <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }} onClick={(e) => { if (e.target === e.currentTarget) closeSelectionMenu(); }}>
         {isLoading && <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress /><Typography sx={{ml: 2}}>书籍加载中...</Typography></Box>}
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
+        
         <Box ref={viewerRef} sx={{ position: 'absolute', height: '100%', width: '100%', visibility: isLoading || error ? 'hidden' : 'visible' }} />
-        <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '25%', height: '100%', zIndex: 10, WebkitTapHighlightColor: 'transparent', cursor: selectionMenu || annotationModal.open ? 'default' : 'pointer' }} />
-        <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '25%', height: '100%', zIndex: 10, WebkitTapHighlightColor: 'transparent', cursor: selectionMenu || annotationModal.open ? 'default' : 'pointer' }} />
+        
+        <Box onClick={handlePrevPage} sx={{ position: 'absolute', top: 0, left: 0, width: '25%', height: '100%', zIndex: 10, cursor: selectionMenu || annotationModal.open ? 'default' : 'pointer' }} />
+        <Box onClick={handleNextPage} sx={{ position: 'absolute', top: 0, right: 0, width: '25%', height: '100%', zIndex: 10, cursor: selectionMenu || annotationModal.open ? 'default' : 'pointer' }} />
 
         {selectionMenu && (
-          <Paper sx={{ position: 'fixed', top: selectionMenu.top, left: selectionMenu.left, transform: 'translateX(-50%)', zIndex: 1400, p: 1, display: 'flex', alignItems: 'center', gap: 1, boxShadow: 3 }}>
+          <Paper sx={{ position: 'fixed', top: selectionMenu.top, left: selectionMenu.left, transform: 'translateX(-50%)', zIndex: 1400, p: 0.5, display: 'flex', gap: 0.5 }}>
             <Button size="small" startIcon={<CreateIcon />} onClick={() => { setAnnotationModal({ open: true }); setSelectionMenu(null); }}>批注</Button>
             <Button size="small" startIcon={<AutoAwesomeIcon />} onClick={handleGenerateGeminiAnnotation}>Gem一下</Button>
-            <IconButton size="small" onClick={closeSelectionMenu} sx={{ ml: 1 }}><CloseIcon fontSize="small" /></IconButton>
+            <IconButton size="small" onClick={closeSelectionMenu}><CloseIcon fontSize="small" /></IconButton>
           </Paper>
         )}
       </Box>
@@ -389,7 +424,7 @@ function Reader() {
       
       <Drawer anchor="bottom" open={annotationModal.open} onClose={() => setAnnotationModal({ open: false })}>
         <Box p={2} component="form" onSubmit={(e) => { e.preventDefault(); handleSaveAnnotation(e.currentTarget.elements.note.value); }}>
-          <Typography variant="subtitle1" sx={{mb: 1, overflow: 'visible', whiteSpace: 'normal'}}>为 "{tempAnnotation.text.substring(0, 50)}{tempAnnotation.text.length > 50 ? '...' : ''}" 添加批注</Typography>
+          <Typography variant="subtitle1" noWrap sx={{mb: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>为 “{tempAnnotation.text}” 添加批注</Typography>
           <TextField name="note" autoFocus margin="dense" label="你的想法..." type="text" fullWidth multiline rows={3} variant="outlined" />
           <Button type="submit" variant="contained" sx={{mt: 1}}>保存</Button>
         </Box>
@@ -399,14 +434,18 @@ function Reader() {
         <Box sx={{ width: {xs: '80vw', sm: 350}, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>所有批注</Typography>
           <List>
-            {annotations.length > 0 ? (
-              annotations.sort((a,b) => a.cfi.localeCompare(b.cfi)).map((anno) => (
-                <ListItem key={anno.id} secondaryAction={<IconButton edge="end" onClick={() => handleDeleteAnnotation(anno.id)}><DeleteIcon /></IconButton>} disablePadding>
-                  <ListItemButton onClick={() => anno.cfi && handleJumpToAnnotation(anno.cfi)}>
-                    <ListItemText primary={anno.highlighted_text} secondary={anno.content} primaryTypographyProps={{ style: { color: anno.is_gemini_annotation ? 'royalblue' : 'inherit', fontStyle: 'italic', opacity: 0.8 }}}/>
-                  </ListItemButton>
-                </ListItem>
-              ))
+            {annotationsRef.current.length > 0 ? (
+              [...annotationsRef.current].sort((a,b) => a.cfi.localeCompare(b.cfi)).map((anno) => (
+                  <ListItem key={anno.id} secondaryAction={ <IconButton edge="end" onClick={() => handleDeleteAnnotation(anno.id)}> <DeleteIcon /> </IconButton> } disablePadding >
+                    <ListItemButton onClick={() => anno.cfi && handleJumpToAnnotation(anno.cfi)}>
+                      <ListItemText 
+                        primary={anno.highlighted_text} 
+                        secondary={anno.content}
+                        primaryTypographyProps={{ style: { color: anno.is_gemini_annotation ? 'royalblue' : 'inherit', fontStyle: 'italic', opacity: 0.8 } }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                ))
             ) : <Typography color="text.secondary">还没有任何批注。</Typography>}
           </List>
         </Box>
@@ -415,18 +454,14 @@ function Reader() {
       <Drawer anchor="right" open={showToc} onClose={() => setShowToc(false)}>
         <Box sx={{ width: {xs: '90vw', sm: 300} }}>
           <Typography variant="h6" sx={{p: 2}}>目录</Typography>
-          <List>{toc.map((item, index) => (<ListItem key={index} disablePadding><ListItemButton onClick={() => onTocClick(item.href)}><ListItemText primary={item.label.trim()} /></ListItemButton></ListItem>))}</List>
+          <List>{toc.map((item, index) => (
+              <ListItem key={index} disablePadding><ListItemButton onClick={() => onTocClick(item.href)}><ListItemText primary={item.label.trim()} /></ListItemButton></ListItem>
+          ))}</List>
         </Box>
       </Drawer>
 
       <Fab color="primary" sx={{ position: 'fixed', bottom: 72, right: 16, zIndex: 1200 }} onClick={() => setShowGeminiChat(true)}><ChatIcon /></Fab>
-      <GeminiChat 
-        open={showGeminiChat} 
-        onClose={() => setShowGeminiChat(false)}
-        onSendMessage={handleSendChatMessage} 
-        messages={chatMessages} 
-        isSending={isChatSending}
-      />
+      <GeminiChat open={showGeminiChat} onClose={() => setShowGeminiChat(false)} onSendMessage={handleSendChatMessage} messages={chatMessages} isSending={isChatSending}/>
       <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} message={snackbar.message} />
     </Box>
   );
