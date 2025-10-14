@@ -1407,3 +1407,46 @@ def play_music_by_description():
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': '未知的内部错误。'}), 500
+
+# companion_backend/app.py
+
+# ==========================================================
+# [管理员工具] - 用于精准删除指定用户
+# ==========================================================
+@app.route('/api/admin/delete-user', methods=['GET'])
+def admin_delete_user():
+    """
+    通过 QQ 号精准删除一个用户及其所有关联数据。
+    需要提供 CRON_SECRET_KEY 作为安全验证。
+    """
+    secret = request.args.get('secret')
+    qq_id_to_delete = request.args.get('qq_id')
+    expected_secret = os.getenv('SECRET_KEY')
+
+    if not expected_secret or secret != expected_secret:
+        return 'Unauthorized: Invalid or missing secret key.', 403
+    
+    if not qq_id_to_delete:
+        return 'Bad Request: Missing qq_id parameter.', 400
+
+    try:
+        user = User.query.filter_by(qq_id=qq_id_to_delete).first()
+        if not user:
+            return jsonify({'success': True, 'message': f'User with QQ ID {qq_id_to_delete} not found. Nothing to delete.'}), 404
+        
+        print(f"🚨 [管理员] 收到删除用户 {qq_id_to_delete} 的请求...")
+        
+        # 因为数据库模型中设置了 cascade='all, delete-orphan'
+        # 所以直接删除用户，会级联删除所有关联的日记、记忆等
+        db.session.delete(user)
+        db.session.commit()
+        
+        print(f"✅ [管理员] 已成功删除用户 {qq_id_to_delete} 及其所有关联数据。")
+        
+        return jsonify({'success': True, 'message': f'User {qq_id_to_delete} has been completely removed.'})
+
+    except Exception as e:
+        import traceback
+        error_message = f"执行删除用户时发生错误: {e}"
+        print(f"❌ [管理员] {error_message}")
+        return jsonify({'error': error_message, 'traceback': traceback.format_exc()}), 500
