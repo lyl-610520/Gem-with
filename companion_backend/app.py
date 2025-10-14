@@ -1394,4 +1394,15 @@ def play_music_by_description():
             return jsonify({'error': '找不到活跃的Spotify设备，请先打开Spotify App。'}), 404
         
         sp.start_playback(device_id=active_device['id'], uris=[track['uri']])
+        track_name = track['name']
+        artist_name = ", ".join([a['name'] for a in track['artists']])
+        device_name = active_device['name']
         
+        return jsonify({'success': True, 'message': f'好的，已在你的设备 {device_name} 上为你播放《{track_name}》 - {artist_name}。'})
+    except spotipy.exceptions.SpotifyException as e:
+        if "PREMIUM_REQUIRED" in e.msg:
+             return jsonify({'error': '播放控制需要Spotify Premium会员。'}), 403
+        return jsonify({'error': f'Spotify API 错误: {e.msg}'}), e.http_status
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': '未知的内部错误。'}), 500
