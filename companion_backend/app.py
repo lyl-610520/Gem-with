@@ -30,6 +30,11 @@ import tempfile
 import traceback
 # --- 新增下面这行 ---
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, JWTManager
+# ... 在其他 import 语句附近添加 ...
+from cryptography.fernet import Fernet
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+from functools import wraps
 
 # 加载环境变量
 load_dotenv()
@@ -77,6 +82,20 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 # 初始化扩展
 db = SQLAlchemy(app)
+# [新增] 加密密钥，从环境变量加载
+ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
+if not ENCRYPTION_KEY:
+    raise ValueError("严重错误：未在环境变量中设置 ENCRYPTION_KEY！")
+cipher_suite = Fernet(ENCRYPTION_KEY.encode())
+
+# [新增] 全局 Spotify OAuth 管理器及权限声明
+SCOPES = "user-read-private user-read-email user-library-read user-library-modify playlist-modify-public playlist-modify-private user-top-read user-modify-playback-state user-read-playback-state"
+sp_oauth = SpotifyOAuth(
+    scope=SCOPES,
+    client_id=os.getenv("SPOTIPY_CLIENT_ID"),
+    client_secret=os.getenv("SPOTIPY_CLIENT_SECRET"),
+    redirect_uri=os.getenv("SPOTIPY_REDIRECT_URI")
+)
 # ------------------- VVVV 从这里开始复制 VVVV -------------------
 # 从环境变量中获取前端URL白名单，并配置CORS
 frontend_url = os.getenv('FRONTEND_URL')
@@ -155,6 +174,7 @@ class User(db.Model):
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_active = db.Column(db.DateTime, default=datetime.utcnow)
+    encrypted_spotify_token_info = db.Column(db.LargeBinary, nullable=True) # <-- 添加这一行
 
     # 关联关系
     diaries = db.relationship('Diary', backref='user', lazy=True, cascade='all, delete-orphan')
@@ -324,6 +344,7 @@ def update_user_activity(user_id):
     if user:
         user.last_active = datetime.utcnow()
         db.session.commit()
+
 
 # API路由
 @app.route('/api/auth/login', methods=['POST'])
@@ -1256,3 +1277,117 @@ def trigger_daily_job_from_cron(secret_key):
     except Exception as e:
         print(f"启动定时任务线程时发生错误: {e}")
         return 'Internal Server Error during job trigger.', 500
+
+# ==========================================================
+# [全新] Spotify 核心功能模块
+# ==========================================================
+
+# --- 辅助函数 ---
+
+def encrypt_token(token_info):
+    token_json = json.dumps(token_info)
+    return cipher_suite.encrypt(token_json.encode())
+
+def decrypt_token(encrypted_token):
+    if not encrypted_token: return None
+    decrypted_json = cipher_suite.decrypt(encrypted_token).decode()
+    return json.loads(decrypted_json)
+
+def get_spotify_client_for_user(user_id):
+    user = User.query.filter_by(qq_id=str(user_id)).first()
+    if not user or not user.encrypted_spotify_token_info:
+        return None
+    token_info = decrypt_token(user.encrypted_spotify_token_info)
+    if sp_oauth.is_token_expired(token_info):
+        new_token_info = sp_oauth.refresh_access_token(token_info['refresh_token'])
+        if new_token_info:
+            user.encrypted_spotify_token_info = encrypt_token(new_token_info)
+            db.session.commit()
+            token_info = new_token_info
+        else:
+            return None
+    return spotipy.Spotify(auth=token_info['access_token'])
+
+def bot_token_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        expected_token = os.getenv('BOT_API_KEY')
+        auth_header = request.headers.get('Authorization')
+        if not expected_token or auth_header != f"Bearer {expected_token}":
+            return jsonify({"error": "Unauthorized: Invalid bot token"}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+# --- 授权流程 API (给用户点击) ---
+
+@app.route('/api/spotify/auth-url', methods=['GET'])
+def get_spotify_auth_url():
+    qq_id = request.args.get('qq_id')
+    if not qq_id:
+        return jsonify({'error': 'Missing qq_id parameter'}), 400
+    auth_url = sp_oauth.get_authorize_url(state=qq_id)
+    return jsonify({'auth_url': auth_url})
+
+@app.route('/api/spotify/callback')
+def spotify_callback():
+    code = request.args.get('code')
+    state_qq_id = request.args.get('state')
+    if not state_qq_id:
+        return "授权失败：无法识别用户身份。", 400
+    try:
+        token_info = sp_oauth.get_access_token(code, check_cache=False)
+        user = find_or_create_user_by_qq(state_qq_id)
+        user.encrypted_spotify_token_info = encrypt_token(token_info)
+        db.session.commit()
+        return """
+        <!DOCTYPE html><html><head><title>授权成功</title><style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;background-color:#f0f2f5;}.container{text-align:center;background:white;padding:40px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);}h1{color:#1DB954;}</style></head><body><div class="container"><h1>✓ 授权成功！</h1><p>可以关闭此页面，返回QQ继续对话了。</p></div></body></html>
+        """
+    except Exception as e:
+        print(f"Spotify回调错误: {e}")
+        return "授权过程中发生内部错误。", 500
+
+# --- Bot 专用音乐控制接口 (给机器人调用) ---
+
+@app.route('/api/bot/play-music-by-description', methods=['POST'])
+@bot_token_required
+def play_music_by_description():
+    data = request.get_json()
+    qq_id = data.get('qq_id')
+    description = data.get('description')
+    if not qq_id or not description:
+        return jsonify({'error': 'Missing qq_id or description'}), 400
+
+    allowed_users = [u.strip() for u in os.getenv("SPOTIFY_ALLOWED_QQ_IDS", "").split(',')]
+    if str(qq_id) not in allowed_users:
+        return jsonify({'error': 'User not authorized for this feature.'}), 403
+
+    sp = get_spotify_client_for_user(qq_id)
+    if not sp:
+        return jsonify({'error': 'User has not authorized Spotify.'}), 403
+
+    try:
+        results = sp.search(q=description, type='track', limit=1)
+        if not results['tracks']['items']:
+            return jsonify({'error': f'找不到与“{description}”匹配的歌曲。'}), 404
+        
+        track = results['tracks']['items'][0]
+        devices = sp.devices()
+        active_device = next((d for d in devices['devices'] if d['is_active']), devices['devices'][0] if devices['devices'] else None)
+
+        if not active_device:
+            return jsonify({'error': '找不到活跃的Spotify设备，请先打开Spotify App。'}), 404
+        
+        sp.start_playback(device_id=active_device['id'], uris=[track['uri']])
+        
+        track_name = track['name']
+        artist_name = ", ".join([a['name'] for a in track['artists']])
+        device_name = active_device['name']
+        
+        return jsonify({'success': True, 'message': f'好的，已在你的设备 {device_name} 上为你播放《{track_name}》 - {artist_name}。'})
+    except spotipy.exceptions.SpotifyException as e:
+        if "PREMIUM_REQUIRED" in e.msg:
+             return jsonify({'error': '播放控制需要Spotify Premium会员。'}), 403
+        return jsonify({'error': f'Spotify API 错误: {e.msg}'}), e.http_status
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': '未知的内部错误。'}), 500
