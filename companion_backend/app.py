@@ -1391,3 +1391,47 @@ def play_music_by_description():
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': '未知的内部错误。'}), 500
+
+# companion_backend/app.py
+
+# ==========================================================
+# [数据库重置工具] - 用于应用数据库模型更新
+# 警告：此操作将删除所有现有数据！
+# ==========================================================
+@app.route('/api/database/reset-for-spotify', methods=['GET'])
+def reset_database_for_spotify_update():
+    """
+    通过删除并重建所有表来更新数据库架构。
+    需要提供在 .env 中配置的 CRON_SECRET_KEY 作为安全验证。
+    """
+    # 增加一层安全保护，防止被误触发
+    secret = request.args.get('secret')
+    expected_secret = os.getenv('CRON_SECRET_KEY')
+
+    if not expected_secret or secret != expected_secret:
+        print(f"数据库重置失败：密钥无效。收到的密钥: '{secret}'")
+        return 'Unauthorized: Invalid or missing secret key.', 403
+
+    try:
+        print("🚨 [数据库重置] 收到合法的数据库重置请求！即将删除所有数据...")
+        with app.app_context():
+            # 使用 db.drop_all() 安全地删除所有表，它会自动处理顺序
+            print("   - 正在删除所有现存的表...")
+            db.drop_all()
+            print("   - ✅ 所有旧表已成功删除。")
+            
+            # 使用 db.create_all() 根据当前最新的模型定义，创建所有新表
+            print("   - 正在根据最新的模型创建所有新表...")
+            db.create_all()
+            print("   - ✅ 所有新表已成功创建！现在数据库已支持 Spotify 功能。")
+        
+        return jsonify({
+            'success': True, 
+            'message': '数据库已成功重置并更新以支持Spotify功能。所有用户数据已被清空。'
+        })
+
+    except Exception as e:
+        import traceback
+        error_message = f"执行数据库重置时发生严重错误: {e}"
+        print(f"❌ [数据库重置] {error_message}")
+        return jsonify({'error': error_message, 'traceback': traceback.format_exc()}), 500
