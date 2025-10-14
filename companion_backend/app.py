@@ -112,7 +112,11 @@ else:
     CORS(app, supports_credentials=True)
     print("⚠️ 警告：未配置FRONTEND_URL环境变量，CORS已设置为允许所有来源，这在生产环境中存在安全风险。")
 # ------------------- ^^^^ 复制到这里结束 ^^^^ -------------------
-# 配置Gemini API - 支持多Key轮询
+# app.py
+
+# ... CORS(app, ...) 这一行之后 ...
+
+# 配置Gemini API - 【V4修正版：使用 genai.Client()】
 GEMINI_API_KEYS_STR = os.getenv('GEMINI_API_KEYS')
 if GEMINI_API_KEYS_STR:
     GEMINI_API_KEYS = [key.strip() for key in GEMINI_API_KEYS_STR.split(',')]
@@ -123,41 +127,46 @@ else:
     current_key_index = 0
     print("⚠️ 警告：未配置GEMINI_API_KEYS，AI功能将不可用")
 
-def initialize_gemini_model():
-    """初始化Gemini模型"""
-    global current_key_index
+# 全局变量，用于存放客户端实例
+gemini_client = None
+
+def initialize_gemini_client():
+    """【V4修正版】初始化 genai.Client 客户端"""
+    global gemini_client, current_key_index
     if not GEMINI_API_KEYS:
-        return None
+        return False
     
     try:
         api_key = GEMINI_API_KEYS[current_key_index]
-        genai.configure(api_key=api_key, transport='rest')
-        model = genai.GenerativeModel('gemini-2.5-pro')
-        print(f"✅ Gemini 模型初始化成功！正使用 Key #{current_key_index + 1}")
-        return model
+        # 严格使用 genai.Client() 初始化
+        gemini_client = genai.Client(api_key=api_key)
+        # 做一个简单的API调用来验证Key
+        gemini_client.models.get('models/gemini-pro')
+        print(f"✅ Gemini 客户端初始化成功！正使用 Key #{current_key_index + 1}")
+        return True
     except Exception as e:
         print(f"❌ Key #{current_key_index + 1} 初始化失败: {e}")
-        return None
+        gemini_client = None
+        return False
 
 def rotate_gemini_key():
-    """轮询切换API Key"""
+    """【V4修正版】轮询切换API Key并重新初始化Client"""
     global current_key_index
     initial_index = current_key_index
     
-    while True:
-        print(f"🔑 Key #{current_key_index + 1} 调用失败，正在尝试切换...")
+    # 循环尝试所有Key
+    for _ in range(len(GEMINI_API_KEYS)):
+        print(f"🔑 Key #{current_key_index + 1} 调用失败或需要切换，正在尝试下一个...")
         current_key_index = (current_key_index + 1) % len(GEMINI_API_KEYS)
         
-        model = initialize_gemini_model()
-        if model:
-            return model
-        
-        if current_key_index == initial_index:
-            print("❌ 所有API Key都已失效！")
-            return None
+        if initialize_gemini_client():
+            return True # 初始化成功
+            
+    print("❌ 所有API Key都已失效！")
+    return False
 
-# 初始化模型
-gemini_model = initialize_gemini_model()
+# 在程序启动时，执行第一次初始化
+initialize_gemini_client()
 
 # 数据库模型
 class User(db.Model):
@@ -270,62 +279,69 @@ with app.app_context():
 # 全局变量存储活跃的音乐会话
 active_music_sessions = {}
 
+# app.py
+
 # 辅助函数
 def get_gemini_response(prompt, user_context="", user_id=None):
-    """[改造版] 获取Gemini的回复，从数据库读取人设和记忆"""
-    global gemini_model
-    if not GEMINI_API_KEYS:
-        return "抱歉，AI功能暂时不可用。"
+    """【V4修正版】使用 genai.Client() 获取Gemini的回复"""
+    global gemini_client
+    if not gemini_client:
+        print("   - Gemini 客户端未初始化，尝试重新初始化...")
+        if not initialize_gemini_client():
+            return "抱歉，AI功能暂时不可用。"
 
-    user_persona = "一个温暖、友好的AI陪伴助手" # 默认人设
+    user_persona = "一个温暖、友好的AI陪伴助手"
     user_memories_prompt = ""
 
     if user_id:
         user = User.query.get(user_id)
         if user:
-            # 从数据库直接读取人设
             user_persona = user.persona
-            
-            # 从数据库读取最新的50条长期记忆
-            recent_memories = LongTermMemory.query.filter_by(user_id=user.id)\
-                .order_by(LongTermMemory.id.desc()).limit(50).all()
-            
+            recent_memories = LongTermMemory.query.filter_by(user_id=user.id).order_by(LongTermMemory.id.desc()).limit(50).all()
             if recent_memories:
-                # 为了让记忆倒序显示（最新的在最下面），我们先反转列表
                 recent_memories.reverse()
                 formatted_memories = "\n".join([f"- (记录于 {mem.memory_time_str}) {mem.content}" for mem in recent_memories])
                 user_memories_prompt = f"\n--- 关于我们的长期记忆 (请遵守和利用) ---\n{formatted_memories}\n--- 记忆结束 ---\n"
 
-    for attempt in range(len(GEMINI_API_KEYS) + 1):
-        try:
-            full_prompt = f"""
+    # 构建完整的系统指令
+    system_instruction = f"""
 你的角色设定是：{user_persona}
 {user_memories_prompt}
 ---
 用户当前在陪伴空间中的上下文：{user_context}
 ---
 现在，请针对用户的以下问题或行为，以温暖、友好的语气进行符合人设的回应。请记住，你是Gem。
-
-用户说："{prompt}"
 """
-            if not gemini_model:
-                raise Exception("Model is not initialized.")
-            
-            response = gemini_model.generate_content(full_prompt, request_options={"timeout": 120})
+    # 构建用户消息
+    contents = [f'用户说："{prompt}"']
+    
+    # 使用 config 对象来传递 system_instruction
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction
+    )
+
+    for attempt in range(len(GEMINI_API_KEYS) + 1):
+        try:
+            # 使用 client.models.generate_content
+            response = gemini_client.models.generate_content(
+                model='gemini-1.5-pro-latest', # 推荐使用能力更强的模型
+                contents=contents,
+                config=config,
+                request_options={"timeout": 120}
+            )
             return response.text
         except Exception as e:
             error_str = str(e).lower()
             print(f"Gemini API调用失败 (尝试 {attempt + 1}): {e}")
             
-            # 任何API Key相关错误，都直接轮询
             if any(err in error_str for err in ["429", "permission", "quota", "api key", "deadline", "resource_exhausted"]):
-                print("检测到API Key或服务问题，尝试轮询...")
-                gemini_model = rotate_gemini_key()
-                if not gemini_model:
+                if not rotate_gemini_key():
                     return "抱歉，AI服务暂时不可用，所有能量核心都已过载。"
-            elif attempt < 2: # 其他网络类错误，重试2次
+            elif attempt < 2:
                 time.sleep(1)
                 continue
+            else: # 如果重试完了还是不行
+                break
     
     return "抱歉，我现在有点累了，稍后再聊吧~"
 
@@ -1379,59 +1395,3 @@ def play_music_by_description():
         
         sp.start_playback(device_id=active_device['id'], uris=[track['uri']])
         
-        track_name = track['name']
-        artist_name = ", ".join([a['name'] for a in track['artists']])
-        device_name = active_device['name']
-        
-        return jsonify({'success': True, 'message': f'好的，已在你的设备 {device_name} 上为你播放《{track_name}》 - {artist_name}。'})
-    except spotipy.exceptions.SpotifyException as e:
-        if "PREMIUM_REQUIRED" in e.msg:
-             return jsonify({'error': '播放控制需要Spotify Premium会员。'}), 403
-        return jsonify({'error': f'Spotify API 错误: {e.msg}'}), e.http_status
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': '未知的内部错误。'}), 500
-
-# companion_backend/app.py
-
-# ==========================================================
-# [数据库重置工具] - 用于应用数据库模型更新
-# 警告：此操作将删除所有现有数据！
-# ==========================================================
-@app.route('/api/database/reset-for-spotify', methods=['GET'])
-def reset_database_for_spotify_update():
-    """
-    通过删除并重建所有表来更新数据库架构。
-    需要提供在 .env 中配置的 CRON_SECRET_KEY 作为安全验证。
-    """
-    # 增加一层安全保护，防止被误触发
-    secret = request.args.get('secret')
-    expected_secret = os.getenv('SECRET_KEY')
-
-    if not expected_secret or secret != expected_secret:
-        print(f"数据库重置失败：密钥无效。收到的密钥: '{secret}'")
-        return 'Unauthorized: Invalid or missing secret key.', 403
-
-    try:
-        print("🚨 [数据库重置] 收到合法的数据库重置请求！即将删除所有数据...")
-        with app.app_context():
-            # 使用 db.drop_all() 安全地删除所有表，它会自动处理顺序
-            print("   - 正在删除所有现存的表...")
-            db.drop_all()
-            print("   - ✅ 所有旧表已成功删除。")
-            
-            # 使用 db.create_all() 根据当前最新的模型定义，创建所有新表
-            print("   - 正在根据最新的模型创建所有新表...")
-            db.create_all()
-            print("   - ✅ 所有新表已成功创建！现在数据库已支持 Spotify 功能。")
-        
-        return jsonify({
-            'success': True, 
-            'message': '数据库已成功重置并更新以支持Spotify功能。所有用户数据已被清空。'
-        })
-
-    except Exception as e:
-        import traceback
-        error_message = f"执行数据库重置时发生严重错误: {e}"
-        print(f"❌ [数据库重置] {error_message}")
-        return jsonify({'error': error_message, 'traceback': traceback.format_exc()}), 500
