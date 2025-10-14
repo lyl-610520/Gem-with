@@ -1406,7 +1406,7 @@ def reset_database_for_spotify_update():
     """
     # 增加一层安全保护，防止被误触发
     secret = request.args.get('secret')
-    expected_secret = os.getenv('CRON_SECRET_KEY')
+    expected_secret = os.getenv('SECRET_KEY')
 
     if not expected_secret or secret != expected_secret:
         print(f"数据库重置失败：密钥无效。收到的密钥: '{secret}'")
