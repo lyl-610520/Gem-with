@@ -15,7 +15,7 @@ import re
 import io
 import hashlib
 import secrets
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 import requests
 import threading
