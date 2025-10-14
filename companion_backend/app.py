@@ -141,7 +141,7 @@ def initialize_gemini_client():
         # 严格使用 genai.Client() 初始化
         gemini_client = genai.Client(api_key=api_key)
         # 做一个简单的API调用来验证Key
-        gemini_client.models.get('models/gemini-pro')
+        gemini_client.models.get(model='models/gemini-2.5-pro')
         print(f"✅ Gemini 客户端初始化成功！正使用 Key #{current_key_index + 1}")
         return True
     except Exception as e:
