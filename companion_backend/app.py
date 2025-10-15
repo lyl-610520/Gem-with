@@ -1325,6 +1325,22 @@ def get_spotify_client_for_user(user_id):
             return None
     return spotipy.Spotify(auth=token_info['access_token'])
 
+# ... 在 get_spotify_client_for_user 函数下面添加 ...
+def _find_playlist_by_name(sp_client, playlist_name):
+    """辅助函数：根据名字查找用户的播放列表ID。"""
+    all_playlists = []
+    # Spotify API 分页返回结果，需要循环获取所有
+    results = sp_client.current_user_playlists()
+    all_playlists.extend(results['items'])
+    while results['next']:
+        results = sp_client.next(results)
+        all_playlists.extend(results['items'])
+    
+    for playlist in all_playlists:
+        if playlist['name'].lower() == playlist_name.lower():
+            return playlist['id']
+    return None # 找不到
+
 def bot_token_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -1407,3 +1423,109 @@ def play_music_by_description():
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': '未知的内部错误。'}), 500
+
+@app.route('/api/bot/spotify-current-track-action', methods=['POST'])
+@bot_token_required
+def current_track_action():
+    """
+    [能力1] 对当前正在播放的歌曲执行操作（收藏或添加到歌单）。
+    """
+    data = request.get_json()
+    qq_id = data.get('qq_id')
+    action = data.get('action') # "favorite" or "add_to_playlist"
+    playlist_name = data.get('playlist_name')
+
+    sp = get_spotify_client_for_user(qq_id)
+    if not sp: return jsonify({'error': 'User not authorized.'}), 403
+
+    playback = sp.current_playback()
+    if not playback or not playback.get('is_playing') or not playback.get('item'):
+        return jsonify({'error': 'You are not currently playing any track.'}), 404
+    
+    track_id = playback['item']['id']
+    track_name = playback['item']['name']
+
+    try:
+        if action == 'favorite':
+            sp.current_user_saved_tracks_add(tracks=[track_id])
+            return jsonify({'success': True, 'message': f'好的，已将你正在听的《{track_name}》收藏到你的“赞过的歌曲”。'})
+        
+        elif action == 'add_to_playlist':
+            if not playlist_name: return jsonify({'error': 'Playlist name is required.'}), 400
+            playlist_id = _find_playlist_by_name(sp, playlist_name)
+            if not playlist_id:
+                return jsonify({'error': f'I could not find a playlist named "{playlist_name}".'}), 404
+            sp.playlist_add_items(playlist_id, [track_id])
+            return jsonify({'success': True, 'message': f'好的，已将《{track_name}》添加到歌单“{playlist_name}”。'})
+
+    except Exception as e:
+        return jsonify({'error': f'An error occurred: {e}'}), 500
+
+
+@app.route('/api/bot/spotify-bulk-add', methods=['POST'])
+@bot_token_required
+def bulk_add_to_playlist():
+    """
+    [能力2] 将多首歌曲批量添加到一个已存在的歌单。
+    """
+    data = request.get_json()
+    qq_id = data.get('qq_id')
+    song_names = data.get('song_names', [])
+    playlist_name = data.get('playlist_name')
+    
+    sp = get_spotify_client_for_user(qq_id)
+    if not sp: return jsonify({'error': 'User not authorized.'}), 403
+
+    playlist_id = _find_playlist_by_name(sp, playlist_name)
+    if not playlist_id:
+        return jsonify({'error': f'I could not find a playlist named "{playlist_name}".'}), 404
+
+    track_uris = []
+    found_songs = []
+    for name in song_names:
+        result = sp.search(q=name, type='track', limit=1)
+        if result['tracks']['items']:
+            track_uris.append(result['tracks']['items'][0]['uri'])
+            found_songs.append(result['tracks']['items'][0]['name'])
+
+    if not track_uris:
+        return jsonify({'error': 'Could not find any of the songs you mentioned.'}), 404
+    
+    sp.playlist_add_items(playlist_id, track_uris)
+    return jsonify({'success': True, 'message': f'成功将 {len(found_songs)} 首歌（如《{found_songs[0]}》等）添加到了歌单“{playlist_name}”。'})
+
+
+@app.route('/api/bot/spotify-create-and-populate', methods=['POST'])
+@bot_token_required
+def create_and_populate_playlist():
+    """
+    [能力3] 创建一个新歌单，并根据描述添加一些初始歌曲。
+    """
+    data = request.get_json()
+    qq_id = data.get('qq_id')
+    playlist_name = data.get('playlist_name')
+    song_descriptions = data.get('song_descriptions', []) # e.g., "一些安静的纯音乐"
+    
+    sp = get_spotify_client_for_user(qq_id)
+    if not sp: return jsonify({'error': 'User not authorized.'}), 403
+
+    try:
+        # 1. 创建新歌单
+        user_id = sp.me()['id']
+        new_playlist = sp.user_playlist_create(user=user_id, name=playlist_name, public=False, description="Created by Gem Bot")
+        playlist_id = new_playlist['id']
+        
+        # 2. 查找并添加歌曲
+        if song_descriptions:
+            track_uris = []
+            for desc in song_descriptions:
+                result = sp.search(q=desc, type='track', limit=2) # 每个描述找2首
+                track_uris.extend([item['uri'] for item in result['tracks']['items']])
+            if track_uris:
+                sp.playlist_add_items(playlist_id, track_uris)
+        
+        playlist_url = new_playlist['external_urls']['spotify']
+        return jsonify({'success': True, 'message': f'成功创建了新的歌单“{playlist_name}”并为你添加了几首歌！快去看看吧：{playlist_url}'})
+
+    except Exception as e:
+        return jsonify({'error': f'An error occurred: {e}'}), 500
