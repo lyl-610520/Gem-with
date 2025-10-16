@@ -1573,7 +1573,7 @@ def upgrade_database_for_music_feature():
 
     try:
         print("🚨 [数据库升级] 收到合法的数据库升级请求！即将清空并重建所有表...")
-        with app.app.context():
+        with app.app_context():
             # 使用 db.drop_all() 安全地删除所有表
             print("   - 正在删除所有现存的表...")
             db.drop_all()
