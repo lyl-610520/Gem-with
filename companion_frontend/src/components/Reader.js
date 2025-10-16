@@ -89,75 +89,63 @@ function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   );
 }
 
-
 function Reader() {
   const { bookId } = useParams();
 
-  // --- 核心 Refs ---
-  // Refs 用于存储那些不直接触发UI重新渲染的实例或变量，例如第三方库的实例或DOM元素。
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
-  const viewerRef = useRef(null); // DOM元素的引用，用于挂载Epub.js
-  const touchState = useRef({ startX: 0, currentX: 0, isSwiping: false }); // 存储滑动状态，避免其变化触发重渲染
+  const viewerRef = useRef(null);
+  const touchState = useRef({ startX: 0, currentX: 0, isSwiping: false });
 
-  // --- 核心 State ---
-  // State 用于存储所有需要触发UI更新的数据。
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [bookDetails, setBookDetails] = useState({ title: '加载中...', toc: [] });
-  // 【核心改造】用State管理批注。任何对批注的增删改都通过 setAnnotations，React会自动更新UI。
-  const [annotations, setAnnotations] = useState([]); 
+  const [annotations, setAnnotations] = useState([]);
   const [location, setLocation] = useState({ progress: 0, currentChapter: '加载中...' });
   const [isRenditionReady, setIsRenditionReady] = useState(false);
 
-  // --- UI State ---
-  const [selectionMenu, setSelectionMenu] = useState(null); // 划词后的小菜单
+  const [selectionMenu, setSelectionMenu] = useState(null);
   const [annotationModal, setAnnotationModal] = useState({ open: false, cfi: '', text: '' });
   const [activePanels, setActivePanels] = useState({ toc: false, annotations: false, chat: false });
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
 
-  // --- Gemini Chat State ---
   const [chatMessages, setChatMessages] = useState([]);
   const [isChatSending, setIsChatSending] = useState(false);
 
-  // 【重构】初始化和加载书籍的Effect
   useEffect(() => {
-    // AbortController 用于在组件卸载时取消正在进行的网络请求，防止内存泄漏和状态更新错误。
     const abortController = new AbortController();
-    
+
     async function loadBook() {
+      // 每次加载新书，都重置所有状态，防止旧书数据污染
+      setIsLoading(true);
+      setError('');
+      setAnnotations([]);
+      setBookDetails({ title: '加载中...', toc: [] });
+      setIsRenditionReady(false);
+
       if (!bookId) {
         setError("未找到书籍ID");
         setIsLoading(false);
         return;
       }
-      
-      try {
-        setIsLoading(true);
-        setError('');
 
-        // 【修改】移除 /api 前缀
-        // 并行获取书籍详情（含批注）和文件内容
+      try {
         const [detailsRes, fileRes] = await Promise.all([
           axios.get(`/books/${bookId}`, { signal: abortController.signal }),
           axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer', signal: abortController.signal })
         ]);
 
-        // 初始化书籍
         const book = Epub(fileRes.data);
         bookRef.current = book;
         await book.ready;
-        
+
         const meta = await book.loaded.metadata;
         setBookDetails({ title: meta.title, toc: book.navigation.toc });
         setAnnotations(detailsRes.data.annotations || []);
 
         if (viewerRef.current) {
           const rendition = book.renderTo(viewerRef.current, {
-            manager: "default",
-            flow: "paginated",
-            width: '100%',
-            height: '100%',
+            manager: "default", flow: "paginated", width: '100%', height: '100%',
           });
           renditionRef.current = rendition;
 
@@ -166,28 +154,27 @@ function Reader() {
               ".user-highlight": { "fill": "rgba(255, 255, 0, 0.4) !important", "fill-opacity": "1" },
               ".gemini-highlight": { "fill": "rgba(135, 206, 250, 0.4) !important", "fill-opacity": "1" },
             },
-            "body": { 
-              "padding": "20px !important", 
-              "line-height": "1.7 !important", 
-              "font-size": "18px !important",
-              "color": "#333 !important",
-              "word-wrap": "break-word",
+            body: {
+              "padding": "20px !important", "line-height": "1.7 !important", "font-size": "18px !important",
+              "color": "#333 !important", "word-wrap": "break-word",
             },
           });
           rendition.themes.select("custom");
-          // 监听 'displayed' 事件，这个事件表示书籍内容已成功渲染到屏幕上
-          // 这是设置“准备就绪”标志最可靠的时机
-          rendition.on('displayed', () => {
-            setIsRenditionReady(true);
+
+          rendition.on('displayed', () => setIsRenditionReady(true));
+          rendition.on('displayError', (err) => {
+            console.error("Epub.js 显示错误:", err);
+            setError("渲染书籍页面失败，文件可能已损坏。");
+            setIsRenditionReady(false);
           });
-          
+
           const savedCfi = localStorage.getItem(`book-progress-${bookId}`);
-          rendition.display(savedCfi || undefined);
+          await rendition.display(savedCfi || undefined);
         }
       } catch (err) {
         if (err.name !== 'CanceledError') {
-          console.error("加载书籍失败:", err);
-          setError("加载书籍失败, 请刷新重试。");
+          console.error("加载书籍时发生严重错误:", err);
+          setError("加载书籍失败, 文件可能已损坏或网络错误。");
         }
       } finally {
         if (!abortController.signal.aborted) {
@@ -198,44 +185,41 @@ function Reader() {
 
     loadBook();
 
-    // 清理函数：组件卸载时执行，确保资源被释放
     return () => {
-      abortController.abort(); // 取消任何正在进行的网络请求
-      renditionRef.current?.destroy();
-      bookRef.current?.destroy();
+      // 这是最关键的清理函数，确保切换书籍或离开页面时，所有旧资源都被销毁
+      abortController.abort();
+      if (renditionRef.current) {
+        renditionRef.current.destroy();
+        renditionRef.current = null;
+      }
+      if (bookRef.current) {
+        bookRef.current.destroy();
+        bookRef.current = null;
+      }
+      setIsRenditionReady(false);
     };
-  }, [bookId]); // 这个Effect仅在bookId变化时重新执行
+  }, [bookId]);
 
-  // 【新增】每当批注列表(state)更新时，这个Effect会负责重新绘制所有高亮
   useEffect(() => {
+    // 增加最严格的检查，确保rendition和它的内部模块都准备好了
+    if (!isRenditionReady || !renditionRef.current || !renditionRef.current.annotations) {
+      return;
+    }
     const rendition = renditionRef.current;
-    if (!rendition) return;
-
-    // 先移除所有旧的高亮
-    // `rendition.annotations.each` 是遍历epubjs内部管理的所有批注
-    rendition.annotations.each(anno => {
-      // 从视图中移除高亮，但不会影响我们React的state
-      rendition.annotations.remove(anno.cfiRange, 'highlight');
-    });
-
-    // 基于我们React state中的最新annotations数组，重新绘制所有高亮
+    
+    // 清除旧高亮
+    rendition.annotations.each(anno => rendition.annotations.remove(anno.cfiRange, 'highlight'));
+    
+    // 绘制新高亮
     annotations.forEach(anno => {
       if (anno.cfi) {
-        const isGemini = anno.is_gemini_annotation;
-        const className = isGemini ? 'gemini-highlight' : 'user-highlight';
+        const className = anno.is_gemini_annotation ? 'gemini-highlight' : 'user-highlight';
         rendition.annotations.add("highlight", anno.cfi, { id: anno.id }, () => {}, className, {});
       }
     });
-  }, [annotations, isRenditionReady]); // 依赖于annotations state
+  }, [annotations, isRenditionReady]);
 
-  // 【useCallback】用于性能优化，确保这些函数在组件重渲染时不会被重新创建，除非其依赖项改变。
-  const getCurrentPageText = useCallback(() => {
-    if (!renditionRef.current?.manager) return "";
-    const contents = renditionRef.current.manager.getContents();
-    return contents.length > 0 && contents[0].document ? contents[0].document.body.innerText : "";
-  }, []);
 
-  // 【核心改造】处理文本选择事件的回调
   const handleSelection = useCallback((cfiRange, contents) => {
     const selection = contents.window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
@@ -252,7 +236,6 @@ function Reader() {
     });
   }, []);
 
-  // 【核心改造】处理阅读进度和位置变化的回调
   const handleRelocated = useCallback((locationInfo) => {
     if (!bookRef.current || !bookRef.current.spine) return;
 
@@ -270,9 +253,7 @@ function Reader() {
     localStorage.setItem(`book-progress-${bookId}`, locationInfo.start.cfi);
   }, [bookId]);
 
-  // 【新增】将Epub.js的事件监听器注册放入Effect中，确保rendition实例存在后再绑定
   useEffect(() => {
-    // 【修复】只有在rendition准备好后才绑定事件
     if (!isRenditionReady || !renditionRef.current) return;
     const rendition = renditionRef.current;
     
@@ -280,103 +261,76 @@ function Reader() {
     rendition.on('relocated', handleRelocated);
     
     return () => {
-      // rendition实例可能在组件卸载时已被销毁
-      if (rendition.hooks) {
-        rendition.off('selected', handleSelection);
-        rendition.off('relocated', handleRelocated);
+      if (renditionRef.current) {
+        renditionRef.current.off('selected', handleSelection);
+        renditionRef.current.off('relocated', handleRelocated);
       }
     };
   }, [isRenditionReady, handleSelection, handleRelocated]);
 
-  // --- 移动端滑动翻页逻辑 ---
   const handleTouchStart = useCallback((e) => {
-    touchState.current.startX = e.touches[0].clientX;
-    touchState.current.currentX = e.touches[0].clientX; // 初始化currentX
-    touchState.current.isSwiping = true;
+      touchState.current = { startX: e.touches[0].clientX, currentX: e.touches[0].clientX, isSwiping: true };
   }, []);
-  
   const handleTouchMove = useCallback((e) => {
-    if (!touchState.current.isSwiping) return;
-    touchState.current.currentX = e.touches[0].clientX;
+      if (!touchState.current.isSwiping) return;
+      touchState.current.currentX = e.touches[0].clientX;
   }, []);
-
   const handleTouchEnd = useCallback(() => {
-    if (!touchState.current.isSwiping) return;
-    const deltaX = touchState.current.currentX - touchState.current.startX;
-    // 只有滑动距离大于50像素时才触发翻页，防止因轻微抖动导致的误触
-    if (Math.abs(deltaX) > 50 && renditionRef.current) {
-      if (deltaX < 0) {
-        renditionRef.current.next();
-      } else {
-        renditionRef.current.prev();
+      if (!touchState.current.isSwiping) return;
+      const deltaX = touchState.current.currentX - touchState.current.startX;
+      if (Math.abs(deltaX) > 50 && renditionRef.current) {
+          if (deltaX < 0) renditionRef.current.next();
+          else renditionRef.current.prev();
       }
-    }
-    // 重置状态，为下一次滑动做准备
-    touchState.current = { startX: 0, currentX: 0, isSwiping: false };
+      touchState.current.isSwiping = false;
   }, []);
-
-  // 【新增】将触摸事件绑定到阅读器视图上
   useEffect(() => {
-    const rendition = renditionRef.current;
-    if (!rendition) return;
-
-    // 我们需要将事件监听器附加到Epub.js渲染出的iframe窗口上，而不是父页面的div
-    const setupListeners = (view) => {
-      view.document.addEventListener('touchstart', handleTouchStart, { passive: true });
-      view.document.addEventListener('touchmove', handleTouchMove, { passive: true });
-      view.document.addEventListener('touchend', handleTouchEnd, { passive: true });
-    }
-    
-    const removeListeners = (view) => {
-        view.document.removeEventListener('touchstart', handleTouchStart);
-        view.document.removeEventListener('touchmove', handleTouchMove);
-        view.document.removeEventListener('touchend', handleTouchEnd);
-    }
-
-    rendition.on('rendered', setupListeners);
-    // 同时也监听视图被移除的事件，以便解绑
-    rendition.on('viewDetached', removeListeners);
-    
-    return () => {
-      rendition.off('rendered', setupListeners);
-      rendition.off('viewDetached', removeListeners);
-    };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
+      if (!isRenditionReady || !renditionRef.current) return;
+      const rendition = renditionRef.current;
+      const setupListeners = (view) => {
+          view.document.addEventListener('touchstart', handleTouchStart, { passive: true });
+          view.document.addEventListener('touchmove', handleTouchMove, { passive: true });
+          view.document.addEventListener('touchend', handleTouchEnd, { passive: true });
+      };
+      const removeListeners = (view) => {
+          view.document.removeEventListener('touchstart', handleTouchStart);
+          view.document.removeEventListener('touchmove', handleTouchMove);
+          view.document.removeEventListener('touchend', handleTouchEnd);
+      };
+      rendition.on('rendered', setupListeners);
+      rendition.on('viewDetached', removeListeners);
+      return () => {
+          rendition.off('rendered', setupListeners);
+          rendition.off('viewDetached', removeListeners);
+      };
+  }, [isRenditionReady, handleTouchStart, handleTouchMove, handleTouchEnd]);
   
-  // --- 键盘翻页逻辑 (桌面端) ---
   const handleKeyPress = useCallback((event) => {
-    // 如果任何弹窗或输入框处于激活状态，则不进行翻页
-    if (annotationModal.open || activePanels.chat || activePanels.annotations || activePanels.toc) return;
-    if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase())) return;
-
-    if (event.key === 'ArrowRight' && renditionRef.current) renditionRef.current.next();
-    if (event.key === 'ArrowLeft' && renditionRef.current) renditionRef.current.prev();
+      if (annotationModal.open || activePanels.chat || activePanels.annotations || activePanels.toc) return;
+      if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase())) return;
+      if (event.key === 'ArrowRight' && renditionRef.current) renditionRef.current.next();
+      if (event.key === 'ArrowLeft' && renditionRef.current) renditionRef.current.prev();
   }, [annotationModal.open, activePanels]);
-
   useEffect(() => {
-    document.addEventListener('keydown', handleKeyPress);
-    return () => document.removeEventListener('keydown', handleKeyPress);
+      document.addEventListener('keydown', handleKeyPress);
+      return () => document.removeEventListener('keydown', handleKeyPress);
   }, [handleKeyPress]);
 
-  // --- 交互功能函数 ---
-  const closeSelectionMenu = () => {
+  const closeSelectionMenu = useCallback(() => {
     setSelectionMenu(null);
-    // 清除浏览器原生选区，避免在我们的自定义菜单旁同时出现系统菜单（复制、粘贴等）
-    renditionRef.current?.getContents().forEach(content => {
-      content.window.getSelection()?.removeAllRanges();
-    });
-  };
+    if (renditionRef.current) {
+        renditionRef.current.getContents().forEach(content => {
+            content.window.getSelection()?.removeAllRanges();
+        });
+    }
+  }, []);
 
   const handleSaveAnnotation = async (note) => {
     if (!note.trim() || !annotationModal.cfi) return;
     try {
-      // 【修改】移除 /api 前缀
       const response = await axios.post(`/books/${bookId}/annotations`, {
-        content: note,
-        highlighted_text: annotationModal.text,
-        cfi: annotationModal.cfi,
+        content: note, highlighted_text: annotationModal.text, cfi: annotationModal.cfi,
       });
-      // 【核心改造】直接更新State，UI会自动响应并触发useEffect重绘高亮
       setAnnotations(prev => [...prev, response.data.annotation]);
       setSnackbar({ open: true, message: '批注已保存' });
     } catch (err) {
@@ -385,8 +339,9 @@ function Reader() {
     setAnnotationModal({ open: false, cfi: '', text: '' });
   };
   
-  const handleGenerateGeminiAnnotation = async () => {
-    const pageText = getCurrentPageText();
+  const handleGenerateGeminiAnnotation = useCallback(async () => {
+    if (!renditionRef.current) return;
+    const pageText = renditionRef.current.getContents()[0].document.body.innerText;
     if (pageText.length < 50) {
       setSnackbar({ open: true, message: '当前页内容太少,无法生成批注' });
       return;
@@ -396,10 +351,8 @@ function Reader() {
     closeSelectionMenu();
 
     try {
-      // 【修改】移除 /api 前缀
       const response = await axios.post(`/books/${bookId}/generate-gemini-annotation`, {
-        page_content: pageText,
-        cfi: pageStartCfi
+        page_content: pageText, cfi: pageStartCfi
       });
       if (response.data.success) {
         setAnnotations(prev => [...prev, response.data.annotation]);
@@ -408,14 +361,12 @@ function Reader() {
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.error || '生成AI批注失败' });
     }
-  };
+  }, [bookId, closeSelectionMenu]);
   
   const handleDeleteAnnotation = async (annotationId) => {
     if (!window.confirm("确定要删除这条批注吗?")) return;
     try {
-      // 【修改】移除 /api 前缀
       await axios.delete(`/books/${bookId}/annotations/${annotationId}`);
-      // 【核心改造】从State中过滤掉被删除的批注，UI会自动响应
       setAnnotations(prev => prev.filter(a => a.id !== annotationId));
       setSnackbar({ open: true, message: '批注已删除' });
     } catch (err) {
@@ -424,11 +375,11 @@ function Reader() {
   };
 
   const handleSendChatMessage = async (message) => {
+    if (!renditionRef.current) return;
     setIsChatSending(true);
     setChatMessages(prev => [...prev, { sender: 'user', text: message }]);
     try {
-      const page_content = getCurrentPageText();
-      // 【修改】移除 /api 前缀
+      const page_content = renditionRef.current.getContents()[0].document.body.innerText;
       const response = await axios.post(`/books/${bookId}/chat`, { message, page_content });
       setChatMessages(prev => [...prev, { sender: 'gemini', text: response.data.response }]);
     } catch (err) {
@@ -440,10 +391,8 @@ function Reader() {
   const onTocClick = (href) => { renditionRef.current?.display(href).then(() => setActivePanels(p => ({...p, toc: false}))) };
   const handleJumpToAnnotation = (cfi) => { renditionRef.current?.display(cfi).then(() => setActivePanels(p => ({...p, annotations: false}))) };
 
-  // --- JSX 渲染 ---
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
-      {/* 顶部导航栏 */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
         <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{bookDetails.title}</Typography>
@@ -453,15 +402,12 @@ function Reader() {
         </Box>
       </Box>
 
-      {/* 阅读器核心区域 */}
-      <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }} onClick={(e) => { if(e.target === e.currentTarget) closeSelectionMenu(); }}>
+      <Box sx={{ position: 'relative', flexGrow: 1, overflow: 'hidden' }} onClick={(e) => { if (e.target === e.currentTarget) closeSelectionMenu(); }}>
         {isLoading && <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress /><Typography sx={{ml: 2}}>书籍加载中...</Typography></Box>}
         {error && !isLoading && <Alert severity="error" sx={{m: 2}}>{error}</Alert>}
         
-        {/* 【重要】这个div是Epub.js的挂载点。不再需要覆盖任何透明层来实现翻页。 */}
         <Box ref={viewerRef} sx={{ height: '100%', width: '100%', visibility: isLoading || error ? 'hidden' : 'visible' }} />
 
-        {/* 划词后弹出的菜单 */}
         {selectionMenu && (
           <Paper sx={{ position: 'fixed', top: selectionMenu.top, left: selectionMenu.left, transform: 'translateX(-50%)', zIndex: 1400, display: 'flex', gap: 0.5 }}>
             <Button size="small" startIcon={<CreateIcon />} onClick={() => { setAnnotationModal({ open: true, cfi: selectionMenu.cfi, text: selectionMenu.text }); closeSelectionMenu(); }}>批注</Button>
@@ -471,13 +417,11 @@ function Reader() {
         )}
       </Box>
 
-      {/* 底部进度条 */}
       <Box sx={{ p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: '0 -2px 5px rgba(0,0,0,0.1)' }}>
         <Typography align="center" variant="body2" color="text.secondary" noWrap sx={{px: 2}}>{location.currentChapter}</Typography>
         <LinearProgress variant="determinate" value={location.progress} />
       </Box>
       
-      {/* 添加批注的抽屉 */}
       <Drawer anchor="bottom" open={annotationModal.open} onClose={() => setAnnotationModal({ open: false, text: '', cfi: '' })}>
         <Box p={2} component="form" onSubmit={(e) => { e.preventDefault(); handleSaveAnnotation(e.currentTarget.elements.note.value); }}>
           <Typography variant="subtitle1" noWrap sx={{mb: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>为 “{annotationModal.text}” 添加批注</Typography>
@@ -486,12 +430,10 @@ function Reader() {
         </Box>
       </Drawer>
       
-      {/* 批注列表的抽屉 */}
       <Drawer anchor="right" open={activePanels.annotations} onClose={() => setActivePanels(p => ({...p, annotations: false}))}>
         <Box sx={{ width: {xs: '80vw', sm: 350}, p: 2 }}>
           <Typography variant="h6" sx={{mb: 2}}>所有批注</Typography>
           <List>
-            {/* 【核心改造】直接从 state `annotations` 渲染列表 */}
             {annotations.length > 0 ? (
               [...annotations].sort((a,b) => a.cfi.localeCompare(b.cfi, undefined, { numeric: true })).map((anno) => (
                   <ListItem key={anno.id} secondaryAction={ <IconButton edge="end" onClick={() => handleDeleteAnnotation(anno.id)}> <DeleteIcon /> </IconButton> } disablePadding >
@@ -509,7 +451,6 @@ function Reader() {
         </Box>
       </Drawer>
 
-      {/* 目录抽屉 */}
       <Drawer anchor="right" open={activePanels.toc} onClose={() => setActivePanels(p => ({...p, toc: false}))}>
         <Box sx={{ width: {xs: '90vw', sm: 300} }}>
           <Typography variant="h6" sx={{p: 2}}>目录</Typography>
@@ -519,11 +460,9 @@ function Reader() {
         </Box>
       </Drawer>
 
-      {/* Gemini聊天功能 */}
       <Fab color="primary" sx={{ position: 'fixed', bottom: 72, right: 16, zIndex: 1200 }} onClick={() => setActivePanels(p => ({...p, chat: true}))}><ChatIcon /></Fab>
       <GeminiChat open={activePanels.chat} onClose={() => setActivePanels(p => ({...p, chat: false}))} onSendMessage={handleSendChatMessage} messages={chatMessages} isSending={isChatSending}/>
       
-      {/* 全局提示条 */}
       <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} message={snackbar.message} />
     </Box>
   );
