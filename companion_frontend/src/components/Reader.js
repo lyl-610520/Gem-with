@@ -108,6 +108,7 @@ function Reader() {
   // 【核心改造】用State管理批注。任何对批注的增删改都通过 setAnnotations，React会自动更新UI。
   const [annotations, setAnnotations] = useState([]); 
   const [location, setLocation] = useState({ progress: 0, currentChapter: '加载中...' });
+  const [isRenditionReady, setIsRenditionReady] = useState(false);
 
   // --- UI State ---
   const [selectionMenu, setSelectionMenu] = useState(null); // 划词后的小菜单
@@ -174,7 +175,12 @@ function Reader() {
             },
           });
           rendition.themes.select("custom");
-
+          // 监听 'displayed' 事件，这个事件表示书籍内容已成功渲染到屏幕上
+          // 这是设置“准备就绪”标志最可靠的时机
+          rendition.on('displayed', () => {
+            setIsRenditionReady(true);
+          });
+          
           const savedCfi = localStorage.getItem(`book-progress-${bookId}`);
           rendition.display(savedCfi || undefined);
         }
@@ -220,7 +226,7 @@ function Reader() {
         rendition.annotations.add("highlight", anno.cfi, { id: anno.id }, () => {}, className, {});
       }
     });
-  }, [annotations]); // 依赖于annotations state
+  }, [annotations, isRenditionReady]); // 依赖于annotations state
 
   // 【useCallback】用于性能优化，确保这些函数在组件重渲染时不会被重新创建，除非其依赖项改变。
   const getCurrentPageText = useCallback(() => {
@@ -266,18 +272,21 @@ function Reader() {
 
   // 【新增】将Epub.js的事件监听器注册放入Effect中，确保rendition实例存在后再绑定
   useEffect(() => {
+    // 【修复】只有在rendition准备好后才绑定事件
+    if (!isRenditionReady || !renditionRef.current) return;
     const rendition = renditionRef.current;
-    if (!rendition) return;
-
+    
     rendition.on('selected', handleSelection);
     rendition.on('relocated', handleRelocated);
     
-    // 清理函数：在组件卸载或回调函数更新时，解绑旧的监听器
     return () => {
-      rendition.off('selected', handleSelection);
-      rendition.off('relocated', handleRelocated);
+      // rendition实例可能在组件卸载时已被销毁
+      if (rendition.hooks) {
+        rendition.off('selected', handleSelection);
+        rendition.off('relocated', handleRelocated);
+      }
     };
-  }, [handleSelection, handleRelocated]);
+  }, [isRenditionReady, handleSelection, handleRelocated]);
 
   // --- 移动端滑动翻页逻辑 ---
   const handleTouchStart = useCallback((e) => {
@@ -436,7 +445,7 @@ function Reader() {
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
       {/* 顶部导航栏 */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
-        <IconButton component={Link} to="/"><HomeIcon /></IconButton>
+        <IconButton component={Link} to="/books"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{bookDetails.title}</Typography>
         <Box>
           <Tooltip title="批注列表"><IconButton onClick={() => setActivePanels(p => ({...p, annotations: true}))}><NotesIcon /></IconButton></Tooltip>
