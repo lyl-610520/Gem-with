@@ -274,22 +274,6 @@ class LocalMusic(db.Model):
     audio_data = db.Column(db.LargeBinary, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# companion_backend/app.py
-
-# ... 在 class LongTermMemory(db.Model): 的下面，class LocalMusic(db.Model): 的上面，
-# 或者任何一个模型定义之后，把下面这段代码临时加回去
-
-class MusicSession(db.Model):
-    """音乐会话模型"""
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    playlist = db.Column(db.Text)
-    current_track = db.Column(db.Integer, default=0)
-    is_playing = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-# ... 其他的模型定义保持不变 ...
     
 with app.app_context():
     db.create_all()
@@ -1569,45 +1553,3 @@ def create_and_populate_playlist():
 
     except Exception as e:
         return jsonify({'error': f'An error occurred: {e}'}), 500
-
-    # ==========================================================
-# [数据库升级工具] - 用于应用最新的音乐功能模型
-# 警告：此操作将删除所有现有数据！
-# ==========================================================
-@app.route('/api/database/upgrade-for-music-feature', methods=['GET'])
-def upgrade_database_for_music_feature():
-    """
-    通过删除并重建所有表来应用最新的数据库模型（移除MusicSession，添加LocalMusic）。
-    需要提供在 .env 中配置的 CRON_SECRET_KEY 作为安全验证。
-    """
-    # 增加一层安全保护，防止被误触发
-    secret = request.args.get('secret')
-    expected_secret = os.getenv('SECRET_KEY')
-
-    if not expected_secret or secret != expected_secret:
-        print(f"数据库升级失败：密钥无效。")
-        return 'Unauthorized: Invalid or missing secret key.', 403
-
-    try:
-        print("🚨 [数据库升级] 收到合法的数据库升级请求！即将清空并重建所有表...")
-        with app.app_context():
-            # 使用 db.drop_all() 安全地删除所有表
-            print("   - 正在删除所有现存的表...")
-            db.drop_all()
-            print("   - ✅ 所有旧表已成功删除。")
-            
-            # 使用 db.create_all() 根据当前最新的模型定义，创建所有新表
-            print("   - 正在根据最新的模型创建所有新表...")
-            db.create_all()
-            print("   - ✅ 所有新表已成功创建！数据库已升级至最新的音乐功能架构。")
-        
-        return jsonify({
-            'success': True, 
-            'message': '数据库已成功升级以支持最新的音乐功能。所有用户数据已被清空。'
-        })
-
-    except Exception as e:
-        import traceback
-        error_message = f"执行数据库升级时发生严重错误: {e}"
-        print(f"❌ [数据库升级] {error_message}")
-        return jsonify({'error': error_message, 'traceback': traceback.format_exc()}), 500
