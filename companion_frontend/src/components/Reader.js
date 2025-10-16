@@ -445,7 +445,7 @@ function Reader() {
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'grey.100' }}>
       {/* 顶部导航栏 */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: 'background.paper', flexShrink: 0, boxShadow: 1 }}>
-        <IconButton component={Link} to="/books"><HomeIcon /></IconButton>
+        <IconButton component={Link} to="/reading"><HomeIcon /></IconButton>
         <Typography noWrap sx={{flexGrow: 1, textAlign: 'center', fontWeight: 'bold', px: 1}}>{bookDetails.title}</Typography>
         <Box>
           <Tooltip title="批注列表"><IconButton onClick={() => setActivePanels(p => ({...p, annotations: true}))}><NotesIcon /></IconButton></Tooltip>
