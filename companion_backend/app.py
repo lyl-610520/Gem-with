@@ -273,6 +273,23 @@ class LocalMusic(db.Model):
     artist = db.Column(db.String(100), default='未知艺术家')
     audio_data = db.Column(db.LargeBinary, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+# companion_backend/app.py
+
+# ... 在 class LongTermMemory(db.Model): 的下面，class LocalMusic(db.Model): 的上面，
+# 或者任何一个模型定义之后，把下面这段代码临时加回去
+
+class MusicSession(db.Model):
+    """音乐会话模型"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    playlist = db.Column(db.Text)
+    current_track = db.Column(db.Integer, default=0)
+    is_playing = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+# ... 其他的模型定义保持不变 ...
     
 with app.app_context():
     db.create_all()
