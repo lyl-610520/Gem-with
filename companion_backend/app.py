@@ -264,21 +264,20 @@ class GameScore(db.Model):
     level = db.Column(db.Integer, default=1)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class MusicSession(db.Model):
-    """音乐会话模型"""
+class LocalMusic(db.Model):
+    """音乐模型"""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    playlist = db.Column(db.Text)  # JSON格式的播放列表
-    current_track = db.Column(db.Integer, default=0)
-    is_playing = db.Column(db.Boolean, default=False)
+    filename = db.Column(db.String(255), nullable=False) # 存储在服务器上的安全文件名
+    original_title = db.Column(db.String(200), nullable=False) # 用户上传时的原始歌名
+    artist = db.Column(db.String(100), default='未知艺术家')
+    audio_data = db.Column(db.LargeBinary, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
     
 with app.app_context():
     db.create_all()
 
 # 全局变量存储活跃的音乐会话
-active_music_sessions = {}
 
 # app.py
 
@@ -1021,118 +1020,142 @@ def delete_book(book_id):
     
     return jsonify({'success': True, 'message': '书籍已删除'})
 
-# 音乐相关API
-@app.route('/api/music/session', methods=['POST'])
+# ==========================================================
+# [全新重构] 音乐功能 API - 双引擎模式
+# ==========================================================
+
+# --- 引擎一：Spotify Link API ---
+# (这部分接口基本保持不变，只是为了清晰，我们重申一下)
+
+# /api/spotify/auth-url (保持不变)
+# /api/spotify/callback (保持不变)
+
+@app.route('/api/spotify/proxy', methods=['POST'])
 @jwt_required()
-def create_music_session():
-    """创建音乐会话"""
+def spotify_proxy():
+    """
+    一个通用的Spotify API代理。前端通过这个接口来安全地调用任何Spotify API。
+    这样可以避免在前端暴露Access Token。
+    """
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    
+    sp = get_spotify_client_for_user(user.qq_id)
+    if not sp:
+        return jsonify({'error': 'User has not authorized Spotify.'}), 403
+
+    data = request.get_json()
+    method = data.get('method') # 'get' or 'post' or 'put'
+    endpoint = data.get('endpoint') # e.g., 'me/playlists' or 'search'
+    params = data.get('params', {})
+    
+    try:
+        if method == 'get':
+            # 使用 spotipy 提供的通用方法 _get, _post 等
+            # sp._get(endpoint, **params)
+            # 为了更安全，我们只暴露需要的几个功能
+            if endpoint == 'me/playlists':
+                result = sp.current_user_playlists(**params)
+            elif endpoint == 'search':
+                result = sp.search(**params)
+            # ... 未来可以根据需要添加更多 endpoint 的支持
+            else:
+                return jsonify({'error': 'Endpoint not supported'}), 400
+        # ... 可以添加对 'post', 'put' 的支持，例如控制播放
+        else:
+             return jsonify({'error': 'Method not supported'}), 400
+
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"Spotify Proxy Error: {e}")
+        return jsonify({'error': 'An error occurred while communicating with Spotify.'}), 500
+
+
+# --- 引擎二：Companion Player API (本地音乐) ---
+
+@app.route('/api/local_music/upload', methods=['POST'])
+@jwt_required()
+def upload_local_music():
     current_user_id = get_jwt_identity()
     
-    data = request.get_json()
-    playlist = data.get('playlist', [])
+    # 检查上传数量限制
+    MAX_SONGS = 5
+    song_count = LocalMusic.query.filter_by(user_id=current_user_id).count()
+    if song_count >= MAX_SONGS:
+        return jsonify({'error': f'上传失败：您的个人曲库已满（最多{MAX_SONGS}首）。'}), 403
+
+    if 'file' not in request.files:
+        return jsonify({'error': '没有找到文件'}), 400
+        
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': '未选择文件'}), 400
     
-    music_session = MusicSession.query.filter_by(user_id=current_user_id).first()
-    if not music_session:
-        music_session = MusicSession(
+    # (可以添加更严格的文件类型和大小检查)
+
+    try:
+        # 为了安全，不直接使用用户上传的文件名
+        safe_filename = f"user_{current_user_id}_{int(time.time())}_{file.filename}"
+        
+        new_song = LocalMusic(
             user_id=current_user_id,
-            playlist=json.dumps(playlist)
+            filename=safe_filename,
+            original_title=file.filename, # 简单起见，用文件名做歌名
+            audio_data=file.read()
         )
-        db.session.add(music_session)
-    else:
-        music_session.playlist = json.dumps(playlist)
-        music_session.current_track = 0
-        music_session.is_playing = False
-        music_session.updated_at = datetime.utcnow()
+        db.session.add(new_song)
+        db.session.commit()
+        
+        return jsonify({'success': True, 'song': {
+            'id': new_song.id,
+            'title': new_song.original_title,
+            'artist': new_song.artist
+        }}), 201
+
+    except Exception as e:
+        print(f"Local music upload error: {e}")
+        return jsonify({'error': '文件上传或保存时发生错误。'}), 500
+
+
+@app.route('/api/local_music/playlist', methods=['GET'])
+@jwt_required()
+def get_local_playlist():
+    current_user_id = get_jwt_identity()
+    songs = LocalMusic.query.filter_by(user_id=current_user_id).order_by(LocalMusic.created_at.desc()).all()
     
+    playlist = [{
+        'id': song.id,
+        'title': song.original_title,
+        'artist': song.artist
+    } for song in songs]
+    
+    return jsonify({'playlist': playlist})
+
+
+@app.route('/api/local_music/track/<int:song_id>')
+@jwt_required()
+def get_local_track_data(song_id):
+    """直接返回音频文件流，供前端播放"""
+    current_user_id = get_jwt_identity()
+    song = LocalMusic.query.filter_by(id=song_id, user_id=current_user_id).first_or_404()
+    
+    return send_file(
+        io.BytesIO(song.audio_data),
+        mimetype='audio/mpeg', # 假设是mp3
+        as_attachment=False
+    )
+
+@app.route('/api/local_music/delete/<int:song_id>', methods=['DELETE'])
+@jwt_required()
+def delete_local_music(song_id):
+    current_user_id = get_jwt_identity()
+    song = LocalMusic.query.filter_by(id=song_id, user_id=current_user_id).first_or_404()
+    
+    db.session.delete(song)
     db.session.commit()
     
-    active_music_sessions[int(current_user_id)] = {
-        'playlist': playlist,
-        'current_track': 0,
-        'is_playing': False
-    }
-    
-    update_user_activity(int(current_user_id))
-    
     return jsonify({'success': True})
-
-@app.route('/api/music/play', methods=['POST'])
-@jwt_required()
-def play_music():
-    """播放音乐"""
-    current_user_id = get_jwt_identity()
-    user_id_int = int(current_user_id)
-    if user_id_int not in active_music_sessions:
-        return jsonify({'error': '没有活跃的音乐会话'}), 400
-    
-    active_music_sessions[user_id_int]['is_playing'] = True
-    
-    music_session = MusicSession.query.filter_by(user_id=current_user_id).first()
-    if music_session:
-        music_session.is_playing = True
-        music_session.updated_at = datetime.utcnow()
-        db.session.commit()
-    
-    return jsonify({'success': True})
-
-@app.route('/api/music/pause', methods=['POST'])
-@jwt_required()
-def pause_music():
-    """暂停音乐"""
-    current_user_id = get_jwt_identity()
-    user_id_int = int(current_user_id)
-
-    if user_id_int not in active_music_sessions:
-        return jsonify({'error': '没有活跃的音乐会话'}), 400
-    
-    active_music_sessions[user_id_int]['is_playing'] = False
-    
-    music_session = MusicSession.query.filter_by(user_id=current_user_id).first()
-    if music_session:
-        music_session.is_playing = False
-        music_session.updated_at = datetime.utcnow()
-        db.session.commit()
-    
-    return jsonify({'success': True})
-
-@app.route('/api/music/next', methods=['POST'])
-@jwt_required()
-def next_track():
-    """下一首"""
-    current_user_id = get_jwt_identity()
-    user_id_int = int(current_user_id)
-    if user_id_int not in active_music_sessions:
-        return jsonify({'error': '没有活跃的音乐会話'}), 400
-    
-    session_data = active_music_sessions[user_id_int]
-    playlist = session_data['playlist']
-    
-    if playlist:
-        session_data['current_track'] = (session_data['current_track'] + 1) % len(playlist)
-        
-        music_session = MusicSession.query.filter_by(user_id=current_user_id).first()
-        if music_session:
-            music_session.current_track = session_data['current_track']
-            music_session.updated_at = datetime.utcnow()
-            db.session.commit()
-    
-    return jsonify({'success': True})
-
-@app.route('/api/music/status', methods=['GET'])
-@jwt_required()
-def get_music_status():
-    """获取音乐状态"""
-    current_user_id = get_jwt_identity()
-    user_id_int = int(current_user_id)
-    if user_id_int not in active_music_sessions:
-        return jsonify({'current_track': 0, 'is_playing': False, 'playlist': []})
-    
-    session_data = active_music_sessions[user_id_int]
-    return jsonify({
-        'current_track': session_data['current_track'],
-        'is_playing': session_data['is_playing'],
-        'playlist': session_data['playlist']
-    })
 
 # 人设和记忆同步API (这些接口由机器人调用，通常不走JWT，保持原样)
 def find_or_create_user_by_qq(qq_id):
@@ -1529,3 +1552,45 @@ def create_and_populate_playlist():
 
     except Exception as e:
         return jsonify({'error': f'An error occurred: {e}'}), 500
+
+    # ==========================================================
+# [数据库升级工具] - 用于应用最新的音乐功能模型
+# 警告：此操作将删除所有现有数据！
+# ==========================================================
+@app.route('/api/database/upgrade-for-music-feature', methods=['GET'])
+def upgrade_database_for_music_feature():
+    """
+    通过删除并重建所有表来应用最新的数据库模型（移除MusicSession，添加LocalMusic）。
+    需要提供在 .env 中配置的 CRON_SECRET_KEY 作为安全验证。
+    """
+    # 增加一层安全保护，防止被误触发
+    secret = request.args.get('secret')
+    expected_secret = os.getenv('SECRET_KEY')
+
+    if not expected_secret or secret != expected_secret:
+        print(f"数据库升级失败：密钥无效。")
+        return 'Unauthorized: Invalid or missing secret key.', 403
+
+    try:
+        print("🚨 [数据库升级] 收到合法的数据库升级请求！即将清空并重建所有表...")
+        with app.app.context():
+            # 使用 db.drop_all() 安全地删除所有表
+            print("   - 正在删除所有现存的表...")
+            db.drop_all()
+            print("   - ✅ 所有旧表已成功删除。")
+            
+            # 使用 db.create_all() 根据当前最新的模型定义，创建所有新表
+            print("   - 正在根据最新的模型创建所有新表...")
+            db.create_all()
+            print("   - ✅ 所有新表已成功创建！数据库已升级至最新的音乐功能架构。")
+        
+        return jsonify({
+            'success': True, 
+            'message': '数据库已成功升级以支持最新的音乐功能。所有用户数据已被清空。'
+        })
+
+    except Exception as e:
+        import traceback
+        error_message = f"执行数据库升级时发生严重错误: {e}"
+        print(f"❌ [数据库升级] {error_message}")
+        return jsonify({'error': error_message, 'traceback': traceback.format_exc()}), 500
