@@ -8,6 +8,7 @@ import { useTheme } from '@mui/material/styles'; // <--- 导入 useTheme hook
 import MusicModeToggle from './music/MusicModeToggle';
 import SpotifyPlayer from './music/SpotifyPlayer';
 import LocalPlayer from './music/LocalPlayer';
+import { Container } from '@mui/material';
 
 const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(10px); }
@@ -53,30 +54,34 @@ function Music({ user }) {
   };
 
   return (
-    <MusicContainer>
-      <Title />
+    // --- VVVV 核心修复 VVVV ---
+    // 1. Container 作为最外层的布局容器
+    <Container maxWidth="md" sx={{ pt: 2 }}> 
+      {/* 2. MusicContainer 在内部，负责自身的动画效果 */}
+      <MusicContainer> 
+        <Title />
 
-      {/* 确保 onModeChange 是一个函数 */}
-      <MusicModeToggle mode={mode} onModeChange={(newMode) => setMode(newMode)} />
+        <MusicModeToggle mode={mode} onModeChange={(newMode) => setMode(newMode)} />
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={mode}
-          initial="initial"
-          animate="in"
-          exit="out"
-          variants={pageVariants}
-          transition={pageTransition}
-        >
-          {mode === 'spotify' ? (
-            <SpotifyPlayer user={user} />
-          ) : (
-            <LocalPlayer user={user} />
-          )}
-        </motion.div>
-      </AnimatePresence>
-    </MusicContainer>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={mode}
+            initial="initial"
+            animate="in"
+            exit="out"
+            variants={pageVariants}
+            transition={pageTransition}
+          >
+            {mode === 'spotify' ? (
+              <SpotifyPlayer user={user} />
+            ) : (
+              <LocalPlayer user={user} />
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </MusicContainer>
+    </Container>
+    // --- ^^^^ 修复结束 ^^^^ ---
   );
 }
-
 export default Music;
