@@ -1,87 +1,77 @@
-// src/components/Music.js (绝对正确版 v4)
+// src/components/Music.js (最终布局版 v5)
 
 import React, { useState } from 'react';
 import { styled, keyframes } from '@mui/system';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useTheme } from '@mui/material/styles'; // <--- 导入 useTheme hook
+import { useTheme } from '@mui/material/styles';
+import { Container, Box, Typography } from '@mui/material'; // <--- 引入布局组件
 
 import MusicModeToggle from './music/MusicModeToggle';
 import SpotifyPlayer from './music/SpotifyPlayer';
 import LocalPlayer from './music/LocalPlayer';
-import { Container } from '@mui/material';
 
-const fadeIn = keyframes`
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-`;
-
-const MusicContainer = styled('div')`
-  animation: ${fadeIn} 0.5s ease-out;
-`;
-
-// 为了绝对的稳定性，我们创建一个单独的 Title 组件
-const StyledTitle = styled('h1')(({ theme }) => ({
-  fontSize: '2.5rem',
-  fontWeight: 700,
-  textAlign: 'center',
-  marginBottom: '20px',
-  color: theme.palette.text.primary,
-  background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-  WebkitBackgroundClip: 'text',
-  WebkitTextFillColor: 'transparent',
-}));
-
-// 使用一个简单的包装组件来确保 theme 总是存在
-const Title = () => {
-    const theme = useTheme();
-    return <StyledTitle theme={theme}>Music Companion</StyledTitle>;
-}
-
+const MusicContent = styled('div')``; // 重命名，避免与 Container 混淆
 
 function Music({ user }) {
   const [mode, setMode] = useState('spotify'); 
 
   const pageVariants = {
-    initial: { opacity: 0, x: -50, },
-    in: { opacity: 1, x: 0, },
-    out: { opacity: 0, x: 50, },
+    initial: { opacity: 0, scale: 0.98, y: 10 },
+    in: { opacity: 1, scale: 1, y: 0 },
+    out: { opacity: 0, scale: 0.98, y: -10 },
   };
 
   const pageTransition = {
     type: 'tween',
-    ease: 'anticipate',
-    duration: 0.5,
+    ease: 'circOut', // 使用更平滑的动画曲线
+    duration: 0.4,
   };
 
   return (
-    // --- VVVV 核心修复 VVVV ---
-    // 1. Container 作为最外层的布局容器
-    <Container maxWidth="md" sx={{ pt: 2 }}> 
-      {/* 2. MusicContainer 在内部，负责自身的动画效果 */}
-      <MusicContainer> 
-        <Title />
-
-        <MusicModeToggle mode={mode} onModeChange={(newMode) => setMode(newMode)} />
-
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={mode}
-            initial="initial"
-            animate="in"
-            exit="out"
-            variants={pageVariants}
-            transition={pageTransition}
+    // --- VVVV 核心布局修复 VVVV ---
+    <Container maxWidth="md">
+      <Box sx={{ my: 4 }}> {/* <-- 使用 Box 控制垂直边距 */}
+        <MusicContent>
+            
+          {/* 使用 Typography 实现与 Diary.js 一致的标题风格 */}
+          <Typography 
+            variant="h4" 
+            component="h1" 
+            fontWeight="bold" 
+            align="center"
+            sx={{ 
+                mb: 3, 
+                background: (theme) => `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+            }}
           >
-            {mode === 'spotify' ? (
-              <SpotifyPlayer user={user} />
-            ) : (
-              <LocalPlayer user={user} />
-            )}
-          </motion.div>
-        </AnimatePresence>
-      </MusicContainer>
+            🎵 音乐空间
+          </Typography>
+
+          <MusicModeToggle mode={mode} onModeChange={setMode} />
+
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={mode}
+              initial="initial"
+              animate="in"
+              exit="out"
+              variants={pageVariants}
+              transition={pageTransition}
+            >
+              {mode === 'spotify' ? (
+                <SpotifyPlayer user={user} />
+              ) : (
+                <LocalPlayer user={user} />
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </MusicContent>
+      </Box>
     </Container>
-    // --- ^^^^ 修复结束 ^^^^ ---
+    // --- ^^^^ 核心布局修复结束 ^^^^ ---
   );
 }
+
 export default Music;
