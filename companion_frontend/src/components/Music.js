@@ -1,36 +1,40 @@
 // src/components/Music.js (全新版本)
 
 import React, { useState } from 'react';
-import styled, { keyframes } from 'styled-components';
+// --- VVVV 核心修改 VVVV ---
+import { styled, keyframes } from '@mui/system'; // 从 @mui/system 导入 styled 和 keyframes
 import { motion, AnimatePresence } from 'framer-motion';
+// --- ^^^^ 修改结束 ^^^^ ---
 
-// 导入我们新建的模块化组件
 import MusicModeToggle from './music/MusicModeToggle';
 import SpotifyPlayer from './music/SpotifyPlayer';
 import LocalPlayer from './music/LocalPlayer';
-import FloatingChatButton from './music/FloatingChatButton';
-// (我们稍后会创建 FloatingChatButton 的内容)
 
 const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 `;
 
-const MusicContainer = styled.div`
+const MusicContainer = styled('div')`
   animation: ${fadeIn} 0.5s ease-out;
 `;
 
-const Title = styled.h1`
-  font-size: 2.5rem;
-  font-weight: 700;
-  text-align: center;
-  margin-bottom: 20px;
-  // 使用 Mui 主题的颜色
-  color: ${props => props.theme.palette.text.primary}; 
-  background: linear-gradient(45deg, ${props => props.theme.palette.primary.main}, ${props => props.theme.palette.secondary.main});
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-`;
+// --- VVVV 核心修改 VVVV ---
+// 我们将 styled() 的参数从 'h1' 字符串改为了一个函数，
+// 这样它就能接收到 theme 对象了
+const Title = styled('h1')(({ theme }) => ({
+  fontSize: '2.5rem',
+  fontWeight: 700,
+  textAlign: 'center',
+  marginBottom: '20px',
+  // 现在可以安全地访问 theme 对象了！
+  color: theme.palette.text.primary, 
+  background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+  WebkitBackgroundClip: 'text',
+  WebkitTextFillColor: 'transparent',
+}));
+// --- ^^^^ 修改结束 ^^^^ ---
+
 
 // 这个组件现在是我们的主战场
 function Music({ user }) {
