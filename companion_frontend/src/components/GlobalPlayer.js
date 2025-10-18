@@ -1,67 +1,86 @@
-// src/components/GlobalPlayer.js
+// src/components/GlobalPlayer.js (功能增强版)
 
 import React from 'react';
-import { Box, Typography, IconButton, Slider } from '@mui/material';
+import { Box, Typography, IconButton, Slider, Avatar } from '@mui/material';
 import { styled } from '@mui/system';
-import { FaPlay, FaPause, FaStepForward, FaStepBackward } from 'react-icons/fa';
+import { FaPlay, FaPause, FaStepForward, FaStepBackward, FaMusic } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import usePlayerStore from '../stores/playerStore';
 
 const PlayerBar = styled(motion.div)(({ theme }) => ({
-  position: 'fixed',
-  bottom: 0,
-  left: 0,
-  right: 0,
-  height: '70px',
-  backgroundColor: 'rgba(25, 25, 35, 0.85)',
-  backdropFilter: 'blur(10px)',
-  color: '#FFFFFF',
-  display: 'flex',
-  alignItems: 'center',
-  padding: theme.spacing(0, 2),
-  zIndex: 1301, // 比 MUI 的 Modal z-index 高一点
-  boxShadow: '0 -4px 20px rgba(0,0,0,0.3)',
-  borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+    position: 'fixed',
+    bottom: 0,
+    left: '50%', // 从中间开始
+    transform: 'translateX(-50%)', // 水平居中
+    width: 'calc(100% - 32px)', // 左右留白
+    maxWidth: '500px', // 最大宽度
+    height: '70px',
+    backgroundColor: 'rgba(25, 25, 35, 0.85)',
+    backdropFilter: 'blur(10px)',
+    color: '#FFFFFF',
+    display: 'flex',
+    alignItems: 'center',
+    padding: theme.spacing(1, 2),
+    zIndex: 1301, 
+    boxShadow: '0 -4px 30px rgba(0,0,0,0.3)',
+    borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '12px 12px 0 0', // 圆角
 }));
 
+function formatTime(seconds) {
+    if (isNaN(seconds) || seconds < 0) return '0:00';
+    const floorSeconds = Math.floor(seconds);
+    const min = Math.floor(floorSeconds / 60);
+    const sec = floorSeconds % 60;
+    return `${min}:${sec < 10 ? '0' : ''}${sec}`;
+}
+
 function GlobalPlayer() {
-  // 从全局 store 获取所有需要的信息和控制函数
-  const { isActive, isPlaying, trackInfo, progress, togglePlay } = usePlayerStore();
+  const { isActive, isPlaying, trackInfo, currentTime, togglePlay, seek } = usePlayerStore();
 
   if (!isActive) {
-    return null; // 如果播放器未激活，不渲染任何东西
+    return null;
   }
+
+  const progressPercent = trackInfo.duration > 0 ? (currentTime / trackInfo.duration) * 100 : 0;
 
   return (
     <AnimatePresence>
       <PlayerBar
-        initial={{ y: '100%' }}
+        initial={{ y: '120%' }}
         animate={{ y: 0 }}
-        exit={{ y: '100%' }}
+        exit={{ y: '120%' }}
         transition={{ type: 'spring', stiffness: 400, damping: 40 }}
       >
-        <Box sx={{ width: '50px', height: '50px', bgcolor: 'grey.800', borderRadius: 1, mr: 2 }}>
-          {/* 这里可以放专辑封面 */}
-        </Box>
+        <Avatar variant="rounded" sx={{ width: 50, height: 50, bgcolor: 'grey.800', mr: 2 }}>
+          {trackInfo.albumCover ? <img src={trackInfo.albumCover} alt={trackInfo.name} width="100%" /> : <FaMusic />}
+        </Avatar>
         
-        <Box sx={{ flexGrow: 1, mr: 2 }}>
+        <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
           <Typography noWrap fontWeight="bold">{trackInfo.name}</Typography>
           <Typography noWrap variant="caption" color="grey.400">{trackInfo.artist}</Typography>
-          <Slider
-            size="small"
-            value={progress * 100}
-            // (可以添加拖动进度条的逻辑)
-            sx={{ p: '0 !important', height: 4, mt: 0.5 }}
-          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+            <Typography variant="caption" sx={{ minWidth: '35px' }}>{formatTime(currentTime)}</Typography>
+            <Slider
+              size="small"
+              value={progressPercent}
+              onChange={(_, value) => {
+                const newTime = (value / 100) * trackInfo.duration;
+                seek(newTime);
+              }}
+              sx={{ p: '0 !important', height: 4 }}
+            />
+            <Typography variant="caption" sx={{ minWidth: '35px' }}>{formatTime(trackInfo.duration)}</Typography>
+          </Box>
         </Box>
         
-        <Box>
-          <IconButton color="inherit">{/* <FaStepBackward /> */}</IconButton>
-          <IconButton color="inherit" onClick={togglePlay} sx={{ mx: 1, bgcolor: 'rgba(255,255,255,0.1)' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
+          <IconButton color="inherit" size="small">{/* <FaStepBackward /> */}</IconButton>
+          <IconButton color="inherit" onClick={togglePlay} sx={{ mx: 0.5, bgcolor: 'rgba(255,255,255,0.1)' }}>
             {isPlaying ? <FaPause /> : <FaPlay />}
           </IconButton>
-          <IconButton color="inherit">{/* <FaStepForward /> */}</IconButton>
+          <IconButton color="inherit" size="small">{/* <FaStepForward /> */}</IconButton>
         </Box>
       </PlayerBar>
     </AnimatePresence>
