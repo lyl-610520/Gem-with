@@ -107,7 +107,7 @@ function LocalPlayer({ user }) {
         <input 
           id="music-upload" 
           type="file" 
-          accept="audio/*"
+          accept="*"
           hidden 
           onChange={handleFileUpload}
           ref={fileInputRef}
