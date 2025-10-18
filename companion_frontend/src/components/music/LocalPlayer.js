@@ -63,7 +63,15 @@ function LocalPlayer({ user }) {
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-
+    // --- VVVV 核心修复 VVVV ---
+    // 在前端进行文件类型校验
+    if (!file.type.startsWith('audio/')) {
+        setError('上传失败：请选择一个有效的音频文件 (如 MP3, M4A, WAV)。');
+        // 清空 input 的值，以便用户可以重新选择
+        if(fileInputRef.current) fileInputRef.current.value = "";
+        return;
+    }
+    // --- ^^^^ 修复结束 ^^^^ ---
     setUploading(true);
     setError('');
     try {
