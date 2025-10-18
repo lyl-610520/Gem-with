@@ -19,6 +19,7 @@ import Chat from './components/Chat';
 import Settings from './components/Settings';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import GlobalPlayer from './components/GlobalPlayer';
 
 // 您的主题创建逻辑 (保持不变)
 const getTheme = (mode, customColor) => createTheme({
@@ -190,6 +191,7 @@ function App() {
                   <Route path="/login" element={<Navigate to="/" />} />
                   <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
+                {user && <GlobalPlayer />} 
               </Box>
             </>
           )}
