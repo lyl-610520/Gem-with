@@ -29,7 +29,7 @@ const usePlayerStore = create((set, get) => ({
    * @param {object} song - 包含 {id, title, artist} 的歌曲对象
    */
   playLocalSong: (song) => {
-    const { trackInfo, isPlaying } = get();
+    const { trackInfo, isPlaying, source } = get();
 
     // 如果点击的是同一首歌，并且正在播放，则暂停；否则就播放
     if (trackInfo.id === song.id && source === 'local') {
