@@ -1,165 +1,172 @@
-// src/stores/playerStore.js (最终功能版)
+// src/components/music/LocalPlayer.js (功能完整版)
 
-import { create } from 'zustand';
-import { getLocalTrackUrl } from '../api/musicApi';
+import React, 'react';
+import { Box, Typography, List, ListItem, ListItemText, IconButton, CircularProgress, Alert, useTheme } from '@mui/material';
+import { styled } from '@mui/system';
+import { motion, AnimatePresence } from 'framer-motion';
+import { FaPlay, FaPause, FaTrash, FaUpload } from 'react-icons/fa';
 
-// [核心] 我们在 store 外部创建一个 audio 实例，确保全局只有一个播放器核心
-// 这能保证在组件切换时，音乐不会中断
-const audio = new Audio();
+import { getLocalPlaylist, uploadLocalMusic, deleteLocalMusic } from '../../api/musicApi';
+import usePlayerStore from '../../stores/playerStore';
 
-const usePlayerStore = create((set, get) => ({
-  // --- 状态 (State) ---
-  isActive: false,      
-  isPlaying: false,     
-  trackInfo: {
-    id: null,
-    name: '',
-    artist: '',
-    albumCover: '',
-    duration: 0, // 改为秒，更直观
-    uri: null,
-  },
-  currentTime: 0,       // 当前播放时间（秒）
-  source: null,         
+const PlayerContainer = styled(Box)(({ theme }) => ({
+  backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : theme.palette.background.paper,
+  borderRadius: theme.shape.borderRadius,
+  padding: theme.spacing(3),
+  boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
+}));
 
-  // --- 操作 (Actions) ---
-
-  /**
-   * [核心] 播放一首本地歌曲
-   * @param {object} song - 包含 {id, title, artist} 的歌曲对象
-   */
-  playLocalSong: (song) => {
-    const { trackInfo, isPlaying, source } = get();
-
-    // 如果点击的是同一首歌，并且正在播放，则暂停；否则就播放
-    if (trackInfo.id === song.id && source === 'local') {
-      get().togglePlay();
-      return;
-    }
-      
-    // 停止当前可能正在播放的任何歌曲
-    audio.pause(); 
-    
-    // 设置新的音源
-    audio.src = getLocalTrackUrl(song.id);
-    audio.load();
-
-    // 开始播放，并处理浏览器可能出现的自动播放限制
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch(error => {
-        console.error("Audio play was prevented:", error);
-        // 即使播放失败，我们也要更新UI状态为暂停
-        set({ isPlaying: false });
-      });
-    }
-
-    // 更新全局状态
-    set({
-      isActive: true,
-      isPlaying: true,
-      trackInfo: {
-        id: song.id,
-        name: song.title,
-        artist: song.artist,
-        albumCover: null, // 本地音乐暂时没有封面
-        duration: 0,      // 稍后从 'loadedmetadata' 事件获取
-        uri: null,
-      },
-      currentTime: 0,
-      source: 'local',
-    });
-  },
-  
-  /**
-   * [核心] 统一的播放/暂停控制
-   */
-  togglePlay: () => {
-    const { isPlaying, source } = get();
-    if (source === 'local') {
-      if (isPlaying) {
-        audio.pause();
-      } else {
-        // 只有在有音源的情况下才能播放
-        if (audio.src) {
-            audio.play().catch(e => console.error("Audio play failed:", e));
-        }
-      }
-      // set({ isPlaying: !isPlaying }); // 状态由 audio 事件监听器更新，更准确
-    }
-    // (我们稍后会在这里添加 spotify 的控制逻辑)
-  },
-
-  /**
-   * [核心] 拖动进度条
-   * @param {number} newTime - 新的播放时间（秒）
-   */
-  seek: (newTime) => {
-    const { source } = get();
-    if (source === 'local') {
-      audio.currentTime = newTime;
-      set({ currentTime: newTime });
-    }
-  },
-
-  // (以下 actions 暂时未使用，但保留框架)
-  pause: () => get().togglePlay(),
-  resume: () => get().togglePlay(),
-
-  // 停止并完全重置播放器
-  stop: () => {
-    audio.pause();
-    audio.src = '';
-    set({
-      isActive: false,
-      isPlaying: false,
-      trackInfo: { id: null, name: '', artist: '', albumCover: '', duration: 0, uri: null },
-      currentTime: 0,
-      source: null,
-    });
+const UploadButton = styled('label')(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: theme.spacing(1),
+  padding: theme.spacing(1.5, 3),
+  backgroundColor: theme.palette.primary.main,
+  color: theme.palette.primary.contrastText,
+  borderRadius: theme.shape.borderRadius,
+  cursor: 'pointer',
+  transition: 'all 0.2s ease',
+  '&:hover': {
+    transform: 'translateY(-2px)',
+    boxShadow: `0 6px 15px ${theme.palette.primary.main}40`,
   },
 }));
 
+function LocalPlayer({ user }) {
+  const [playlist, setPlaylist] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState('');
+  const [uploading, setUploading] = React.useState(false);
+  const fileInputRef = React.useRef(null);
+  const theme = useTheme();
+  
+  // 从全局 store 中获取我们需要的状态和 actions
+  const { playLocalSong, trackInfo, isPlaying, source } = usePlayerStore();
+  const togglePlay = usePlayerStore((state) => state.togglePlay);
 
-// ==========================================================
-//  [关键] 将 audio 元素的事件与 store 的状态连接起来
-//  这是实现实时更新的核心
-// ==========================================================
+  React.useEffect(() => {
+    fetchPlaylist();
+  }, []);
 
-// 当音频开始播放时
-audio.addEventListener('play', () => {
-  usePlayerStore.setState({ isPlaying: true });
-});
+  const fetchPlaylist = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const data = await getLocalPlaylist();
+      setPlaylist(data);
+    } catch (err) {
+      setError('无法加载您的个人曲库，请稍后再试。');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-// 当音频暂停时
-audio.addEventListener('pause', () => {
-  usePlayerStore.setState({ isPlaying: false });
-});
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
 
-// 当音频的元数据（如时长）加载完毕时
-audio.addEventListener('loadedmetadata', () => {
-  usePlayerStore.setState(state => ({
-    trackInfo: { ...state.trackInfo, duration: audio.duration }
-  }));
-});
+    setUploading(true);
+    setError('');
+    try {
+      await uploadLocalMusic(file);
+      await fetchPlaylist(); // 上传成功后刷新列表
+    } catch (err) {
+      setError(err.response?.data?.error || '上传失败，请检查文件或稍后再试。');
+      console.error(err);
+    } finally {
+      setUploading(false);
+      if(fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
-// 当播放时间更新时（高频触发）
-audio.addEventListener('timeupdate', () => {
-  usePlayerStore.setState({ currentTime: audio.currentTime });
-});
+  const handleDelete = async (songId, e) => {
+    e.stopPropagation(); // 防止点击删除时触发播放
+    if (window.confirm('确定要删除这首歌曲吗？')) {
+      try {
+        await deleteLocalMusic(songId);
+        setPlaylist(prev => prev.filter(song => song.id !== songId));
+      } catch (err) {
+        setError('删除失败，请稍后再试。');
+        console.error(err);
+      }
+    }
+  };
+  
+  const handleSongClick = (song) => {
+    // 如果点击的已经是当前播放的歌曲，则切换播放/暂停
+    // 否则，开始播放这首新歌
+    if (source === 'local' && trackInfo.id === song.id) {
+        togglePlay();
+    } else {
+        playLocalSong(song);
+    }
+  }
 
-// 当歌曲播放结束时
-audio.addEventListener('ended', () => {
-  usePlayerStore.setState({ isPlaying: false });
-  // (可以在这里添加自动播放下一首的逻辑)
-  // const { nextTrack } = usePlayerStore.getState();
-  // nextTrack(); 
-});
+  if (loading) {
+    return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>;
+  }
 
-// 当加载音频出错时
-audio.addEventListener('error', (e) => {
-    console.error("Audio Element Error:", e);
-    usePlayerStore.getState().stop();
-});
+  return (
+    <PlayerContainer theme={theme}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h5" fontWeight={700}>我的个人曲库</Typography>
+        <UploadButton htmlFor="music-upload" theme={theme}>
+          {uploading ? <CircularProgress size={20} color="inherit" /> : <FaUpload />}
+          上传音乐
+        </UploadButton>
+        <input 
+          id="music-upload" 
+          type="file" 
+          accept="audio/*"
+          hidden 
+          onChange={handleFileUpload}
+          ref={fileInputRef}
+          disabled={uploading}
+        />
+      </Box>
 
-export default usePlayerStore;
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+        您的曲库容量: {playlist.length} / 5 首
+      </Typography>
+
+      <List>
+        <AnimatePresence>
+          {playlist.length > 0 ? playlist.map((song) => (
+            <motion.div
+              key={song.id}
+              layout
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, x: -50, transition: { duration: 0.3 } }}
+            >
+              <ListItem
+                secondaryAction={
+                  <IconButton edge="end" aria-label="delete" onClick={(e) => handleDelete(song.id, e)}>
+                    <FaTrash />
+                  </IconButton>
+                }
+                button
+                selected={trackInfo.id === song.id && source === 'local'}
+                onClick={() => handleSongClick(song)}
+              >
+                <IconButton color="primary" sx={{ mr: 2 }}>
+                  {isPlaying && trackInfo.id === song.id && source === 'local' ? <FaPause /> : <FaPlay />}
+                </IconButton>
+                <ListItemText primary={song.title} secondary={song.artist} />
+              </ListItem>
+            </motion.div>
+          )) : (
+            <Typography sx={{ textAlign: 'center', p: 3, color: 'text.secondary' }}>
+              您的曲库是空的，点击右上角上传第一首歌吧！
+            </Typography>
+          )}
+        </AnimatePresence>
+      </List>
+    </PlayerContainer>
+  );
+}
+
+export default LocalPlayer;
