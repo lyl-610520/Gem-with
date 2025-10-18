@@ -41,6 +41,7 @@ from functools import wraps
 load_dotenv()
 
 app = Flask(__name__)
+app.config["JWT_QUERY_STRING_NAME"] = "token" # 允许通过 URL 参数 ?token=... 来传递 JWT
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
 # --- 把上面那一大堆关于 Cookie 的配置全部删除，换成下面这三行 ---
 app.config["JWT_SECRET_KEY"] = app.config['SECRET_KEY'] # JWT需要一个自己的密钥
