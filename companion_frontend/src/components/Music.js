@@ -1,80 +1,82 @@
-// src/components/music/MusicModeToggle.js (最终修正版 v2)
+// src/components/Music.js (绝对正确版 v4)
 
-import React from 'react';
-import { styled } from '@mui/system';
-import { motion } from 'framer-motion';
-import { FaSpotify } from "react-icons/fa";
-import { FaMusic } from "react-icons/fa6";
+import React, { useState } from 'react';
+import { styled, keyframes } from '@mui/system';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useTheme } from '@mui/material/styles'; // <--- 导入 useTheme hook
 
-const ToggleWrapper = styled('div')({
-  display: 'flex',
-  justifyContent: 'center',
-  marginBottom: '40px',
-});
+import MusicModeToggle from './music/MusicModeToggle';
+import SpotifyPlayer from './music/SpotifyPlayer';
+import LocalPlayer from './music/LocalPlayer';
 
-const ToggleContainer = styled('div')({
-  position: 'relative',
-  display: 'flex',
-  alignItems: 'center',
-  padding: '6px',
-  backgroundColor: 'rgba(128, 128, 128, 0.15)',
-  borderRadius: '999px',
-  cursor: 'pointer',
-  boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)',
-});
+const fadeIn = keyframes`
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
 
-const ToggleOption = styled('div')(({ isActive }) => ({
-  position: 'relative',
-  padding: '10px 25px',
-  fontSize: '1rem',
-  fontWeight: 600,
-  color: isActive ? '#FFFFFF' : 'rgba(128, 128, 128, 0.9)',
-  zIndex: 2,
-  transition: 'color 0.3s ease-in-out',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
+const MusicContainer = styled('div')`
+  animation: ${fadeIn} 0.5s ease-out;
+`;
+
+// 为了绝对的稳定性，我们创建一个单独的 Title 组件
+const StyledTitle = styled('h1')(({ theme }) => ({
+  fontSize: '2.5rem',
+  fontWeight: 700,
+  textAlign: 'center',
+  marginBottom: '20px',
+  color: theme.palette.text.primary,
+  background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+  WebkitBackgroundClip: 'text',
+  WebkitTextFillColor: 'transparent',
 }));
 
-const ActiveBackground = styled(motion.div)({
-  position: 'absolute',
-  top: '6px',
-  bottom: '6px',
-  left: '6px',
-  // 使用 calc() 需要是字符串
-  width: 'calc(50% - 6px)',
-  background: 'linear-gradient(90deg, #6366f1, #8b5cf6)',
-  borderRadius: '999px',
-  zIndex: 1,
-  boxShadow: '0 4px 10px rgba(99, 102, 241, 0.4)',
-});
+// 使用一个简单的包装组件来确保 theme 总是存在
+const Title = () => {
+    const theme = useTheme();
+    return <StyledTitle theme={theme}>Music Companion</StyledTitle>;
+}
 
-// --- VVVV 核心修复 VVVV ---
-// 将 prop 'setMode' 重命名为 'onModeChange'，这是 React 的标准实践
-const MusicModeToggle = ({ mode, onModeChange }) => {
-// --- ^^^^ 修复结束 ^^^^ ---
+
+function Music({ user }) {
+  const [mode, setMode] = useState('spotify'); 
+
+  const pageVariants = {
+    initial: { opacity: 0, x: -50, },
+    in: { opacity: 1, x: 0, },
+    out: { opacity: 0, x: 50, },
+  };
+
+  const pageTransition = {
+    type: 'tween',
+    ease: 'anticipate',
+    duration: 0.5,
+  };
+
   return (
-    <ToggleWrapper>
-      <ToggleContainer>
-        <ActiveBackground
-          layout
-          initial={false}
-          animate={{ x: mode === 'spotify' ? '0%' : '100%' }} // 使用百分比字符串更安全
-          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        />
-        {/* --- VVVV 核心修复 VVVV --- */}
-        <ToggleOption isActive={mode === 'spotify'} onClick={() => onModeChange('spotify')}>
-          <FaSpotify />
-          Spotify Link
-        </ToggleOption>
-        <ToggleOption isActive={mode === 'local'} onClick={() => onModeChange('local')}>
-          <FaMusic />
-          Companion Player
-        </ToggleOption>
-        {/* --- ^^^^ 修复结束 ^^^^ --- */}
-      </ToggleContainer>
-    </ToggleWrapper>
-  );
-};
+    <MusicContainer>
+      <Title />
 
-export default MusicModeToggle;
+      {/* 确保 onModeChange 是一个函数 */}
+      <MusicModeToggle mode={mode} onModeChange={(newMode) => setMode(newMode)} />
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={mode}
+          initial="initial"
+          animate="in"
+          exit="out"
+          variants={pageVariants}
+          transition={pageTransition}
+        >
+          {mode === 'spotify' ? (
+            <SpotifyPlayer user={user} />
+          ) : (
+            <LocalPlayer user={user} />
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </MusicContainer>
+  );
+}
+
+export default Music;
