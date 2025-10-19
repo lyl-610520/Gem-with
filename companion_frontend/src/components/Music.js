@@ -1,53 +1,58 @@
-// src/components/Music.js (最终布局版 v5)
+// src/components/Music.js (最终美化与适配版)
 
 import React, { useState } from 'react';
 import { styled, keyframes } from '@mui/system';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '@mui/material/styles';
-import { Container, Box, Typography } from '@mui/material'; // <--- 引入布局组件
+import { Container, Box, Typography } from '@mui/material'; 
 
 import MusicModeToggle from './music/MusicModeToggle';
 import SpotifyPlayer from './music/SpotifyPlayer';
 import LocalPlayer from './music/LocalPlayer';
 
-const MusicContent = styled('div')``; // 重命名，避免与 Container 混淆
+const fadeIn = keyframes`
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
+
+const MusicContainer = styled('div')`
+  animation: ${fadeIn} 0.5s ease-out;
+`;
+
+// 我们保留这个自定义的 Title 组件，因为它效果很棒
+const Title = styled('h1')(({ theme }) => ({
+  fontSize: '2.5rem',
+  fontWeight: 700,
+  textAlign: 'center',
+  marginBottom: '20px',
+  color: theme.palette.text.primary, 
+  background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+  WebkitBackgroundClip: 'text',
+  WebkitTextFillColor: 'transparent',
+}));
 
 function Music({ user }) {
   const [mode, setMode] = useState('spotify'); 
 
   const pageVariants = {
-    initial: { opacity: 0, scale: 0.98, y: 10 },
-    in: { opacity: 1, scale: 1, y: 0 },
-    out: { opacity: 0, scale: 0.98, y: -10 },
+    initial: { opacity: 0, x: -20, },
+    in: { opacity: 1, x: 0, },
+    out: { opacity: 0, x: 20, },
   };
 
   const pageTransition = {
     type: 'tween',
-    ease: 'circOut', // 使用更平滑的动画曲线
+    ease: 'easeInOut',
     duration: 0.4,
   };
 
   return (
-    // --- VVVV 核心布局修复 VVVV ---
+    // --- VVVV 核心布局：套用 Diary.js 的结构 VVVV ---
     <Container maxWidth="md">
-      <Box sx={{ my: 4 }}> {/* <-- 使用 Box 控制垂直边距 */}
-        <MusicContent>
-            
-          {/* 使用 Typography 实现与 Diary.js 一致的标题风格 */}
-          <Typography 
-            variant="h4" 
-            component="h1" 
-            fontWeight="bold" 
-            align="center"
-            sx={{ 
-                mb: 3, 
-                background: (theme) => `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-            }}
-          >
-            🎵 音乐空间
-          </Typography>
+      {/* my: 4 代表上下的 margin, 提供了舒适的垂直间距 */}
+      <Box sx={{ my: 4 }}> 
+        <MusicContainer>
+          <Title>Music Companion</Title>
 
           <MusicModeToggle mode={mode} onModeChange={setMode} />
 
@@ -67,10 +72,10 @@ function Music({ user }) {
               )}
             </motion.div>
           </AnimatePresence>
-        </MusicContent>
+        </MusicContainer>
       </Box>
     </Container>
-    // --- ^^^^ 核心布局修复结束 ^^^^ ---
+    // --- ^^^^ 布局修改结束 ^^^^ ---
   );
 }
 
