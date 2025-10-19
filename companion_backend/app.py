@@ -1138,7 +1138,6 @@ def get_local_playlist():
 
 # --- VVVV 用下面的函数，完整替换掉旧的 get_local_track_data VVVV ---
 @app.route('/api/local_music/track/<int:song_id>')
-@jwt_required()
 def get_local_track_data(song_id):
     """
     [最终版] 直接返回音频文件流，采用手动Token验证。
