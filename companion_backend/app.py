@@ -327,7 +327,7 @@ def get_gemini_response(prompt, user_context="", user_id=None):
         try:
             # 使用 client.models.generate_content
             response = gemini_client.models.generate_content(
-                model='gemini-1.5-pro-latest', # 推荐使用能力更强的模型
+                model='gemini-2.5-pro', # 推荐使用能力更强的模型
                 contents=contents,
                 config=config,
                 request_options={"timeout": 120}
