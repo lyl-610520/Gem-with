@@ -36,6 +36,7 @@ from cryptography.fernet import Fernet
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from functools import wraps
+from flask_jwt_extended import decode_token # <--- 在文件顶部，从 flask_jwt_extended 额外导入 decode_token
 
 # 加载环境变量
 load_dotenv()
@@ -1133,20 +1134,38 @@ def get_local_playlist():
     } for song in songs]
     
     return jsonify({'playlist': playlist})
+    
 
-
+# --- VVVV 用下面的函数，完整替换掉旧的 get_local_track_data VVVV ---
 @app.route('/api/local_music/track/<int:song_id>')
 @jwt_required()
 def get_local_track_data(song_id):
-    """直接返回音频文件流，供前端播放"""
-    current_user_id = get_jwt_identity()
-    song = LocalMusic.query.filter_by(id=song_id, user_id=current_user_id).first_or_404()
+    """
+    [最终版] 直接返回音频文件流，采用手动Token验证。
+    """
+    token = request.args.get('token')
+    if not token:
+        return jsonify(msg="Missing token parameter"), 401
+
+    try:
+        # 手动解码和验证 JWT
+        decoded_token = decode_token(token)
+        current_user_id = decoded_token['sub'] # 'sub' 是 user_id
+    except Exception as e:
+        print(f"手动Token验证失败: {e}")
+        return jsonify(msg="Token is invalid or expired"), 401
+
+    song = LocalMusic.query.filter_by(id=song_id, user_id=current_user_id).first()
+    
+    if not song:
+        return "Not Found or No Permission", 404
     
     return send_file(
         io.BytesIO(song.audio_data),
-        mimetype='audio/mpeg', # 假设是mp3
+        mimetype='audio/mpeg',
         as_attachment=False
     )
+# --- ^^^^ 替换结束 ^^^^ ---
 
 @app.route('/api/local_music/delete/<int:song_id>', methods=['DELETE'])
 @jwt_required()
