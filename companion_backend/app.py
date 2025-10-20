@@ -1031,52 +1031,52 @@ def delete_book(book_id):
 # ==========================================================
 
 # --- 引擎一：Spotify Link API ---
-# (这部分接口基本保持不变，只是为了清晰，我们重申一下)
-
-# /api/spotify/auth-url (保持不变)
-# /api/spotify/callback (保持不变)
 
 @app.route('/api/spotify/proxy', methods=['POST'])
 @jwt_required()
 def spotify_proxy():
     """
-    一个通用的Spotify API代理。前端通过这个接口来安全地调用任何Spotify API。
-    这样可以避免在前端暴露Access Token。
+    [最终升级版] 一个通用的、强大的Spotify API代理。
+    它不再关心具体的 endpoint 是什么，而是直接透传请求。
     """
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
     
     sp = get_spotify_client_for_user(user.qq_id)
     if not sp:
-        return jsonify({'error': 'User has not authorized Spotify.'}), 403
+        return jsonify({'error': 'User has not authorized Spotify or token is invalid.'}), 403
 
     data = request.get_json()
-    method = data.get('method') # 'get' or 'post' or 'put'
-    endpoint = data.get('endpoint') # e.g., 'me/playlists' or 'search'
+    if not data:
+        return jsonify({'error': 'Invalid request body'}), 400
+        
+    method = data.get('method', 'get').lower()
+    endpoint = data.get('endpoint')
     params = data.get('params', {})
     
-    try:
-        if method == 'get':
-            # 使用 spotipy 提供的通用方法 _get, _post 等
-            # sp._get(endpoint, **params)
-            # 为了更安全，我们只暴露需要的几个功能
-            if endpoint == 'me/playlists':
-                result = sp.current_user_playlists(**params)
-            elif endpoint == 'search':
-                result = sp.search(**params)
-            # ... 未来可以根据需要添加更多 endpoint 的支持
-            else:
-                return jsonify({'error': 'Endpoint not supported'}), 400
-        # ... 可以添加对 'post', 'put' 的支持，例如控制播放
-        else:
-             return jsonify({'error': 'Method not supported'}), 400
+    if not endpoint:
+        return jsonify({'error': 'Endpoint is required'}), 400
 
+    try:
+        # --- 核心逻辑：直接调用 spotipy 的底层方法 ---
+        if method == 'get':
+            result = sp._get(endpoint, **params)
+        elif method == 'post':
+            # 对于 POST/PUT/DELETE, 参数在 payload (body) 中
+            result = sp._post(endpoint, payload=params)
+        elif method == 'put':
+            result = sp._put(endpoint, payload=params)
+        elif method == 'delete':
+            result = sp._delete(endpoint, payload=params)
+        else:
+            return jsonify({'error': f'Unsupported method: {method}'}), 400
+
+        # 将从 Spotify 获取到的原始结果直接返回给前端
         return jsonify(result)
         
     except Exception as e:
         print(f"Spotify Proxy Error: {e}")
         return jsonify({'error': 'An error occurred while communicating with Spotify.'}), 500
-
 
 # --- 引擎二：Companion Player API (本地音乐) ---
 
