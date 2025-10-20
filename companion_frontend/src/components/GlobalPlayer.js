@@ -1,4 +1,4 @@
-// src/components/GlobalPlayer.js (最终响应式版)
+// src/components/GlobalPlayer.js (播放条修复版)
 
 import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -12,22 +12,14 @@ import {
 
 import usePlayerStore from '../stores/playerStore';
 
-// --- 样式定义 ---
-
+// --- 样式定义 (保持不变) ---
 const PlayerContainer = styled(motion.div)(({ theme }) => ({
   position: 'fixed',
   bottom: 16,
-  
-  // VVVV [核心修改] VVVV
-  // 1. 我们不再固定左右位置，而是让它在横向上也具有弹性
-  left: '5vw',  // 左边距为屏幕宽度的 5%
-  right: '5vw', // 右边距也为屏幕宽度的 5%
-  width: 'auto',// 宽度由左右边距自动撑开，即 90vw
-  
-  // 2. 设置一个最大宽度，防止在PC或平板上变得过宽
+  left: '5vw',
+  right: '5vw',
+  width: 'auto',
   maxWidth: '350px', 
-  // ^^^^ [核心修改结束] ^^^^
-
   zIndex: 1500,
   background: theme.palette.mode === 'dreamy' 
     ? 'rgba(38, 43, 64, 0.7)' 
@@ -96,7 +88,7 @@ function GlobalPlayer() {
             exit={{ y: 100, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 200, damping: 25 }}
           >
-            {/* 上方：收起按钮 和 歌曲信息 */}
+            {/* 上方部分 (保持不变) */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
               <IconButton size="small" onClick={togglePlayerVisibility} sx={{ alignSelf: 'flex-start' }}>
                 <FaChevronDown />
@@ -109,18 +101,29 @@ function GlobalPlayer() {
 
             {/* 中间：进度条 */}
             <Box sx={{ width: '100%', px: 1 }}>
-              <Slider size="small" value={currentTime} max={trackInfo.duration || 100} onChange={handleSeek} />
+              {/* VVVV [核心修复] VVVV */}
+              <Slider
+                size="small"
+                value={currentTime}
+                // 关键：直接将 max 绑定到 duration。移除 || 100 这个后备值。
+                // 如果 duration 为 0，max 就是 0，这是正确的初始状态。
+                // 当 duration 从服务器加载完毕后，这里会自动更新，确保进度条100%准确。
+                max={trackInfo.duration}
+                onChange={handleSeek}
+                // 锦上添花：在不知道歌曲多长时（即 duration 为 0），禁用滑块，
+                // 防止用户操作一个无效的进度条，让体验更专业。
+                disabled={trackInfo.duration === 0}
+              />
+              {/* ^^^^ [修复结束] ^^^^ */}
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: -0.5 }}>
                 <Typography variant="caption" color="text.secondary">{formatTime(currentTime)}</Typography>
                 <Typography variant="caption" color="text.secondary">{formatTime(trackInfo.duration)}</Typography>
               </Box>
             </Box>
             
-            {/* 下方：控制按钮 */}
+            {/* 下方部分 (保持不变) */}
             <Box sx={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', width: '100%' }}>
-              <IconButton size="small" onClick={togglePlaybackMode}>
-                <PlaybackModeIcon />
-              </IconButton>
+              <IconButton size="small" onClick={togglePlaybackMode}><PlaybackModeIcon /></IconButton>
               <IconButton size="small" disabled><FaStepBackward /></IconButton>
               <IconButton onClick={togglePlay} color="primary" sx={{ transform: 'scale(1.5)' }}>
                 {isPlaying ? <FaPause /> : <FaPlay />}
