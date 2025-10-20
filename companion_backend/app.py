@@ -449,13 +449,16 @@ def get_profile():
     user = User.query.get(current_user_id)
     if not user:
         return jsonify({'error': '用户不存在'}), 404
-    
+
+    is_spotify_linked = user.encrypted_spotify_token_info is not None
     return jsonify({
         'id': user.id,
         'username': user.username,
+        'qq_id': user.qq_id, 
         'theme': user.theme,
         'custom_color': user.custom_color,
-        'last_active': user.last_active.isoformat()
+        'last_active': user.last_active.isoformat(),
+        'is_spotify_linked': is_spotify_linked
     })
 
 @app.route('/api/user/profile', methods=['PUT'])
