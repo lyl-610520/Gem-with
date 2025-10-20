@@ -1,4 +1,4 @@
-// src/components/GlobalPlayer.js (全新垂直可收起版)
+// src/components/GlobalPlayer.js (最终响应式版)
 
 import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -7,40 +7,42 @@ import { styled } from '@mui/system';
 
 import { 
   FaPlay, FaPause, FaStepBackward, FaStepForward, 
-  FaRedo, FaRandom, FaListOl, FaMusic, FaChevronDown, FaChevronUp
+  FaRedo, FaRandom, FaListOl, FaMusic, FaChevronDown
 } from 'react-icons/fa';
 
 import usePlayerStore from '../stores/playerStore';
 
 // --- 样式定义 ---
 
-// 容器现在是垂直布局，停靠在左下角
 const PlayerContainer = styled(motion.div)(({ theme }) => ({
   position: 'fixed',
   bottom: 16,
-  left: 16, // [修改] 定位到左边
-  width: 320, // [修改] 固定宽度，适合垂直布局
-  zIndex: 1500,
   
-  // 霜冻玻璃效果 (保持不变)
+  // VVVV [核心修改] VVVV
+  // 1. 我们不再固定左右位置，而是让它在横向上也具有弹性
+  left: '5vw',  // 左边距为屏幕宽度的 5%
+  right: '5vw', // 右边距也为屏幕宽度的 5%
+  width: 'auto',// 宽度由左右边距自动撑开，即 90vw
+  
+  // 2. 设置一个最大宽度，防止在PC或平板上变得过宽
+  maxWidth: '350px', 
+  // ^^^^ [核心修改结束] ^^^^
+
+  zIndex: 1500,
   background: theme.palette.mode === 'dreamy' 
     ? 'rgba(38, 43, 64, 0.7)' 
     : 'rgba(255, 255, 255, 0.7)',
   backdropFilter: 'blur(20px) saturate(180%)',
   WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-  
   borderRadius: theme.shape.borderRadius,
   border: `1px solid ${theme.palette.mode === 'dreamy' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.3)'}`,
   boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.2)',
-  
-  // [修改] 内部布局改为垂直
   padding: theme.spacing(2),
   display: 'flex',
-  flexDirection: 'column', // 关键：垂直排列
+  flexDirection: 'column',
   gap: theme.spacing(1),
 }));
 
-// [新增] 这是收起后，只显示一个图标按钮的样式
 const CollapsedButton = styled(motion.div)(({ theme }) => ({
   position: 'fixed',
   bottom: 16,
@@ -58,7 +60,6 @@ const CollapsedButton = styled(motion.div)(({ theme }) => ({
   cursor: 'pointer',
 }));
 
-// 辅助函数 (保持不变)
 const formatTime = (seconds) => {
   const flooredSeconds = Math.floor(seconds || 0);
   const min = Math.floor(flooredSeconds / 60);
@@ -71,7 +72,7 @@ function GlobalPlayer() {
   const { 
     isActive, isPlaying, trackInfo, currentTime,
     togglePlay, seek, playbackMode, togglePlaybackMode,
-    isPlayerVisible, togglePlayerVisibility // [新增] 获取可见性状态和切换函数
+    isPlayerVisible, togglePlayerVisibility
   } = usePlayerStore();
 
   const handleSeek = (event, newValue) => seek(newValue);
@@ -86,10 +87,8 @@ function GlobalPlayer() {
 
   return (
     <AnimatePresence>
-      {/* 只有在有歌曲加载时，才显示播放器相关UI */}
       {isActive && (
         isPlayerVisible ? (
-          // --- 展开状态的播放器 ---
           <PlayerContainer
             key="player-expanded"
             initial={{ y: 100, opacity: 0 }}
@@ -127,12 +126,10 @@ function GlobalPlayer() {
                 {isPlaying ? <FaPause /> : <FaPlay />}
               </IconButton>
               <IconButton size="small" disabled><FaStepForward /></IconButton>
-              {/* 占位，保持对称 */}
-              <Box sx={{ width: 40 }} /> 
+              <Box sx={{ width: 40 }} />
             </Box>
           </PlayerContainer>
         ) : (
-          // --- 收起状态的按钮 ---
           <CollapsedButton
             key="player-collapsed"
             onClick={togglePlayerVisibility}
