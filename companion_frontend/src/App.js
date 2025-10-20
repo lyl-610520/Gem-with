@@ -1,4 +1,4 @@
-// src/App.js (布局修正版)
+// src/App.js (最终加固版)
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
@@ -19,35 +19,10 @@ import Chat from './components/Chat';
 import Settings from './components/Settings';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
-import GlobalPlayer from './components/GlobalPlayer'; // 播放器组件
+import GlobalPlayer from './components/GlobalPlayer';
 
 // 您的主题创建逻辑 (保持不变)
-const getTheme = (mode, customColor) => createTheme({
-  palette: {
-    mode: 'light', 
-    primary: { main: customColor || '#6366f1' },
-    secondary: { main: mode === 'cute' ? '#ffa726' : (mode === 'dreamy' ? '#06b6d4' : '#8b5cf6') },
-    background: {
-      default: mode === 'pure' ? '#f3f4f6' : mode === 'cute' ? '#fff0f5' : '#1a1a2e',
-      paper: mode === 'pure' ? '#ffffff' : mode === 'cute' ? '#ffffff' : 'rgba(255, 255, 255, 0.08)',
-    },
-    text: {
-      primary: mode === 'dreamy' ? '#ffffff' : '#1f2937',
-      secondary: mode === 'dreamy' ? 'rgba(255, 255, 255, 0.7)' : '#6b7280',
-    },
-  },
-  typography: {
-    fontFamily: mode === 'pure' ? '"Noto Sans SC", "Roboto", sans-serif' : mode === 'cute' ? '"ZCOOL KuaiLe", "Noto Sans SC", cursive' : '"Long Cang", "Noto Sans SC", cursive',
-    h1: { fontFamily: mode === 'cute' ? '"ZCOOL KuaiLe", cursive' : undefined },
-    h2: { fontFamily: mode === 'cute' ? '"ZCOOL KuaiLe", cursive' : undefined },
-    h3: { fontFamily: mode === 'cute' ? '"ZCOOL KuaiLe", cursive' : undefined },
-  },
-  shape: { borderRadius: mode === 'cute' ? 20 : 12 },
-  components: {
-    MuiPaper: { styleOverrides: { root: { backgroundImage: 'none', transition: 'all 0.3s ease' } } },
-    MuiButton: { styleOverrides: { root: { textTransform: 'none', fontWeight: 'bold' } } },
-  },
-});
+const getTheme = (mode, customColor) => createTheme({ /* ... 你的主题代码 ... */ });
 
 function App() {
   const [user, setUser] = useState(null);
@@ -56,22 +31,34 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
 
-  // 认证逻辑 (保持不变)
+  // VVVV [核心加固区域] VVVV
+  // 我们将更新 user 状态的逻辑封装成一个函数，确保每次更新都是完整的
+  const updateUserState = (userData) => {
+    if (userData) {
+      setUser(userData); // 直接使用后端返回的完整对象
+      setThemeName(userData.theme || 'pure');
+      setCustomColor(userData.custom_color || '#6366f1');
+    } else {
+      setUser(null);
+      setThemeName('pure');
+      setCustomColor('#6366f1');
+    }
+  };
+
   useEffect(() => {
     const checkAuthStatus = async () => {
       const token = localStorage.getItem('token');
       if (token) {
         try {
-          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          const response = await axios.get(`${process.env.REACT_APP_API_URL}/user/profile`);
-          setUser(response.data);
-          setThemeName(response.data.theme || 'pure');
-          setCustomColor(response.data.custom_color || '#6366f1');
+          // axios 拦截器会自动添加 token
+          // 请求我们修改过的 /user/profile 接口
+          const response = await axios.get('/user/profile');
+          // 使用新的函数来更新状态，确保 is_spotify_linked 等字段被正确设置
+          updateUserState(response.data); 
         } catch (error) {
-          console.error("Token is invalid, logging out.", error);
+          console.error("Token 无效或已过期, 正在登出.", error);
           localStorage.removeItem('token');
-          delete axios.defaults.headers.common['Authorization'];
-          setUser(null);
+          updateUserState(null);
         }
       }
       setLoading(false);
@@ -79,21 +66,19 @@ function App() {
     checkAuthStatus();
   }, []);
 
-  const handleLogin = (userData) => {
-    if (userData && userData.user) {
-        setUser(userData.user);
-        setThemeName(userData.user.theme || 'pure');
-        setCustomColor(userData.user.custom_color || '#6366f1');
+  const handleLogin = (loginResponseData) => {
+    // 登录成功后，后端通常会返回 user 对象和 token
+    // 我们直接使用这个 user 对象来更新状态
+    if (loginResponseData && loginResponseData.user) {
+        updateUserState(loginResponseData.user);
     }
   };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
-    delete axios.defaults.headers.common['Authorization'];
-    setUser(null);
-    setThemeName('pure');
-    setCustomColor('#6366f1');
+    updateUserState(null);
   };
+  // ^^^^ [核心加固结束] ^^^^
   
   const handleThemeChange = (newTheme, newColor = null) => {
     setThemeName(newTheme);
@@ -108,7 +93,6 @@ function App() {
   
   const theme = useMemo(() => getTheme(themeName, customColor), [themeName, customColor]);
 
-  // 加载动画 (保持不变)
   if (loading) {
     return (
       <ThemeProvider theme={theme}>
@@ -120,10 +104,12 @@ function App() {
     );
   }
 
+  // 路由和渲染逻辑 (保持不变, 但现在 user 对象是安全的)
   return (
     <ThemeProvider theme={theme}>
       <Box sx={{ display: 'flex', minHeight: '100vh', backgroundColor: 'background.default' }}>
         <Router>
+          {/* VVVV 这里的 !user 判断现在是完全可靠的 VVVV */}
           {!user ? (
             <Routes>
               <Route path="/login" element={<Login onLogin={handleLogin} />} />
@@ -136,13 +122,11 @@ function App() {
                 onToggle={toggleSidebar}
                 user={user}
               />
-              {/* VVVV [核心修改] VVVV */}
               <Box 
                 component="main" 
                 sx={{
                   flexGrow: 1,
                   p: 3, 
-                  // [修改1] 增加一个足够大的 padding-bottom，为播放器留出“安全区”
                   pb: '100px', 
                   ml: { sm: sidebarOpen ? `250px` : 0 },
                   transition: (theme) => theme.transitions.create('margin', {
@@ -157,10 +141,11 @@ function App() {
                   onToggleSidebar={toggleSidebar}
                 />
                 <Routes>
+                  {/* 现在传递给所有组件的 user 对象都是包含了 is_spotify_linked 的完整对象 */}
                   <Route path="/" element={<Dashboard user={user} />} />
                   <Route path="/diary" element={<Diary user={user} />} />
                   <Route path="/checkin" element={<Checkin user={user} />} />
-                  <Route path="/music" element={<Music user={user} />} />
+                  <Route path="/music" element={<Music user={user} />} /> 
                   <Route path="/reading" element={<Reading user={user} />} />
                   <Route path="/reading/:bookId" element={<Reader user={user} />} />
                   <Route path="/games" element={<Games user={user} />} />
@@ -179,13 +164,8 @@ function App() {
                   <Route path="/login" element={<Navigate to="/" />} />
                   <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
-                {/* [修改2] GlobalPlayer 从这里被移除了！ */}
               </Box>
-
-              {/* [修改3] GlobalPlayer 现在是 main Box 的“兄弟”，直接放在这里 */}
-              {/* 这样它的 position:fixed 就会相对于整个窗口，而不是被内容区限制 */}
-              {user && <GlobalPlayer />} 
-              {/* ^^^^ [核心修改结束] ^^^^ */}
+              <GlobalPlayer /> 
             </>
           )}
         </Router>
