@@ -65,11 +65,11 @@ const MusicModeToggle = ({ mode, onModeChange }) => {
         {/* --- VVVV 核心修复 VVVV --- */}
         <ToggleOption isActive={mode === 'spotify'} onClick={() => onModeChange('spotify')}>
           <FaSpotify />
-          Spotify Link
+          Spotify
         </ToggleOption>
         <ToggleOption isActive={mode === 'local'} onClick={() => onModeChange('local')}>
           <FaMusic />
-          Companion Player
+          本地上传
         </ToggleOption>
         {/* --- ^^^^ 修复结束 ^^^^ --- */}
       </ToggleContainer>
