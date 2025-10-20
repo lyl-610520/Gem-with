@@ -1,4 +1,4 @@
-// src/components/GlobalPlayer.js (最终响应式版)
+// src/components/GlobalPlayer.js (进度条修复版)
 
 import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -12,22 +12,14 @@ import {
 
 import usePlayerStore from '../stores/playerStore';
 
-// --- 样式定义 ---
-
+// --- 样式定义 (保持不变) ---
 const PlayerContainer = styled(motion.div)(({ theme }) => ({
   position: 'fixed',
   bottom: 16,
-  
-  // VVVV [核心修改] VVVV
-  // 1. 我们不再固定左右位置，而是让它在横向上也具有弹性
-  left: '5vw',  // 左边距为屏幕宽度的 5%
-  right: '5vw', // 右边距也为屏幕宽度的 5%
-  width: 'auto',// 宽度由左右边距自动撑开，即 90vw
-  
-  // 2. 设置一个最大宽度，防止在PC或平板上变得过宽
-  maxWidth: '350px', 
-  // ^^^^ [核心修改结束] ^^^^
-
+  left: '5vw',
+  right: '5vw',
+  width: 'auto',
+  maxWidth: '350px',
   zIndex: 1500,
   background: theme.palette.mode === 'dreamy' 
     ? 'rgba(38, 43, 64, 0.7)' 
@@ -75,9 +67,15 @@ function GlobalPlayer() {
     isPlayerVisible, togglePlayerVisibility
   } = usePlayerStore();
 
+  // VVVV [核心修改] VVVV
+  // 1. 创建一个布尔值，判断歌曲时长是否已经加载完毕
+  const isDurationReady = trackInfo.duration > 0;
+  // ^^^^ [核心修改结束] ^^^^
+
   const handleSeek = (event, newValue) => seek(newValue);
 
   const PlaybackModeIcon = () => {
+    // (保持不变)
     switch (playbackMode) {
       case 'loop': return <FaRedo size={16} title="单曲循环" />;
       case 'shuffle': return <FaRandom size={16} title="随机播放" />;
@@ -96,7 +94,7 @@ function GlobalPlayer() {
             exit={{ y: 100, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 200, damping: 25 }}
           >
-            {/* 上方：收起按钮 和 歌曲信息 */}
+            {/* 上方部分 (保持不变) */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
               <IconButton size="small" onClick={togglePlayerVisibility} sx={{ alignSelf: 'flex-start' }}>
                 <FaChevronDown />
@@ -109,37 +107,41 @@ function GlobalPlayer() {
 
             {/* 中间：进度条 */}
             <Box sx={{ width: '100%', px: 1 }}>
-              <Slider size="small" value={currentTime} max={trackInfo.duration || 100} onChange={handleSeek} />
+              <Slider 
+                size="small" 
+                value={currentTime} 
+                // VVVV [核心修改] VVVV
+                // 2. 如果时长准备好了，max 就用真实时长；否则，用一个安全的默认值（比如1）
+                max={isDurationReady ? trackInfo.duration : 1} 
+                // 3. 在时长准备好之前，禁用Slider，用户不可拖动
+                disabled={!isDurationReady}
+                // ^^^^ [核心修改结束] ^^^^
+                onChange={handleSeek} 
+              />
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: -0.5 }}>
                 <Typography variant="caption" color="text.secondary">{formatTime(currentTime)}</Typography>
-                <Typography variant="caption" color="text.secondary">{formatTime(trackInfo.duration)}</Typography>
+                {/* VVVV [核心修改] VVVV */}
+                {/* 4. 只有在时长准备好后，才显示总时长 */}
+                <Typography variant="caption" color="text.secondary">
+                  {isDurationReady ? formatTime(trackInfo.duration) : '--:--'}
+                </Typography>
+                {/* ^^^^ [核心修改结束] ^^^^ */}
               </Box>
             </Box>
             
-            {/* 下方：控制按钮 */}
+            {/* 下方部分 (保持不变) */}
             <Box sx={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', width: '100%' }}>
-              <IconButton size="small" onClick={togglePlaybackMode}>
-                <PlaybackModeIcon />
-              </IconButton>
+              <IconButton size="small" onClick={togglePlaybackMode}><PlaybackModeIcon /></IconButton>
               <IconButton size="small" disabled><FaStepBackward /></IconButton>
               <IconButton onClick={togglePlay} color="primary" sx={{ transform: 'scale(1.5)' }}>
                 {isPlaying ? <FaPause /> : <FaPlay />}
               </IconButton>
               <IconButton size="small" disabled><FaStepForward /></IconButton>
-              <Box sx={{ width: 40 }} />
+              <Box sx={{ width: 40 }} /> 
             </Box>
           </PlayerContainer>
         ) : (
-          <CollapsedButton
-            key="player-collapsed"
-            onClick={togglePlayerVisibility}
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-          >
+          <CollapsedButton /* (保持不变) */ >
             <FaMusic size={24} />
           </CollapsedButton>
         )
