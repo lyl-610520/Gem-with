@@ -66,7 +66,12 @@ function Music({ user }) {
               transition={pageTransition}
             >
               {mode === 'spotify' ? (
-                <SpotifyPlayer user={user} />
+                // VVVV [核心修改] VVVV
+                <SpotifyPlayer 
+                  user={user} 
+                  isSpotifyLinked={user.is_spotify_linked} // 把状态传下去！
+                />
+                // ^^^^ [核心修改结束] ^^^^
               ) : (
                 <LocalPlayer user={user} />
               )}
