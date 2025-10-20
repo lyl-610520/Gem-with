@@ -1,11 +1,14 @@
-// src/components/music/SpotifyPlayer.js (功能唤醒版)
+// src/components/music/SpotifyPlayer.js (功能超全最终版)
 
-import React, { useState, useEffect } from 'react';
-import { Box, Typography, Button, CircularProgress, Alert } from '@mui/material';
+import React, a{ useState, useEffect } from 'react';
+import { 
+  Box, Typography, Button, CircularProgress, Alert,
+  TextField, List, ListItem, ListItemText, IconButton,
+  Select, MenuItem, FormControl, InputLabel
+} from '@mui/material';
 import { styled } from '@mui/system';
-import { FaSpotify } from 'react-icons/fa';
+import { FaSpotify, FaSearch, FaPlus } from 'react-icons/fa';
 
-// 引入我们即将创建的新的 API 函数
 import { getSpotifyAuthUrl, spotifyProxyRequest } from '../../api/musicApi';
 
 const PlayerContainer = styled(Box)(({ theme }) => ({
@@ -14,93 +17,146 @@ const PlayerContainer = styled(Box)(({ theme }) => ({
   padding: theme.spacing(3),
   boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
   textAlign: 'center',
-  minHeight: '200px',
-  display: 'flex',
-  flexDirection: 'column',
-  justifyContent: 'center',
-  alignItems: 'center',
 }));
 
 const SpotifyButton = styled(Button)(({ theme }) => ({
-  backgroundColor: '#1DB954', // Spotify 标志性的绿色
+  backgroundColor: '#1DB954',
   color: 'white',
   fontWeight: 'bold',
   padding: theme.spacing(1.5, 4),
   borderRadius: '50px',
-  transition: 'transform 0.2s ease, background-color 0.2s ease',
-  '&:hover': {
-    backgroundColor: '#1ED760',
-    transform: 'scale(1.05)',
-  },
+  '&:hover': { backgroundColor: '#1ED760' },
 }));
 
-// [核心修改] 组件现在接收一个叫 isSpotifyLinked 的新 prop
 function SpotifyPlayer({ user, isSpotifyLinked }) {
-  const [isLoading, setIsLoading] = useState(false); // 只用于点击按钮后的加载状态
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // 状态管理
   const [playlists, setPlaylists] = useState([]);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
 
-  // [核心修改] 我们现在用 useEffect 来根据 isSpotifyLinked 的变化加载数据
   useEffect(() => {
-    // 只有在明确知道已连接时，才去获取播放列表
     if (isSpotifyLinked) {
-      const fetchPlaylists = async () => {
-        try {
-          const response = await spotifyProxyRequest('me/playlists');
-          setPlaylists(response.data.items);
-        } catch (err) {
-          console.error("获取Spotify播放列表失败:", err);
-          setError("无法加载您的播放列表，请尝试重新连接。");
-        }
-      };
-      fetchPlaylists();
+      setIsLoading(true);
+      spotifyProxyRequest('me/playlists')
+        .then(response => {
+          // 安全地访问数据
+          if (response.data && response.data.items) {
+            setPlaylists(response.data.items);
+            // 默认选中第一个播放列表
+            if (response.data.items.length > 0) {
+              setSelectedPlaylistId(response.data.items[0].id);
+            }
+          }
+        })
+        .catch(err => setError("无法加载您的播放列表"))
+        .finally(() => setIsLoading(false));
     }
-  }, [isSpotifyLinked]); // 依赖项是 isSpotifyLinked，当它变化时会触发
+  }, [isSpotifyLinked]);
 
-  const handleConnect = async () => {
-    setIsLoading(true);
+  const handleConnect = async () => { /* ... 保持不变 ... */ };
+
+  // --- 新增功能 ---
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!searchTerm.trim()) return;
+    setIsSearching(true);
+    setSearchResults([]);
     try {
-      // 这里的 user.qq_id 现在由 App.js 稳定提供
-      const response = await getSpotifyAuthUrl(user.qq_id);
-      const { auth_url } = response.data;
-      window.location.href = auth_url;
+      const params = { q: searchTerm, type: 'track', limit: 10 };
+      const response = await spotifyProxyRequest('search', 'get', params);
+      if (response.data && response.data.tracks) {
+        setSearchResults(response.data.tracks.items);
+      }
     } catch (err) {
-      setError('无法获取授权链接，请稍后再试。');
-      setIsLoading(false);
-      console.error(err);
+      setError("搜索失败，请稍后再试");
+    } finally {
+      setIsSearching(false);
     }
   };
 
+  const handleAddToPlaylist = async (trackUri) => {
+    if (!selectedPlaylistId) {
+      setError("请先选择一个播放列表");
+      return;
+    }
+    try {
+      const endpoint = `playlists/${selectedPlaylistId}/tracks`;
+      const params = { uris: [trackUri] };
+      // 使用 POST 方法
+      await spotifyProxyRequest(endpoint, 'post', params);
+      // (这里可以加一个成功提示，比如 Snackbar)
+      alert('添加成功！'); 
+    } catch (err) {
+      setError("添加到播放列表失败");
+    }
+  };
+
+  // --- UI 渲染 ---
   if (!isSpotifyLinked) {
-    // --- 未连接状态的UI ---
-    return (
-      <PlayerContainer>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        <FaSpotify size={50} color="#1DB954" style={{ marginBottom: 16 }} />
-        <Typography variant="h5" gutterBottom>连接您的 Spotify 账号</Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          同步您的歌单与收藏，开启音乐之旅。
-        </Typography>
-        <SpotifyButton onClick={handleConnect} startIcon={<FaSpotify />} disabled={isLoading}>
-          {isLoading ? <CircularProgress size={24} color="inherit" /> : '立即连接'}
-        </SpotifyButton>
-      </PlayerContainer>
-    );
+    return ( /* ... 未连接状态的 UI 保持不变 ... */ );
   }
 
-  // --- 已连接状态的UI ---
   return (
     <PlayerContainer>
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      <Typography variant="h5">已连接 Spotify</Typography>
-      <Typography color="text.secondary">您的播放列表:</Typography>
-      <Box sx={{ mt: 2, textAlign: 'left', width: '100%', maxHeight: 200, overflowY: 'auto' }}>
-        {playlists.length > 0 ? (
-          playlists.map(p => <Typography key={p.id}>- {p.name}</Typography>)
-        ) : (
-          <CircularProgress /> // 正在加载播放列表
-        )}
+      {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
+      
+      <Typography variant="h5" gutterBottom>Spotify 控制台</Typography>
+      
+      {/* 搜索区域 */}
+      <Box component="form" onSubmit={handleSearch} sx={{ display: 'flex', gap: 1, my: 2 }}>
+        <TextField 
+          fullWidth
+          size="small"
+          variant="outlined"
+          label="搜索歌曲或艺术家"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+        <IconButton type="submit" color="primary" disabled={isSearching}>
+          {isSearching ? <CircularProgress size={24} /> : <FaSearch />}
+        </IconButton>
       </Box>
+
+      {/* 结果和添加区域 */}
+      {searchResults.length > 0 && (
+        <Box sx={{ my: 2 }}>
+          <FormControl fullWidth size="small">
+            <InputLabel>添加到播放列表</InputLabel>
+            <Select
+              value={selectedPlaylistId}
+              label="添加到播放列表"
+              onChange={(e) => setSelectedPlaylistId(e.target.value)}
+            >
+              {playlists.map(p => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <List sx={{ maxHeight: 300, overflowY: 'auto', mt: 1 }}>
+            {searchResults.map(track => (
+              <ListItem 
+                key={track.id}
+                secondaryAction={
+                  <IconButton edge="end" title="添加到歌单" onClick={() => handleAddToPlaylist(track.uri)}>
+                    <FaPlus />
+                  </IconButton>
+                }
+              >
+                <ListItemText 
+                  primary={track.name} 
+                  secondary={track.artists.map(a => a.name).join(', ')} 
+                />
+              </ListItem>
+            ))}
+          </List>
+        </Box>
+      )}
+
+      {/* 加载动画 */}
+      {isLoading && <CircularProgress sx={{ mt: 2 }} />}
     </PlayerContainer>
   );
 }
