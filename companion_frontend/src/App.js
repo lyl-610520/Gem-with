@@ -22,7 +22,32 @@ import Header from './components/Header';
 import GlobalPlayer from './components/GlobalPlayer';
 
 // 您的主题创建逻辑 (保持不变)
-const getTheme = (mode, customColor) => createTheme({ /* ... 你的主题代码 ... */ });
+const getTheme = (mode, customColor) => createTheme({
+  palette: {
+    mode: 'light', 
+    primary: { main: customColor || '#6366f1' },
+    secondary: { main: mode === 'cute' ? '#ffa726' : (mode === 'dreamy' ? '#06b6d4' : '#8b5cf6') },
+    background: {
+      default: mode === 'pure' ? '#f3f4f6' : mode === 'cute' ? '#fff0f5' : '#1a1a2e',
+      paper: mode === 'pure' ? '#ffffff' : mode === 'cute' ? '#ffffff' : 'rgba(255, 255, 255, 0.08)',
+    },
+    text: {
+      primary: mode === 'dreamy' ? '#ffffff' : '#1f2937',
+      secondary: mode === 'dreamy' ? 'rgba(255, 255, 255, 0.7)' : '#6b7280',
+    },
+  },
+  typography: {
+    fontFamily: mode === 'pure' ? '"Noto Sans SC", "Roboto", sans-serif' : mode === 'cute' ? '"ZCOOL KuaiLe", "Noto Sans SC", cursive' : '"Long Cang", "Noto Sans SC", cursive',
+    h1: { fontFamily: mode === 'cute' ? '"ZCOOL KuaiLe", cursive' : undefined },
+    h2: { fontFamily: mode === 'cute' ? '"ZCOOL KuaiLe", cursive' : undefined },
+    h3: { fontFamily: mode === 'cute' ? '"ZCOOL KuaiLe", cursive' : undefined },
+  },
+  shape: { borderRadius: mode === 'cute' ? 20 : 12 },
+  components: {
+    MuiPaper: { styleOverrides: { root: { backgroundImage: 'none', transition: 'all 0.3s ease' } } },
+    MuiButton: { styleOverrides: { root: { textTransform: 'none', fontWeight: 'bold' } } },
+  },
+});
 
 function App() {
   const [user, setUser] = useState(null);
