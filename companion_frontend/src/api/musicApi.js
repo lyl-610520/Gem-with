@@ -40,6 +40,13 @@ export const getSpotifyAuthUrl = (qqId) => {
   return apiClient.get(`/spotify/auth-url?qq_id=${qqId}`);
 };
 
+// VVVV [新增的函数] VVVV
+export const getSpotifyAccessToken = () => {
+  return apiClient.get('/spotify/token');
+};
+// ^^^^ [新增结束] ^^^^
+
+
 
 // --- 引擎二：Companion Player API (本地音乐) ---
 
