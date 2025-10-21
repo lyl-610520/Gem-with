@@ -1050,7 +1050,7 @@ def get_spotify_token():
 
     # 从 spotipy 客户端的认证管理器中提取出 access token
     # sp.auth 是 access_token 字符串本身
-    access_token = sp.auth
+    access_token = sp._auth
     if not access_token:
         return jsonify({'error': 'Could not retrieve access token.'}), 500
 
