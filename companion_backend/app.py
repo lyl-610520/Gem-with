@@ -1032,6 +1032,30 @@ def delete_book(book_id):
 
 # --- 引擎一：Spotify Link API ---
 
+# 在 app.py 中，可以放在 spotify_proxy 函数的上面或下面
+
+@app.route('/api/spotify/token', methods=['GET'])
+@jwt_required()
+def get_spotify_token():
+    """
+    安全地获取当前用户的 Spotify Access Token，用于前端SDK初始化。
+    """
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    
+    # get_spotify_client_for_user 这个函数会自动处理 token 刷新
+    sp = get_spotify_client_for_user(user.qq_id)
+    if not sp:
+        return jsonify({'error': 'User not authorized or token expired.'}), 403
+
+    # 从 spotipy 客户端的认证管理器中提取出 access token
+    # sp.auth 是 access_token 字符串本身
+    access_token = sp.auth
+    if not access_token:
+        return jsonify({'error': 'Could not retrieve access token.'}), 500
+
+    return jsonify({'access_token': access_token})
+
 @app.route('/api/spotify/proxy', methods=['POST'])
 @jwt_required()
 def spotify_proxy():
