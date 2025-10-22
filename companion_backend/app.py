@@ -405,9 +405,13 @@ def login():
     else:
         return jsonify({'error': '用户名或密码错误'}), 401
 
+# 在你的 Flask app.py 文件中，找到 @app.route('/api/auth/register', ...)
+
 @app.route('/api/auth/register', methods=['POST'])
 def register():
-    """用户注册"""
+    """
+    [最终升级版] 智能注册/激活接口
+    """
     data = request.get_json()
     qq_id = data.get('qq_id')
     username = data.get('username')
@@ -416,34 +420,69 @@ def register():
     if not all([qq_id, username, password]):
         return jsonify({'error': '缺少必要参数'}), 400
 
-    if User.query.filter_by(qq_id=qq_id).first():
-        return jsonify({'error': '该QQ号已注册'}), 400
+    # --- 智能逻辑分岔路口 ---
     
-    if User.query.filter_by(username=username).first():
-        return jsonify({'error': '用户名已存在'}), 400
-    
-    user = User(
-        qq_id=qq_id,
-        username=username,
-        password_hash=generate_password_hash(password)
-    )
-    db.session.add(user)
-    db.session.commit()
-    
-    # [最终修复] 把 user.id 转换成字符串
-    access_token = create_access_token(identity=str(user.id))
-    
-    return jsonify({
-        'success': True,
-        'token': access_token,
-        'user': {
-            'id': user.id,
-            'username': user.username,
-            'theme': user.theme,
-            'custom_color': user.custom_color
-        }
-    })
+    # 1. 先根据QQ号查找用户
+    user = User.query.filter_by(qq_id=qq_id).first()
 
+    if user:
+        # 2. 如果找到了用户，检查他是不是没有密码的“幽灵账户”
+        if user.password_hash is None:
+            # 是“幽灵”，我们来“激活”他！
+            
+            # 检查一下新用户名是否已被其他人占用
+            if User.query.filter(User.username == username, User.qq_id != qq_id).first():
+                return jsonify({'error': '此用户名已被其他用户占用'}), 409
+
+            user.username = username
+            user.password_hash = generate_password_hash(password) # 使用你原来的哈希方法
+            db.session.commit()
+            
+            # 账户激活成功！直接发 token 让他登录
+            access_token = create_access_token(identity=str(user.id))
+            return jsonify({
+                'success': True,
+                'token': access_token,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'qq_id': user.qq_id,
+                    'theme': user.theme,
+                    'custom_color': user.custom_color,
+                    'is_spotify_linked': user.encrypted_spotify_token_info is not None
+                }
+            }), 200 # 返回 200 OK 代表更新成功
+        else:
+            # 不是“幽灵”，是真的已经注册过了
+            return jsonify({'error': '该QQ号已注册'}), 409 # 使用 409 Conflict 更标准
+
+    # 3. 如果根据QQ号没找到用户，说明是全新用户，走正常注册流程
+    else:
+        if User.query.filter_by(username=username).first():
+            return jsonify({'error': '用户名已存在'}), 409 # 使用 409 Conflict
+
+        new_user = User(
+            qq_id=qq_id,
+            username=username,
+            password_hash=generate_password_hash(password)
+        )
+        db.session.add(new_user)
+        db.session.commit()
+        
+        access_token = create_access_token(identity=str(new_user.id))
+        
+        # 返回和你原来完全一致的成功格式
+        return jsonify({
+            'success': True,
+            'token': access_token,
+            'user': {
+                'id': new_user.id,
+                'username': new_user.username,
+                'theme': new_user.theme,
+                'custom_color': new_user.custom_color,
+                'is_spotify_linked': False # 新用户肯定没连接
+            }
+        }), 201 # 返回 201 Created 代表创建成功
 @app.route('/api/auth/logout', methods=['POST'])
 def logout():
     """用户登出"""
