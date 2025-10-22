@@ -185,9 +185,10 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     qq_id = db.Column(db.String(20), unique=True, nullable=False)  # QQ号
     username = db.Column(db.String(50), unique=True, nullable=False)  # 用户名
-    password_hash = db.Column(db.String(256))  # 密码哈希
+    password_hash = db.Column(db.String(256), nullable=True)  # 密码哈希
     theme = db.Column(db.String(20), default='pure')  # 主题：pure, cute, dreamy
     custom_color = db.Column(db.String(7), default='#6366f1')  # 自定义颜色
+    is_activated = db.Column(db.Boolean, default=False, nullable=False)
     
     # [新增] 人设字段，使用Text类型可以存储很长的文本
     persona = db.Column(db.Text, default='一个乐于助人的AI助手')
@@ -405,12 +406,12 @@ def login():
     else:
         return jsonify({'error': '用户名或密码错误'}), 401
 
-# 在你的 Flask app.py 文件中，找到 @app.route('/api/auth/register', ...)
+# 在 app.py 中，用这个函数替换掉旧的 register 函数
 
 @app.route('/api/auth/register', methods=['POST'])
 def register():
     """
-    [最终升级版] 智能注册/激活接口
+    [究极智能版] 注册/激活接口，使用 is_activated 标志进行判断
     """
     data = request.get_json()
     qq_id = data.get('qq_id')
@@ -420,69 +421,43 @@ def register():
     if not all([qq_id, username, password]):
         return jsonify({'error': '缺少必要参数'}), 400
 
-    # --- 智能逻辑分岔路口 ---
-    
-    # 1. 先根据QQ号查找用户
     user = User.query.filter_by(qq_id=qq_id).first()
 
     if user:
-        # 2. 如果找到了用户，检查他是不是没有密码的“幽灵账户”
-        if not user.password_hash:
-            # 是“幽灵”，我们来“激活”他！
-            
-            # 检查一下新用户名是否已被其他人占用
+        # 使用官方身份认证来判断
+        if not user.is_activated:
+            # 是待激活账户，我们来激活他！
             if User.query.filter(User.username == username, User.qq_id != qq_id).first():
                 return jsonify({'error': '此用户名已被其他用户占用'}), 409
 
             user.username = username
-            user.password_hash = generate_password_hash(password) # 使用你原来的哈希方法
+            user.password_hash = generate_password_hash(password)
+            user.is_activated = True # [关键] 将账户标记为“已激活”！
             db.session.commit()
             
-            # 账户激活成功！直接发 token 让他登录
             access_token = create_access_token(identity=str(user.id))
-            return jsonify({
-                'success': True,
-                'token': access_token,
-                'user': {
-                    'id': user.id,
-                    'username': user.username,
-                    'qq_id': user.qq_id,
-                    'theme': user.theme,
-                    'custom_color': user.custom_color,
-                    'is_spotify_linked': user.encrypted_spotify_token_info is not None
-                }
-            }), 200 # 返回 200 OK 代表更新成功
+            # ... 返回成功 token 和 user 对象的代码 ...
+            return jsonify({ 'success': True, 'token': access_token, 'user': { 'id': user.id, 'username': user.username, 'qq_id': user.qq_id, 'theme': user.theme, 'custom_color': user.custom_color, 'is_spotify_linked': user.encrypted_spotify_token_info is not None }}), 200
         else:
-            # 不是“幽灵”，是真的已经注册过了
-            return jsonify({'error': '该QQ号已注册'}), 409 # 使用 409 Conflict 更标准
-
-    # 3. 如果根据QQ号没找到用户，说明是全新用户，走正常注册流程
+            # 账户已激活，是真的已经注册过了
+            return jsonify({'error': '该QQ号已注册'}), 409
     else:
+        # 全新用户，直接创建并标记为已激活
         if User.query.filter_by(username=username).first():
-            return jsonify({'error': '用户名已存在'}), 409 # 使用 409 Conflict
+            return jsonify({'error': '用户名已存在'}), 409
 
         new_user = User(
             qq_id=qq_id,
             username=username,
-            password_hash=generate_password_hash(password)
+            password_hash=generate_password_hash(password),
+            is_activated=True # [关键] 用户自己注册的，直接就是激活状态
         )
         db.session.add(new_user)
         db.session.commit()
         
         access_token = create_access_token(identity=str(new_user.id))
-        
-        # 返回和你原来完全一致的成功格式
-        return jsonify({
-            'success': True,
-            'token': access_token,
-            'user': {
-                'id': new_user.id,
-                'username': new_user.username,
-                'theme': new_user.theme,
-                'custom_color': new_user.custom_color,
-                'is_spotify_linked': False # 新用户肯定没连接
-            }
-        }), 201 # 返回 201 Created 代表创建成功
+        # ... 返回成功 token 和 user 对象的代码 ...
+        return jsonify({ 'success': True, 'token': access_token, 'user': { 'id': new_user.id, 'username': new_user.username, 'qq_id': new_user.qq_id, 'theme': new_user.theme, 'custom_color': new_user.custom_color, 'is_spotify_linked': False }}), 201
 @app.route('/api/auth/logout', methods=['POST'])
 def logout():
     """用户登出"""
@@ -1253,19 +1228,17 @@ def delete_local_music(song_id):
 
 # 人设和记忆同步API (这些接口由机器人调用，通常不走JWT，保持原样)
 def find_or_create_user_by_qq(qq_id):
-    user = User.query.filter_by(qq_id=qq_id).first()
+    user = User.query.filter_by(qq_id=str(qq_id)).first()
     if not user:
-        temp_username = f"user_{qq_id}"
-        if User.query.filter_by(username=temp_username).first():
-            temp_username = f"user_{qq_id}_{secrets.token_hex(4)}"
+        print(f"ℹ️ 用户 {qq_id} 不存在，已自动创建“待激活”账户。")
         user = User(
-            qq_id=qq_id,
-            username=temp_username,
-            password_hash=generate_password_hash(secrets.token_hex(16))
+            qq_id=str(qq_id),
+            username=str(qq_id),  # 使用QQ号作为唯一的、临时的用户名
+            password_hash=None,    # [关键] 明确设为None，不再生成随机密码
+            is_activated=False   # [关键] 明确标记为未激活
         )
         db.session.add(user)
         db.session.commit()
-        print(f"ℹ️ 用户 {qq_id} 不存在，已自动创建新用户。")
     return user
 
 @app.route('/api/sync/persona', methods=['POST'])
