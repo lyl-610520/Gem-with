@@ -427,7 +427,7 @@ def register():
 
     if user:
         # 2. 如果找到了用户，检查他是不是没有密码的“幽灵账户”
-        if user.password_hash is None:
+        if not user.password_hash:
             # 是“幽灵”，我们来“激活”他！
             
             # 检查一下新用户名是否已被其他人占用
