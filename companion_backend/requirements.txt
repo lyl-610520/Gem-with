@@ -25,3 +25,5 @@ google-genai
 # Spotify
 spotipy
 cryptography
+
+ytmusicapi
