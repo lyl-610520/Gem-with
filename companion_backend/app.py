@@ -92,7 +92,15 @@ if not ENCRYPTION_KEY:
 cipher_suite = Fernet(ENCRYPTION_KEY.encode())
 
 # [新增] 全局 Spotify OAuth 管理器及权限声明
-SCOPES = "user-read-private user-read-email user-library-read user-library-modify playlist-modify-public playlist-modify-private user-top-read user-modify-playback-state user-read-playback-state"
+SCOPES = (
+    "user-read-private user-read-email "
+    "playlist-read-private playlist-read-collaborative " # <--- 读取歌单的权限
+    "playlist-modify-public playlist-modify-private "
+    "user-library-read user-library-modify "
+    "user-top-read "
+    "user-modify-playback-state user-read-playback-state "
+    "streaming"  # <--- 播放音乐的终极权限！
+)
 sp_oauth = SpotifyOAuth(
     scope=SCOPES,
     client_id=os.getenv("SPOTIPY_CLIENT_ID"),
