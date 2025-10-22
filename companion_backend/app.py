@@ -37,6 +37,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from functools import wraps
 from flask_jwt_extended import decode_token # <--- 在文件顶部，从 flask_jwt_extended 额外导入 decode_token
+from ytmusicapi import YTMusic
 
 # 加载环境变量
 load_dotenv()
@@ -1214,6 +1215,28 @@ def get_local_track_data(song_id):
         as_attachment=False
     )
 # --- ^^^^ 替换结束 ^^^^ ---
+
+@app.route('/api/ytmusic/search')
+@jwt_required() # 我们仍然用JWT来保护这个接口
+def search_ytmusic():
+    """
+    使用 ytmusicapi 库搜索音乐，并返回结构化的结果。
+    """
+    query = request.args.get('q') # 从 URL 参数 ?q=... 获取搜索词
+    if not query:
+        return jsonify({'error': '缺少搜索关键词 "q"'}), 400
+
+    try:
+        # 1. 初始化遥控器
+        ytmusic = YTMusic()
+        # 2. 执行搜索，只找歌曲，最多返回15首
+        search_results = ytmusic.search(query, filter="songs", limit=15)
+        # 3. 将干净、整洁的结果直接返回给前端
+        return jsonify(search_results)
+
+    except Exception as e:
+        print(f"YouTube Music API Error: {e}")
+        return jsonify({'error': '搜索时发生内部错误。'}), 500
 
 @app.route('/api/local_music/delete/<int:song_id>', methods=['DELETE'])
 @jwt_required()
