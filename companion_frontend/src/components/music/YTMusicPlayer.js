@@ -9,7 +9,7 @@ import {
 import { styled } from '@mui/system';
 import { FaSearch, FaPlay } from 'react-icons/fa';
 
-import axios from 'axios'; // 我们用 axios 来调用后端
+import { searchYouTubeMusic } from '../../api/musicApi'; // <--- 导入新的官方API
 import usePlayerStore from '../../stores/playerStore'; 
 
 // --- 样式组件 (保持不变) ---
@@ -43,7 +43,7 @@ function YTMusicPlayer({ user }) {
     setError('');
 
     try {
-      const response = await axios.get(`/ytmusic/search?q=${encodeURIComponent(searchTerm)}`);
+      const response = await searchYouTubeMusic(searchTerm);
       
       // [健壮性优化] 过滤掉没有 videoId 的无效结果
       const validResults = response.data.filter(item => item.videoId);
