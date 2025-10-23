@@ -11,6 +11,7 @@ import MusicModeToggle from './music/MusicModeToggle';
 import SpotifyPlayer from './music/SpotifyPlayer';
 import LocalPlayer from './music/LocalPlayer';
 import YTMusicPlayer from './music/YTMusicPlayer';
+import FloatingChatButton from './music/FloatingChatButton';
 
 const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(10px); }
