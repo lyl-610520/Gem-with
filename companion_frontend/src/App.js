@@ -151,7 +151,7 @@ function App() {
                 component="main" 
                 sx={{
                   flexGrow: 1,
-                  p: 3, 
+                  p: { xs: 2, sm: 3 },
                   pb: '100px', 
                   ml: { sm: sidebarOpen ? `250px` : 0 },
                   transition: (theme) => theme.transitions.create('margin', {
