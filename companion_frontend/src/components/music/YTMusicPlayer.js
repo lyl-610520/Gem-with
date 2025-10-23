@@ -1,17 +1,18 @@
-// src/components/music/YTMusicPlayer.js (畅听模式实现)
+// src/components/music/YTMusicPlayer.js (最终点火版)
 
 import React, { useState } from 'react';
 import { 
   Box, Typography, CircularProgress, Alert,
   TextField, List, ListItem, ListItemText, IconButton,
-  Avatar
+  Avatar, ListItemAvatar
 } from '@mui/material';
 import { styled } from '@mui/system';
 import { FaSearch, FaPlay } from 'react-icons/fa';
 
-import axios from 'axios'; // 直接使用 axios 来调用我们的后端接口
+import axios from 'axios'; // 我们用 axios 来调用后端
 import usePlayerStore from '../../stores/playerStore'; 
 
+// --- 样式组件 (保持不变) ---
 const PlayerContainer = styled(Box)(({ theme }) => ({
   backgroundColor: theme.palette.background.paper,
   borderRadius: theme.shape.borderRadius,
@@ -22,14 +23,17 @@ const PlayerContainer = styled(Box)(({ theme }) => ({
   flexDirection: 'column',
 }));
 
+// --- 主组件 ---
 function YTMusicPlayer({ user }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState('');
 
-  // 从 Zustand Store 获取播放能力
-  const { playYouTubeTrack } = usePlayerStore(); // <--- 假设我们很快会创建这个函数
+  // VVVV [这就是“连接电线”的关键一步！] VVVV
+  // 我们从 store 中，把 playYouTubeTrack 这个“点火”函数拿出来！
+  const { playYouTubeTrack } = usePlayerStore();
+  // ^^^^ [连接完毕！] ^^^^
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -39,20 +43,13 @@ function YTMusicPlayer({ user }) {
     setError('');
 
     try {
-      // 调用我们后端的 YT Music 搜索接口
       const response = await axios.get(`/ytmusic/search?q=${encodeURIComponent(searchTerm)}`);
       
-      const results = response.data.map(item => ({
-        // 核心数据转换，确保前端拿到的是干净的数据
-        videoId: item.videoId,
-        title: item.title,
-        artist: item.artists ? item.artists.map(a => a.name).join(', ') : '未知艺术家',
-        duration: item.duration, // 直接使用 ytmusicapi 返回的格式化字符串 (例如 "4:19")
-        thumbnail: item.thumbnails ? item.thumbnails[0].url : null, // 取最高质量的封面
-      }));
-
-      if (results.length > 0) {
-        setSearchResults(results);
+      // [健壮性优化] 过滤掉没有 videoId 的无效结果
+      const validResults = response.data.filter(item => item.videoId);
+      
+      if (validResults.length > 0) {
+        setSearchResults(validResults);
       } else {
         setError("未找到匹配的音乐，请尝试更换关键词。");
       }
@@ -63,8 +60,19 @@ function YTMusicPlayer({ user }) {
       setIsSearching(false);
     }
   };
+  
+  // [新增] 点击播放按钮时调用的函数
+  const handlePlayClick = (songData) => {
+    // 我们需要把后端返回的原始数据，转换成 playYouTubeTrack 函数需要的格式
+    const trackToPlay = {
+        videoId: songData.videoId,
+        title: songData.title,
+        artist: songData.artists ? songData.artists.map(a => a.name).join(', ') : '未知艺术家',
+        thumbnail: songData.thumbnails ? songData.thumbnails[0].url : null,
+    };
+    playYouTubeTrack(trackToPlay);
+  };
 
-  // 渲染搜索结果列表
   const renderResults = () => {
     if (isSearching) {
       return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>;
@@ -77,29 +85,27 @@ function YTMusicPlayer({ user }) {
     }
 
     return (
-      <List sx={{ overflowY: 'auto', flexGrow: 1 }}>
+      <List sx={{ overflowY: 'auto', flexGrow: 1, px: 1 }}>
         {searchResults.map((song) => (
           <ListItem 
             key={song.videoId}
             secondaryAction={
-              <IconButton edge="end" title="播放" onClick={() => playYouTubeTrack(song.videoId)}>
-                <FaPlay />
-              </IconButton>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="caption" color="text.secondary">{song.duration}</Typography>
+                {/* VVVV [这就是“点火”的那一下！] VVVV */}
+                <IconButton edge="end" title="播放" onClick={() => handlePlayClick(song)}>
+                  <FaPlay />
+                </IconButton>
+                {/* ^^^^ [点火成功！] ^^^^ */}
+              </Box>
             }
           >
-            <Avatar 
-                src={song.thumbnail} 
-                variant="rounded" 
-                sx={{ width: 40, height: 40, mr: 2 }}
-            />
+            <ListItemAvatar>
+              <Avatar src={song.thumbnails ? song.thumbnails[0].url : ''} variant="rounded" />
+            </ListItemAvatar>
             <ListItemText 
-              primary={
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography component="span" noWrap sx={{ maxWidth: '70%' }}>{song.title}</Typography>
-                  <Typography component="span" variant="caption" color="text.secondary">{song.duration}</Typography>
-                </Box>
-              }
-              secondary={song.artist} 
+              primary={<Typography noWrap>{song.title}</Typography>}
+              secondary={<Typography noWrap variant="body2" color="text.secondary">{song.artists ? song.artists.map(a => a.name).join(', ') : '未知艺术家'}</Typography>}
             />
           </ListItem>
         ))}
@@ -110,24 +116,11 @@ function YTMusicPlayer({ user }) {
   return (
     <PlayerContainer>
       <Typography variant="h5" gutterBottom>自由畅听 (YouTube Music)</Typography>
-      
-      {/* 搜索框 */}
       <Box component="form" onSubmit={handleSearch} sx={{ display: 'flex', gap: 1, mb: 2 }}>
-        <TextField 
-          fullWidth
-          size="small"
-          variant="outlined"
-          label="搜索歌曲/歌手/专辑"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-        <IconButton type="submit" color="primary" disabled={isSearching}>
-          <FaSearch />
-        </IconButton>
+        <TextField fullWidth size="small" variant="outlined" label="搜索歌曲/歌手/专辑" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        <IconButton type="submit" color="primary" disabled={isSearching}><FaSearch /></IconButton>
       </Box>
-
-      {/* 结果区域 */}
-      <Box sx={{ flexGrow: 1, minHeight: '200px', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ flexGrow: 1, minHeight: '250px', display: 'flex', flexDirection: 'column' }}>
         {renderResults()}
       </Box>
     </PlayerContainer>
