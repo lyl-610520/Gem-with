@@ -68,24 +68,49 @@ function Music({ user }) {
 
           <MusicModeToggle mode={mode} onModeChange={setMode} />
 
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={mode}
-              initial="initial"
-              animate="in"
-              exit="out"
-              variants={pageVariants}
-              transition={pageTransition}
-            >
-              {mode === 'spotify' ? (
-                <SpotifyPlayer user={user} isSpotifyLinked={user.is_spotify_linked} />
-              ) : mode === 'local' ? (
-                <LocalPlayer user={user} />
-              ) : (
-                <YTMusicPlayer user={user} />
+          {/* 保持一个稳定的容器，不再有 key */}
+          <Box sx={{ position: 'relative' /* AnimatePresence 需要一个定位的父级来处理 absolute 的子元素 */ }}>
+            <AnimatePresence mode="wait">
+              {mode === 'spotify' && (
+                <motion.div
+                  key="spotify" // 每个子元素自己有固定的 key
+                  initial="initial"
+                  animate="in"
+                  exit="out"
+                  variants={pageVariants}
+                  transition={pageTransition}
+                >
+                  <SpotifyPlayer user={user} isSpotifyLinked={user.is_spotify_linked} />
+                </motion.div>
               )}
-            </motion.div>
-          </AnimatePresence>
+
+              {mode === 'local' && (
+                <motion.div
+                  key="local"
+                  initial="initial"
+                  animate="in"
+                  exit="out"
+                  variants={pageVariants}
+                  transition={pageTransition}
+                >
+                  <LocalPlayer user={user} />
+                </motion.div>
+              )}
+
+              {mode === 'ytmusic' && (
+                <motion.div
+                  key="ytmusic"
+                  initial="initial"
+                  animate="in"
+                  exit="out"
+                  variants={pageVariants}
+                  transition={pageTransition}
+                >
+                  <YTMusicPlayer user={user} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </Box>
         </MusicContainer>
       </Box>
     </Container>
