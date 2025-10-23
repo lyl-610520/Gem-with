@@ -1,6 +1,6 @@
 // src/components/music/MusicModeToggle.js (三模式切换)
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { styled } from '@mui/system';
 import { motion } from 'framer-motion';
 import { FaSpotify, FaMusic } from "react-icons/fa";
