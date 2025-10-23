@@ -29,10 +29,20 @@ const initializeYoutubePlayer = () => {
                     if (store.source !== 'youtube') return;
                     
                     const PlayerState = window.YT.PlayerState;
-                    // [修正] 使用正确的方式从外部更新Store
-                    if (event.data === PlayerState.PLAYING) usePlayerStore.setState({ isPlaying: true });
-                    else if (event.data === PlayerState.PAUSED) usePlayerStore.setState({ isPlaying: false });
-                    else if (event.data === PlayerState.ENDED) usePlayerStore.setState({ isPlaying: false });
+                    if (event.data === PlayerState.PLAYING) {
+                        // VVVV [核心修复] VVVV
+                        // 当真正开始播放时，我们才去获取总时长并更新Store！
+                        const duration = youtubePlayer.getDuration();
+                        usePlayerStore.setState(state => ({ 
+                            isPlaying: true,
+                            trackInfo: { ...state.trackInfo, duration: duration }
+                        }));
+                        // ^^^^ [修复结束] ^^^^
+                    } else if (event.data === PlayerState.PAUSED) {
+                        usePlayerStore.setState({ isPlaying: false });
+                    } else if (event.data === PlayerState.ENDED) {
+                        usePlayerStore.setState({ isPlaying: false });
+                    }
                 }
             }
         });
@@ -48,36 +58,50 @@ const usePlayerStore = create((set, get) => ({
   currentTime: 0, source: null, playbackMode: 'list', isPlayerVisible: true,
   isSpotifyPlayerReady: false, 
 
-  // VVVV YouTube 专属超能力 (修正版) VVVV
-  playYouTubeTrack: (song) => {
+// VVVV [这里是最终修正版] VVVV
+playYouTubeTrack: (song) => {
+    // 1. 检查并确保YouTube播放器已就绪
     if (!youtubePlayer) {
-        initializeYoutubePlayer();
+        initializeYoutubePlayer(); // 尝试再次初始化
         if(!youtubePlayer){
             alert("YouTube播放器尚未准备好，请稍等或尝试刷新页面。");
             return;
         }
     }
+    
+    // 2. 暂停其他所有正在运行的引擎，避免声音重叠
     audio.pause();
-    if (get().source === 'spotify' && spotifyPlayer) spotifyPlayer.pause();
+    if (get().source === 'spotify' && spotifyPlayer) {
+        spotifyPlayer.pause();
+    }
+    
+    // 3. 命令YouTube引擎加载并播放新歌
     youtubePlayer.loadVideoById(song.videoId); 
+    
+    // 4. [核心修正] 立刻更新Store状态，让UI即时响应
+    //    我们在这里不再猜测时长，而是将它设为0。
+    //    真正的时长将由 onStateChange 事件监听器在稍后精准更新。
     set({
-      isActive: true, isPlaying: true, isPlayerVisible: true,
+      isActive: true,
+      isPlaying: true, // 乐观更新，假设会立刻播放
+      isPlayerVisible: true,
       trackInfo: {
-        id: song.videoId, name: song.title, artist: song.artist,
-        albumCover: song.thumbnail, duration: 0, uri: `youtube:${song.videoId}`,
+        id: song.videoId,
+        name: song.title,
+        artist: song.artist,
+        albumCover: song.thumbnail,
+        duration: 0, // <--- 关键！时长初始为0
+        uri: `youtube:${song.videoId}`,
       },
-      currentTime: 0, source: 'youtube',
+      currentTime: 0,
+      source: 'youtube',
     });
-    setTimeout(() => {
-        if (youtubePlayer && typeof youtubePlayer.getDuration === 'function') {
-             // [修正] 使用正确的方式从外部更新Store
-             usePlayerStore.setState(state => ({
-                trackInfo: { ...state.trackInfo, duration: youtubePlayer.getDuration() }
-            }));
-        }
-    }, 1500);
-  },
-  // ^^^^ [新增结束] ^^^^
+
+    // 5. [核心修正] 我们把那个不可靠的 setTimeout 定时器彻底删除了！
+    //    所有获取时长的逻辑，现在都已移交给了 initializeYoutubePlayer 函数中的
+    //    'onStateChange' 事件处理器，确保了100%的准确性。
+},
+// ^^^^ [修正结束] ^^^^
   
   // --- 操作 (Actions) ---
 
