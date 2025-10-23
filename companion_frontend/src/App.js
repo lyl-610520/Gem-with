@@ -136,9 +136,6 @@ function App() {
         display: 'flex', 
         minHeight: '100vh', 
         backgroundColor: 'background.default',
-        // 【新增】确保它不会因为滚动条而溢出
-        width: '100%',
-        overflowX: 'hidden',
       }}>
         <Router>
           {/* VVVV 这里的 !user 判断现在是完全可靠的 VVVV */}
