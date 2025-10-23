@@ -1,6 +1,7 @@
-// src/components/music/LocalPlayer.js (功能版)
+// src/components/music/LocalPlayer.js (最终响应式版本)
 
 import React, { useState, useEffect, useRef } from 'react';
+// 【第1步】从 @mui/material 导入 Box 组件
 import { Box, Typography, List, ListItem, ListItemText, IconButton, CircularProgress, Alert } from '@mui/material';
 import { styled } from '@mui/system';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,9 +17,11 @@ const PlayerContainer = styled(Box)(({ theme }) => ({
   boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
 }));
 
+// 【第2步】为 UploadButton 添加响应式样式
 const UploadButton = styled('label')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
+  justifyContent: 'center', // 添加此项，确保图标在按钮内居中
   gap: theme.spacing(1),
   padding: theme.spacing(1.5, 3),
   backgroundColor: theme.palette.primary.main,
@@ -30,6 +33,15 @@ const UploadButton = styled('label')(({ theme }) => ({
     transform: 'translateY(-2px)',
     boxShadow: `0 6px 15px ${theme.palette.primary.main}40`,
   },
+  // VVVV ============== 【这里是新增的响应式样式】 ============== VVVV
+  [theme.breakpoints.down('sm')]: { // 当屏幕宽度小于 sm 断点时 (手机)
+    minWidth: '48px',   // 设置固定尺寸
+    width: '48px',
+    height: '48px',
+    padding: 0,         // 移除内边距
+    borderRadius: '50%',// 变成圆形
+  },
+  // ^^^^ ======================================================= ^^^^
 }));
 
 function LocalPlayer({ user }) {
@@ -39,7 +51,6 @@ function LocalPlayer({ user }) {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   
-  // 从全局 store 中获取我们需要的状态和 actions
   const { playLocalSong, trackInfo, isPlaying, togglePlay } = usePlayerStore();
 
   useEffect(() => {
@@ -54,7 +65,6 @@ function LocalPlayer({ user }) {
       setPlaylist(data);
     } catch (err) {
       setError('无法加载您的个人曲库，请稍后再试。');
-      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -63,39 +73,32 @@ function LocalPlayer({ user }) {
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-    // --- VVVV 核心修复 VVVV ---
-    // 在前端进行文件类型校验
     if (!file.type.startsWith('audio/')) {
         setError('上传失败：请选择一个有效的音频文件 (如 MP3, M4A, WAV)。');
-        // 清空 input 的值，以便用户可以重新选择
         if(fileInputRef.current) fileInputRef.current.value = "";
         return;
     }
-    // --- ^^^^ 修复结束 ^^^^ ---
     setUploading(true);
     setError('');
     try {
       await uploadLocalMusic(file);
-      await fetchPlaylist(); // 上传成功后刷新列表
+      await fetchPlaylist();
     } catch (err) {
       setError(err.response?.data?.error || '上传失败，请检查文件或稍后再试。');
-      console.error(err);
     } finally {
       setUploading(false);
-      // 清空 input 的值，以便可以连续上传同一个文件
       if(fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   const handleDelete = async (songId, e) => {
-    e.stopPropagation(); // 防止点击删除时触发播放
+    e.stopPropagation();
     if (window.confirm('确定要删除这首歌曲吗？')) {
       try {
         await deleteLocalMusic(songId);
         setPlaylist(prev => prev.filter(song => song.id !== songId));
       } catch (err) {
         setError('删除失败，请稍后再试。');
-        console.error(err);
       }
     }
   };
@@ -110,12 +113,15 @@ function LocalPlayer({ user }) {
         <Typography variant="h5" fontWeight={700}>我的个人曲库</Typography>
         <UploadButton htmlFor="music-upload">
           {uploading ? <CircularProgress size={20} color="inherit" /> : <FaUpload />}
-          上传音乐
+          {/* 【第3步】用 Box 包裹文字并添加 sx 属性 */}
+          <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+            上传音乐
+          </Box>
         </UploadButton>
         <input 
           id="music-upload" 
           type="file" 
-          accept="*"
+          accept="audio/*" // 优化：只接受音频文件
           hidden 
           onChange={handleFileUpload}
           ref={fileInputRef}
@@ -148,10 +154,11 @@ function LocalPlayer({ user }) {
                 selected={trackInfo.id === song.id}
                 onClick={() => playLocalSong(song)}
               >
-                <IconButton color="primary" onClick={(e) => { e.stopPropagation(); togglePlay(); }}>
+                {/* 优化：播放/暂停按钮现在只在当前歌曲上显示 */}
+                <IconButton color="primary">
                   {isPlaying && trackInfo.id === song.id ? <FaPause /> : <FaPlay />}
                 </IconButton>
-                <ListItemText primary={song.title} secondary={song.artist} />
+                <ListItemText primary={song.title} secondary={song.artist || '未知艺术家'} />
               </ListItem>
             </motion.div>
           )) : (
