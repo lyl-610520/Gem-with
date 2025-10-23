@@ -1,4 +1,5 @@
-// src/components/music/YTMusicPlayer.js (最终点火版)
+// 2. YTMusicPlayer.js - 修复溢出问题
+// ========================================
 
 import React, { useState } from 'react';
 import { 
@@ -9,12 +10,11 @@ import {
 import { styled } from '@mui/system';
 import { FaSearch, FaPlay } from 'react-icons/fa';
 
-import { searchYouTubeMusic } from '../../api/musicApi'; // <--- 导入新的官方API
+import { searchYouTubeMusic } from '../../api/musicApi';
 import usePlayerStore from '../../stores/playerStore'; 
 
-// --- 样式组件 (保持不变) ---
 const PlayerContainer = styled(Box)(({ theme }) => ({
-  width: '100%', // <--- 新增
+  width: '100%',
   backgroundColor: theme.palette.background.paper,
   borderRadius: theme.shape.borderRadius,
   padding: theme.spacing(3),
@@ -22,19 +22,20 @@ const PlayerContainer = styled(Box)(({ theme }) => ({
   minHeight: '400px',
   display: 'flex',
   flexDirection: 'column',
+  // 【新增】手机端优化
+  '@media (max-width: 600px)': {
+    padding: theme.spacing(2),
+    minHeight: '300px',
+  }
 }));
 
-// --- 主组件 ---
 function YTMusicPlayer({ user }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState('');
 
-  // VVVV [这就是“连接电线”的关键一步！] VVVV
-  // 我们从 store 中，把 playYouTubeTrack 这个“点火”函数拿出来！
   const { playYouTubeTrack } = usePlayerStore();
-  // ^^^^ [连接完毕！] ^^^^
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -45,31 +46,27 @@ function YTMusicPlayer({ user }) {
 
     try {
       const response = await searchYouTubeMusic(searchTerm);
-      
-      // [健壮性优化] 过滤掉没有 videoId 的无效结果
       const validResults = response.data.filter(item => item.videoId);
       
       if (validResults.length > 0) {
         setSearchResults(validResults);
       } else {
-        setError("未找到匹配的音乐，请尝试更换关键词。");
+        setError("未找到匹配的音乐,请尝试更换关键词。");
       }
     } catch (err) {
-      setError("搜索服务发生错误，请稍后再试。");
+      setError("搜索服务发生错误,请稍后再试。");
       console.error(err);
     } finally {
       setIsSearching(false);
     }
   };
   
-  // [新增] 点击播放按钮时调用的函数
   const handlePlayClick = (songData) => {
-    // 我们需要把后端返回的原始数据，转换成 playYouTubeTrack 函数需要的格式
     const trackToPlay = {
-        videoId: songData.videoId,
-        title: songData.title,
-        artist: songData.artists ? songData.artists.map(a => a.name).join(', ') : '未知艺术家',
-        thumbnail: songData.thumbnails ? songData.thumbnails[0].url : null,
+      videoId: songData.videoId,
+      title: songData.title,
+      artist: songData.artists ? songData.artists.map(a => a.name).join(', ') : '未知艺术家',
+      thumbnail: songData.thumbnails ? songData.thumbnails[0].url : null,
     };
     playYouTubeTrack(trackToPlay);
   };
@@ -82,47 +79,96 @@ function YTMusicPlayer({ user }) {
       return <Alert severity="warning" sx={{ m: 2 }}>{error}</Alert>;
     }
     if (searchResults.length === 0) {
-      return <Typography sx={{ textAlign: 'center', p: 4, color: 'text.secondary' }}>输入关键词，享受免费的音乐搜索吧！</Typography>;
+      return <Typography sx={{ textAlign: 'center', p: 4, color: 'text.secondary' }}>输入关键词,享受免费的音乐搜索吧!</Typography>;
     }
 
     return (
       <List sx={{ overflowY: 'auto', flexGrow: 1 }}>
         {searchResults.map((song) => (
-          // VVVV [这里是解决溢出的最终方案！] VVVV
           <ListItem 
             key={song.videoId}
-            // 1. 我们把按钮从 secondaryAction 移出来，自己控制布局
             sx={{ 
-              paddingRight: 0, // 移除默认的右边距
-              '&:hover': { backgroundColor: 'action.hover' }
+              paddingRight: 1,
+              gap: 1,
+              '&:hover': { backgroundColor: 'action.hover' },
+              // 【关键修复】强制最小宽度为0,允许子元素收缩
+              minWidth: 0,
             }}
           >
-            <ListItemAvatar>
-              <Avatar src={song.thumbnails ? song.thumbnails[0].url : ''} variant="rounded" />
+            <ListItemAvatar sx={{ minWidth: 0, flexShrink: 0 }}>
+              <Avatar 
+                src={song.thumbnails ? song.thumbnails[0].url : ''} 
+                variant="rounded"
+                sx={{ 
+                  width: 48, 
+                  height: 48,
+                  // 【新增】手机端缩小头像
+                  '@media (max-width: 600px)': {
+                    width: 40,
+                    height: 40,
+                  }
+                }}
+              />
             </ListItemAvatar>
             
-            {/* 2. 用一个Box把文本和时长包起来，并让它占据所有剩余空间 */}
-            <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', minWidth: 0 }}>
-              {/* 3. ListItemText 现在被放在一个有明确边界的Box里，noWrap可以生效了 */}
-              <ListItemText 
-                primary={<Typography noWrap>{song.title}</Typography>}
-                secondary={<Typography noWrap variant="body2" color="text.secondary">{song.artists ? song.artists.map(a => a.name).join(', ') : '未知艺术家'}</Typography>}
-              />
-              <Typography variant="caption" color="text.secondary" sx={{ mx: 2, flexShrink: 0 }}>
-                {song.duration}
+            {/* 【关键修复】文本容器必须有 minWidth: 0 和 flex: 1 */}
+            <Box sx={{ 
+              flex: 1, 
+              minWidth: 0, // 这是关键!
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden', // 防止溢出
+            }}>
+              <Typography 
+                noWrap 
+                sx={{ 
+                  fontWeight: 500,
+                  fontSize: '0.95rem',
+                  '@media (max-width: 600px)': {
+                    fontSize: '0.875rem',
+                  }
+                }}
+              >
+                {song.title}
+              </Typography>
+              <Typography 
+                noWrap 
+                variant="body2" 
+                color="text.secondary"
+                sx={{
+                  '@media (max-width: 600px)': {
+                    fontSize: '0.75rem',
+                  }
+                }}
+              >
+                {song.artists ? song.artists.map(a => a.name).join(', ') : '未知艺术家'}
               </Typography>
             </Box>
 
-            {/* 4. 播放按钮现在是Flex容器的最后一个子元素 */}
-            <IconButton 
-              title="播放" 
-              onClick={() => handlePlayClick(song)}
-              sx={{ flexShrink: 0 }} // 确保按钮不会被压缩
+            {/* 【新增】时长标签(手机端隐藏) */}
+            <Typography 
+              variant="caption" 
+              color="text.secondary" 
+              sx={{ 
+                flexShrink: 0,
+                mx: 1,
+                display: { xs: 'none', sm: 'block' } // 手机端隐藏
+              }}
             >
-              <FaPlay />
+              {song.duration}
+            </Typography>
+
+            <IconButton 
+              onClick={() => handlePlayClick(song)}
+              sx={{ 
+                flexShrink: 0,
+                padding: { xs: '6px', sm: '8px' }
+              }}
+              size="small"
+            >
+              <FaPlay size={14} />
             </IconButton>
           </ListItem>
-          // ^^^^ [修复结束] ^^^^
         ))}
       </List>
     );
@@ -130,10 +176,29 @@ function YTMusicPlayer({ user }) {
 
   return (
     <PlayerContainer>
-      <Typography variant="h5" gutterBottom>自由畅听 (YouTube Music)</Typography>
+      <Typography 
+        variant="h5" 
+        gutterBottom
+        sx={{
+          '@media (max-width: 600px)': {
+            fontSize: '1.25rem',
+          }
+        }}
+      >
+        自由畅听 (YouTube Music)
+      </Typography>
       <Box component="form" onSubmit={handleSearch} sx={{ display: 'flex', gap: 1, mb: 2 }}>
-        <TextField fullWidth size="small" variant="outlined" label="搜索歌曲/歌手/专辑" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-        <IconButton type="submit" color="primary" disabled={isSearching}><FaSearch /></IconButton>
+        <TextField 
+          fullWidth 
+          size="small" 
+          variant="outlined" 
+          label="搜索歌曲/歌手/专辑" 
+          value={searchTerm} 
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+        <IconButton type="submit" color="primary" disabled={isSearching}>
+          <FaSearch />
+        </IconButton>
       </Box>
       <Box sx={{ flexGrow: 1, minHeight: '250px', display: 'flex', flexDirection: 'column' }}>
         {renderResults()}
