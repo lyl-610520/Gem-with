@@ -195,6 +195,7 @@ function App() {
           )}
         </Router>
       </Box>
+      <div id="youtube-iframe-placeholder" style={{ display: 'none' }}></div>
     </ThemeProvider>
   );
 }
