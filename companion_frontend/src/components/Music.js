@@ -9,6 +9,7 @@ import { Container, Box, Typography } from '@mui/material';
 import MusicModeToggle from './music/MusicModeToggle';
 import SpotifyPlayer from './music/SpotifyPlayer';
 import LocalPlayer from './music/LocalPlayer';
+import YTMusicPlayer from './music/YTMusicPlayer'; // <--- 新组件导入
 
 const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(10px); }
@@ -32,7 +33,7 @@ const Title = styled('h1')(({ theme }) => ({
 }));
 
 function Music({ user }) {
-  const [mode, setMode] = useState('spotify'); 
+  const [mode, setMode] = useState('ytmusic'); 
 
   const pageVariants = {
     initial: { opacity: 0, x: -20, },
@@ -65,16 +66,15 @@ function Music({ user }) {
               variants={pageVariants}
               transition={pageTransition}
             >
+              {/* VVVV [核心路由逻辑] VVVV */}
               {mode === 'spotify' ? (
-                // VVVV [核心修改] VVVV
-                <SpotifyPlayer 
-                  user={user} 
-                  isSpotifyLinked={user.is_spotify_linked} // 把状态传下去！
-                />
-                // ^^^^ [核心修改结束] ^^^^
-              ) : (
+                <SpotifyPlayer user={user} isSpotifyLinked={user.is_spotify_linked} />
+              ) : mode === 'local' ? (
                 <LocalPlayer user={user} />
+              ) : ( // 新增的 YTMusic 模式
+                <YTMusicPlayer user={user} />
               )}
+              {/* ^^^^ [核心路由逻辑结束] ^^^^ */}
             </motion.div>
           </AnimatePresence>
         </MusicContainer>
