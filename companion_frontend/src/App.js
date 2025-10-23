@@ -162,6 +162,7 @@ function App() {
                     easing: theme.transitions.easing.sharp,
                     duration: theme.transitions.duration.enteringScreen,
                   }),
+                  minWidth: 0,
                 }}
               >
                 <Header 
