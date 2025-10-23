@@ -87,3 +87,14 @@ export const getLocalTrackUrl = (songId) => {
     const token = localStorage.getItem('token');
     return `${API_URL}/local_music/track/${songId}?token=${token}`;
 }
+
+// VVVV [这里是新增的“官方”YT Music搜索函数] VVVV
+/**
+ * 从后端搜索 YouTube Music
+ * @param {string} searchTerm - 搜索关键词
+ * @returns {Promise<Array>}
+ */
+export const searchYouTubeMusic = (searchTerm) => {
+  return apiClient.get(`/ytmusic/search?q=${encodeURIComponent(searchTerm)}`);
+};
+// ^^^^ [新增结束] ^^^^
