@@ -1,4 +1,5 @@
-// src/components/Music.js (最终美化与适配版)
+// 3. Music.js - 修复手机端适配
+// ========================================
 
 import React, { useState } from 'react';
 import { styled, keyframes } from '@mui/system';
@@ -9,7 +10,7 @@ import { Container, Box, Typography } from '@mui/material';
 import MusicModeToggle from './music/MusicModeToggle';
 import SpotifyPlayer from './music/SpotifyPlayer';
 import LocalPlayer from './music/LocalPlayer';
-import YTMusicPlayer from './music/YTMusicPlayer'; // <--- 新组件导入
+import YTMusicPlayer from './music/YTMusicPlayer';
 
 const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(10px); }
@@ -20,7 +21,6 @@ const MusicContainer = styled('div')`
   animation: ${fadeIn} 0.5s ease-out;
 `;
 
-// 我们保留这个自定义的 Title 组件，因为它效果很棒
 const Title = styled('h1')(({ theme }) => ({
   fontSize: '2.5rem',
   fontWeight: 700,
@@ -30,15 +30,20 @@ const Title = styled('h1')(({ theme }) => ({
   background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
   WebkitBackgroundClip: 'text',
   WebkitTextFillColor: 'transparent',
+  // 【新增】手机端响应式
+  '@media (max-width: 600px)': {
+    fontSize: '1.75rem',
+    marginBottom: '16px',
+  }
 }));
 
 function Music({ user }) {
   const [mode, setMode] = useState('ytmusic'); 
 
   const pageVariants = {
-    initial: { opacity: 0, x: -20, },
-    in: { opacity: 1, x: 0, },
-    out: { opacity: 0, x: 20, },
+    initial: { opacity: 0, x: -20 },
+    in: { opacity: 1, x: 0 },
+    out: { opacity: 0, x: 20 },
   };
 
   const pageTransition = {
@@ -48,10 +53,16 @@ function Music({ user }) {
   };
 
   return (
-    // --- VVVV 核心布局：套用 Diary.js 的结构 VVVV ---
-    <Container maxWidth="md">
-      {/* my: 4 代表上下的 margin, 提供了舒适的垂直间距 */}
-      <Box sx={{ my: 4 }}> 
+    // 【关键修复】添加手机端 padding
+    <Container 
+      maxWidth="md"
+      sx={{
+        px: { xs: 2, sm: 3 }, // 手机端左右 padding 16px, 平板及以上 24px
+      }}
+    >
+      <Box sx={{ 
+        my: { xs: 2, sm: 4 } // 手机端上下 margin 更小
+      }}> 
         <MusicContainer>
           <Title>Music Companion</Title>
 
@@ -66,21 +77,18 @@ function Music({ user }) {
               variants={pageVariants}
               transition={pageTransition}
             >
-              {/* VVVV [核心路由逻辑] VVVV */}
               {mode === 'spotify' ? (
                 <SpotifyPlayer user={user} isSpotifyLinked={user.is_spotify_linked} />
               ) : mode === 'local' ? (
                 <LocalPlayer user={user} />
-              ) : ( // 新增的 YTMusic 模式
+              ) : (
                 <YTMusicPlayer user={user} />
               )}
-              {/* ^^^^ [核心路由逻辑结束] ^^^^ */}
             </motion.div>
           </AnimatePresence>
         </MusicContainer>
       </Box>
     </Container>
-    // --- ^^^^ 布局修改结束 ^^^^ ---
   );
 }
 
