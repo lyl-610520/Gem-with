@@ -14,6 +14,7 @@ import usePlayerStore from '../../stores/playerStore';
 
 // --- 样式组件 (保持不变) ---
 const PlayerContainer = styled(Box)(({ theme }) => ({
+  width: '100%', // <--- 新增
   backgroundColor: theme.palette.background.paper,
   borderRadius: theme.shape.borderRadius,
   padding: theme.spacing(3),
@@ -104,6 +105,7 @@ function YTMusicPlayer({ user }) {
               <Avatar src={song.thumbnails ? song.thumbnails[0].url : ''} variant="rounded" />
             </ListItemAvatar>
             <ListItemText 
+              sx={{ minWidth: 0, marginRight: 2 }} // <--- 新增
               primary={<Typography noWrap>{song.title}</Typography>}
               secondary={<Typography noWrap variant="body2" color="text.secondary">{song.artists ? song.artists.map(a => a.name).join(', ') : '未知艺术家'}</Typography>}
             />
