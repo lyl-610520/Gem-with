@@ -112,6 +112,7 @@ function Music({ user }) {
             </AnimatePresence>
           </Box>
         </MusicContainer>
+        <FloatingChatButton />
       </Box>
     </Container>
   );
