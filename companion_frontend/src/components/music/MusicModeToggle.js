@@ -50,7 +50,7 @@ const ActiveBackground = styled(motion.div)({
 });
 
 const MusicModeToggle = ({ mode, onModeChange }) => {
-  // VVVV [核心修复] VVVV
+  // VVVV [这里是解决错位的核心！] VVVV
   // 我们为每个模式分配一个索引，计算位置变得极其简单可靠
   const xPosition = useMemo(() => {
     const modeIndex = { spotify: 0, local: 1, ytmusic: 2 };
@@ -59,14 +59,6 @@ const MusicModeToggle = ({ mode, onModeChange }) => {
     return `calc(${index * 100}% + ${index * 4}px)`;
   }, [mode]);
   // ^^^^ [修复结束] ^^^^
-
-  // VVVV [核心修改] 修正 ActiveBackground 的 x 动画和 Option 的点击逻辑 VVVV
-  const getXPosition = (currentMode) => {
-    if (currentMode === 'spotify') return '0%';
-    if (currentMode === 'local') return '100%';
-    if (currentMode === 'ytmusic') return '200%';
-    return '0%';
-  };
 
   return (
     <ToggleWrapper>
