@@ -50,15 +50,15 @@ const ActiveBackground = styled(motion.div)({
 });
 
 const MusicModeToggle = ({ mode, onModeChange }) => {
-  // 根据 mode 计算 ActiveBackground 的位置
+  // VVVV [核心修复] VVVV
+  // 我们为每个模式分配一个索引，计算位置变得极其简单可靠
   const xPosition = useMemo(() => {
-    switch (mode) {
-      case 'spotify': return '0%';
-      case 'local': return '100%';
-      case 'ytmusic': return '200%'; // 假设 ytmusic 是第三个选项
-      default: return '0%';
-    }
+    const modeIndex = { spotify: 0, local: 1, ytmusic: 2 };
+    const index = modeIndex[mode] || 0;
+    // 每个按钮宽度是100%，外加每个间隔的补偿 (4px * index)
+    return `calc(${index * 100}% + ${index * 4}px)`;
   }, [mode]);
+  // ^^^^ [修复结束] ^^^^
 
   // VVVV [核心修改] 修正 ActiveBackground 的 x 动画和 Option 的点击逻辑 VVVV
   const getXPosition = (currentMode) => {
