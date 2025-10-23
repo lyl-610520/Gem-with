@@ -90,7 +90,7 @@ const MusicModeToggle = ({ mode, onModeChange }) => {
           {mode === 'local' && <ActiveBackground layoutId="active-pill" />}
           <ContentWrapper>
             <FaMusic />
-            <span>Companion</span>
+            <span>本地</span>
           </ContentWrapper>
         </ToggleOption>
         
