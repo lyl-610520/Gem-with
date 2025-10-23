@@ -1249,6 +1249,53 @@ def delete_local_music(song_id):
     
     return jsonify({'success': True})
 
+@app.route('/api/chat/with_music', methods=['POST'])
+@jwt_required()
+def chat_with_music_context():
+    """
+    [最终版] 处理带有音乐上下文的聊天请求，并复用 get_gemini_response 辅助函数。
+    """
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id) # 获取用户信息，用于传递给 get_gemini_response
+
+    data = request.get_json()
+    user_message = data.get('message')
+    music_context = data.get('context') # 从前端接收这个音乐上下文对象
+
+    if not user_message:
+        return jsonify({'error': 'Message is required'}), 400
+
+    # --- 1. 构建音乐上下文描述 (User Context) ---
+    # 这个字符串将告诉 Gemini 当前的“场景”是什么
+    user_context_str = "我们正在 '陪伴空间' 的音乐模块里。"
+
+    if music_context and music_context.get('trackInfo') and music_context.get('trackInfo').get('name'):
+        track = music_context['trackInfo']
+        source = music_context.get('source', '未知来源').capitalize()
+        artist = track.get('artist', '未知艺术家')
+        title = track.get('name')
+        
+        user_context_str += f" 当前正在通过 {source} 播放歌曲：{artist} - 《{title}》。"
+    else:
+        user_context_str += " 当前没有在播放音乐。"
+
+    # --- 2. 构建核心提示 (Prompt) ---
+    # 这里的 prompt 就是用户的直接输入，我们不需要添加额外的模板字符串
+    # 因为 get_gemini_response 函数会为我们处理好一切
+    prompt = user_message
+
+    # --- 3. 调用统一的 Gemini 响应函数 ---
+    # 我们把场景描述(user_context_str)和用户ID传递过去
+    # 这样 get_gemini_response 就能加载正确的用户人设和长期记忆了
+    gemini_response = get_gemini_response(
+        prompt=prompt,
+        user_context=user_context_str,
+        user_id=current_user_id
+    )
+    
+    # 4. 返回 Gemini 的回复
+    return jsonify({'reply': gemini_response})
+
 # 人设和记忆同步API (这些接口由机器人调用，通常不走JWT，保持原样)
 def find_or_create_user_by_qq(qq_id):
     user = User.query.filter_by(qq_id=str(qq_id)).first()
