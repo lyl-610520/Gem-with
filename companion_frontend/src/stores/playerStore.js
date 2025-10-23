@@ -206,46 +206,61 @@ playYouTubeTrack: (song) => {
 
   // ^^^^ [Spotify 专属超能力结束] ^^^^
 
-
   // --- 本地音乐 Actions ---
   playLocalSong: (song) => {
     const { trackInfo, source } = get();
 
+    // 1. 如果点击的是同一首歌，就切换播放/暂停状态
     if (trackInfo.id === song.id && source === 'local') {
       get().togglePlay();
       return;
     }
     
-    // 如果当前正在播放 Spotify 音乐，先断开连接
+    // 2. 暂停其他可能正在播放的音乐引擎，防止声音重叠
     if (spotifyPlayer) {
         spotifyPlayer.pause();
     }
-    
-    audio.src = getLocalTrackUrl(song.id);
-    audio.load();
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch(error => {
-        console.error("音频自动播放被浏览器阻止:", error);
-        set({ isPlaying: false });
-      });
+    if (youtubePlayer) {
+        youtubePlayer.pauseVideo();
     }
-
+    
+    // 3. 更新UI状态，告诉用户我们正在准备加载新歌
     set({
       isActive: true,
-      isPlaying: true,
+      isPlaying: false, // 关键：此时还未播放，所以是 false
       isPlayerVisible: true,
       trackInfo: {
         id: song.id,
         name: song.title,
         artist: song.artist,
-        albumCover: '', // 本地音乐无封面
-        duration: 0,
-        uri: audio.src,
+        albumCover: '', 
+        duration: 0, // 时长初始为 0
+        uri: getLocalTrackUrl(song.id),
       },
       currentTime: 0,
       source: 'local',
     });
+
+    // 4. 定义一个【一次性】的事件处理函数
+    const onMetadataLoaded = () => {
+      // 5. 当元数据加载完毕，我们现在可以安全地播放了
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+          console.error("音频自动播放被浏览器阻止:", error);
+          set({ isPlaying: false }); // 如果播放失败，确保UI状态正确
+        });
+      }
+      // 6.【重要】任务完成，移除这个监听器，防止内存泄漏
+      audio.removeEventListener('loadedmetadata', onMetadataLoaded);
+    };
+    
+    // 7. 绑定这个一次性的监听器
+    audio.addEventListener('loadedmetadata', onMetadataLoaded);
+    
+    // 8. 设置音频源并命令浏览器开始加载，这将触发上面的 'loadedmetadata' 事件
+    audio.src = getLocalTrackUrl(song.id);
+    audio.load();
   },
 
   // --- 通用 Actions (已升级兼容三种模式) ---
