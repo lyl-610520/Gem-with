@@ -86,30 +86,43 @@ function YTMusicPlayer({ user }) {
     }
 
     return (
-      <List sx={{ overflowY: 'auto', flexGrow: 1, px: 1 }}>
+      <List sx={{ overflowY: 'auto', flexGrow: 1 }}>
         {searchResults.map((song) => (
+          // VVVV [这里是解决溢出的最终方案！] VVVV
           <ListItem 
             key={song.videoId}
-            secondaryAction={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="caption" color="text.secondary">{song.duration}</Typography>
-                {/* VVVV [这就是“点火”的那一下！] VVVV */}
-                <IconButton edge="end" title="播放" onClick={() => handlePlayClick(song)}>
-                  <FaPlay />
-                </IconButton>
-                {/* ^^^^ [点火成功！] ^^^^ */}
-              </Box>
-            }
+            // 1. 我们把按钮从 secondaryAction 移出来，自己控制布局
+            sx={{ 
+              paddingRight: 0, // 移除默认的右边距
+              '&:hover': { backgroundColor: 'action.hover' }
+            }}
           >
             <ListItemAvatar>
               <Avatar src={song.thumbnails ? song.thumbnails[0].url : ''} variant="rounded" />
             </ListItemAvatar>
-            <ListItemText 
-              sx={{ minWidth: 0, marginRight: 2 }} // <--- 新增
-              primary={<Typography noWrap>{song.title}</Typography>}
-              secondary={<Typography noWrap variant="body2" color="text.secondary">{song.artists ? song.artists.map(a => a.name).join(', ') : '未知艺术家'}</Typography>}
-            />
+            
+            {/* 2. 用一个Box把文本和时长包起来，并让它占据所有剩余空间 */}
+            <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', minWidth: 0 }}>
+              {/* 3. ListItemText 现在被放在一个有明确边界的Box里，noWrap可以生效了 */}
+              <ListItemText 
+                primary={<Typography noWrap>{song.title}</Typography>}
+                secondary={<Typography noWrap variant="body2" color="text.secondary">{song.artists ? song.artists.map(a => a.name).join(', ') : '未知艺术家'}</Typography>}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ mx: 2, flexShrink: 0 }}>
+                {song.duration}
+              </Typography>
+            </Box>
+
+            {/* 4. 播放按钮现在是Flex容器的最后一个子元素 */}
+            <IconButton 
+              title="播放" 
+              onClick={() => handlePlayClick(song)}
+              sx={{ flexShrink: 0 }} // 确保按钮不会被压缩
+            >
+              <FaPlay />
+            </IconButton>
           </ListItem>
+          // ^^^^ [修复结束] ^^^^
         ))}
       </List>
     );
