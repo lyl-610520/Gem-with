@@ -15,22 +15,13 @@ const playbackModes = ['list', 'loop', 'shuffle'];
 
 // --- [新增] YouTube Iframe Player 初始化助手 ---
 // 这个函数需要放在外面，因为 window.onYouTubeIframeAPIReady 需要访问它
+// --- [修正] YouTube Iframe Player 初始化助手 ---
 const initializeYoutubePlayer = () => {
-    // 防止重复创建
-    if (youtubePlayer || !document.getElementById('youtube-iframe-placeholder')) {
-        return;
-    }
-
-    // 检查 window.YT 是否存在 (YouTube Iframe API加载完成后才会创建)
+    if (youtubePlayer || !document.getElementById('youtube-iframe-placeholder')) return;
     if (window.YT && window.YT.Player) {
         youtubePlayer = new window.YT.Player('youtube-iframe-placeholder', {
-            height: '0', // 隐藏播放器
-            width: '0',
-            playerVars: {
-                playsinline: 1,
-                controls: 0, 
-                modestbranding: 1,
-            },
+            height: '0', width: '0',
+            playerVars: { playsinline: 1, controls: 0, modestbranding: 1 },
             events: {
                 'onReady': (event) => console.log("YouTube 引擎已就绪。"),
                 'onStateChange': (event) => {
@@ -38,20 +29,15 @@ const initializeYoutubePlayer = () => {
                     if (store.source !== 'youtube') return;
                     
                     const PlayerState = window.YT.PlayerState;
-                    if (event.data === PlayerState.PLAYING) set({ isPlaying: true });
-                    else if (event.data === PlayerState.PAUSED) set({ isPlaying: false });
-                    else if (event.data === PlayerState.ENDED) {
-                         set({ isPlaying: false });
-                         // TODO: 实现下一曲逻辑
-                    }
+                    // [修正] 使用正确的方式从外部更新Store
+                    if (event.data === PlayerState.PLAYING) usePlayerStore.setState({ isPlaying: true });
+                    else if (event.data === PlayerState.PAUSED) usePlayerStore.setState({ isPlaying: false });
+                    else if (event.data === PlayerState.ENDED) usePlayerStore.setState({ isPlaying: false });
                 }
             }
         });
     }
 };
-
-// --- [新增] YouTube Iframe API 回调 ---
-// 浏览器加载 public/index.html 里的 API 脚本后，会自动调用这个全局函数
 window.onYouTubeIframeAPIReady = initializeYoutubePlayer;
 
 
@@ -62,54 +48,34 @@ const usePlayerStore = create((set, get) => ({
   currentTime: 0, source: null, playbackMode: 'list', isPlayerVisible: true,
   isSpotifyPlayerReady: false, 
 
-  // VVVV [新增] YouTube 专属超能力 VVVV
-  /**
-   * 播放一首指定的 YouTube 音乐
-   * @param {object} song - 包含 videoId, title, artist 等信息的歌曲对象
-   */
+  // VVVV YouTube 专属超能力 (修正版) VVVV
   playYouTubeTrack: (song) => {
-    // 确保YouTube播放器已初始化
     if (!youtubePlayer) {
-        initializeYoutubePlayer(); // 尝试再次初始化
+        initializeYoutubePlayer();
         if(!youtubePlayer){
             alert("YouTube播放器尚未准备好，请稍等或尝试刷新页面。");
             return;
         }
     }
-    
-    // 暂停其他所有引擎
     audio.pause();
     if (get().source === 'spotify' && spotifyPlayer) spotifyPlayer.pause();
-    
-    // 命令YouTube引擎加载并播放新歌
     youtubePlayer.loadVideoById(song.videoId); 
-    
-    // 更新Store状态，让UI立刻响应
     set({
-      isActive: true,
-      isPlaying: true,
-      isPlayerVisible: true,
+      isActive: true, isPlaying: true, isPlayerVisible: true,
       trackInfo: {
-        id: song.videoId,
-        name: song.title,
-        artist: song.artist,
-        albumCover: song.thumbnail,
-        duration: 0, // 时长将在稍后通过定时器获取
-        uri: `youtube:${song.videoId}`,
+        id: song.videoId, name: song.title, artist: song.artist,
+        albumCover: song.thumbnail, duration: 0, uri: `youtube:${song.videoId}`,
       },
-      currentTime: 0,
-      source: 'youtube',
+      currentTime: 0, source: 'youtube',
     });
-
-    // YouTube Iframe API 没有好用的 `loadedmetadata` 事件，
-    // 我们用一个短暂的延时来等待视频信息加载，然后获取总时长。
     setTimeout(() => {
         if (youtubePlayer && typeof youtubePlayer.getDuration === 'function') {
-             set(state => ({
+             // [修正] 使用正确的方式从外部更新Store
+             usePlayerStore.setState(state => ({
                 trackInfo: { ...state.trackInfo, duration: youtubePlayer.getDuration() }
             }));
         }
-    }, 1500); // 1.5秒后尝试获取
+    }, 1500);
   },
   // ^^^^ [新增结束] ^^^^
   
@@ -317,14 +283,15 @@ const usePlayerStore = create((set, get) => ({
   },
 }));
 
-// --- [新增] YouTube 进度同步定时器 ---
-// 因为 YT Iframe API 没有 timeupdate 事件，我们用定时器来模拟
+// --- [修正] YouTube 进度同步定时器 ---
 setInterval(() => {
     const { source, isPlaying } = usePlayerStore.getState();
     if (source === 'youtube' && isPlaying && youtubePlayer && typeof youtubePlayer.getCurrentTime === 'function') {
+        // [修正] 使用正确的方式从外部更新Store
         usePlayerStore.setState({ currentTime: youtubePlayer.getCurrentTime() });
     }
-}, 1000); // 每秒同步一次
+}, 1000); 
+
 
 
 // --- 本地播放器的事件监听器 ---
