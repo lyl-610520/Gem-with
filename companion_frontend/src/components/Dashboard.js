@@ -22,7 +22,7 @@ const WelcomeCard = ({ username, loading }) => {
         {loading ? <Skeleton width="60%" /> : `${getGreeting()}，${username}！`}
       </Typography>
       <Typography variant="body1" sx={{ opacity: 0.9 }}>
-        {loading ? <Skeleton width="80%" /> : "今天也是充满希望的一天，让我们开始吧 🌟"}
+        {loading ? <Skeleton width="80%" /> : "我一直在."}
       </Typography>
     </Paper>
   );
@@ -85,7 +85,7 @@ function Dashboard({ user }) {
     const fetchSummary = async () => {
       try {
         setLoading(true);
-        const response = await axios.get('/api/dashboard/summary');
+        const response = await axios.get('/dashboard/summary');
         setSummary(response.data);
       } catch (error) {
         console.error("获取首页数据失败:", error);
