@@ -1,393 +1,160 @@
+// src/components/Dashboard.js (最终重构版)
+
 import React, { useState, useEffect } from 'react';
-import styled from 'styled-components';
-import { motion } from 'framer-motion';
-import { 
-  FaBook, 
-  FaCheckCircle, 
-  FaMusic, 
-  FaBookOpen, 
-  FaGamepad, 
-  FaComments,
-  FaCalendarAlt,
-  FaHeart,
-  FaStar
-} from 'react-icons/fa';
+import { useNavigate } from 'react-router-dom';
+import { Box, Grid, Paper, Typography, Avatar, Skeleton, Card, CardContent, Button } from '@mui/material';
+import { FaBook, FaCheckCircle, FaBookOpen, FaHeart, FaPlus } from 'react-icons/fa';
+import { GiTomato, GiSprout } from "react-icons/gi"; // 番茄和花园图标
 import axios from 'axios';
 
-const DashboardContainer = styled.div`
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
-`;
-
-const WelcomeSection = styled(motion.div)`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 30px;
-  margin-bottom: 30px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-`;
-
-const WelcomeTitle = styled.h1`
-  font-size: 2.5rem;
-  font-weight: 700;
-  color: ${props => props.theme.text};
-  margin-bottom: 10px;
-  background: linear-gradient(135deg, ${props => props.theme.primary}, ${props => props.theme.secondary});
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-`;
-
-const WelcomeSubtitle = styled.p`
-  font-size: 1.1rem;
-  color: ${props => props.theme.textLight};
-  margin-bottom: 20px;
-`;
-
-const StatsGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
-  margin-bottom: 30px;
-`;
-
-const StatCard = styled(motion.div)`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 20px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-  text-align: center;
-`;
-
-const StatIcon = styled.div`
-  font-size: 2rem;
-  color: ${props => props.theme.primary};
-  margin-bottom: 10px;
-`;
-
-const StatValue = styled.div`
-  font-size: 2rem;
-  font-weight: 700;
-  color: ${props => props.theme.text};
-  margin-bottom: 5px;
-`;
-
-const StatLabel = styled.div`
-  font-size: 0.9rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const QuickActions = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 20px;
-  margin-bottom: 30px;
-`;
-
-const ActionCard = styled(motion.div)`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 25px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-  cursor: pointer;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-  }
-`;
-
-const ActionIcon = styled.div`
-  font-size: 2.5rem;
-  color: ${props => props.theme.primary};
-  margin-bottom: 15px;
-`;
-
-const ActionTitle = styled.h3`
-  font-size: 1.3rem;
-  font-weight: 600;
-  color: ${props => props.theme.text};
-  margin-bottom: 10px;
-`;
-
-const ActionDescription = styled.p`
-  font-size: 0.95rem;
-  color: ${props => props.theme.textLight};
-  line-height: 1.5;
-`;
-
-const RecentActivity = styled.div`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 25px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-`;
-
-const ActivityTitle = styled.h3`
-  font-size: 1.3rem;
-  font-weight: 600;
-  color: ${props => props.theme.text};
-  margin-bottom: 20px;
-`;
-
-const ActivityItem = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  padding: 15px 0;
-  border-bottom: 1px solid ${props => props.theme.border};
-  
-  &:last-child {
-    border-bottom: none;
-  }
-`;
-
-const ActivityIcon = styled.div`
-  font-size: 1.2rem;
-  color: ${props => props.theme.primary};
-`;
-
-const ActivityContent = styled.div`
-  flex: 1;
-`;
-
-const ActivityText = styled.div`
-  font-size: 0.95rem;
-  color: ${props => props.theme.text};
-  margin-bottom: 5px;
-`;
-
-const ActivityTime = styled.div`
-  font-size: 0.8rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const LoadingSpinner = styled.div`
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 200px;
-  font-size: 1.2rem;
-  color: ${props => props.theme.textLight};
-`;
-
-function Dashboard({ user }) {
-  const [stats, setStats] = useState({
-    diaries: 0,
-    checkins: 0,
-    games: 0,
-    streak: 0
-  });
-  const [recentActivity, setRecentActivity] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
-      
-      // 获取统计数据
-      const [diariesRes, checkinsRes, gamesRes] = await Promise.all([
-        axios.get('/diary?per_page=1'),
-        axios.get('/checkin'),
-        axios.get('/games/scores')
-      ]);
-
-      setStats({
-        diaries: diariesRes.data.total || 0,
-        checkins: checkinsRes.data.checkins.length || 0,
-        games: gamesRes.data.scores.length || 0,
-        streak: Math.floor(Math.random() * 7) + 1 // 模拟连续打卡天数
-      });
-
-      // 获取最近活动
-      const activities = [];
-      
-      if (diariesRes.data.diaries.length > 0) {
-        activities.push({
-          icon: FaBook,
-          text: '写了一篇新日记',
-          time: '2小时前',
-          type: 'diary'
-        });
-      }
-      
-      if (checkinsRes.data.checkins.length > 0) {
-        activities.push({
-          icon: FaCheckCircle,
-          text: '完成了今日打卡',
-          time: '1小时前',
-          type: 'checkin'
-        });
-      }
-      
-      activities.push({
-        icon: FaGamepad,
-        text: '玩了一局记忆游戏',
-        time: '3小时前',
-        type: 'game'
-      });
-
-      setRecentActivity(activities);
-    } catch (error) {
-      console.error('获取仪表板数据失败:', error);
-    } finally {
-      setLoading(false);
-    }
+// 欢迎卡片组件
+const WelcomeCard = ({ username, loading }) => {
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "早上好";
+    if (hour < 18) return "下午好";
+    return "晚上好";
   };
 
-  const quickActions = [
-    {
-      icon: FaBook,
-      title: '写日记',
-      description: '记录今天的心情和想法，与Gemini分享你的故事',
-      path: '/diary'
-    },
-    {
-      icon: FaCheckCircle,
-      title: '打卡',
-      description: '完成今日目标，保持好习惯',
-      path: '/checkin'
-    },
-    {
-      icon: FaMusic,
-      title: '听音乐',
-      description: '与Gemini一起享受美妙的音乐时光',
-      path: '/music'
-    },
-    {
-      icon: FaBookOpen,
-      title: '阅读',
-      description: '一起读书，分享阅读心得',
-      path: '/reading'
-    },
-    {
-      icon: FaGamepad,
-      title: '小游戏',
-      description: '放松一下，玩个有趣的小游戏',
-      path: '/games'
-    },
-    {
-      icon: FaComments,
-      title: '聊天',
-      description: '与Gemini聊聊天，分享你的想法',
-      path: '/chat'
-    }
-  ];
+  return (
+    <Paper elevation={0} sx={{ p: 4, borderRadius: 4, background: 'linear-gradient(135deg, #81c784 0%, #64b5f6 100%)', color: 'white' }}>
+      <Typography variant="h4" fontWeight={700}>
+        {loading ? <Skeleton width="60%" /> : `${getGreeting()}，${username}！`}
+      </Typography>
+      <Typography variant="body1" sx={{ opacity: 0.9 }}>
+        {loading ? <Skeleton width="80%" /> : "今天也是充满希望的一天，让我们开始吧 🌟"}
+      </Typography>
+    </Paper>
+  );
+};
 
-  if (loading) {
-    return (
-      <DashboardContainer>
-        <LoadingSpinner>正在加载仪表板...</LoadingSpinner>
-      </DashboardContainer>
-    );
-  }
+// 统计数据卡片组件
+const StatCard = ({ icon, value, label, color, loading }) => (
+  <Paper elevation={0} sx={{ p: 3, display: 'flex', alignItems: 'center', gap: 2, borderRadius: 4 }}>
+    <Avatar sx={{ bgcolor: color, width: 56, height: 56, color: 'white' }}>{icon}</Avatar>
+    <Box>
+      <Typography variant="h4" fontWeight={700}>
+        {loading ? <Skeleton width={50} /> : value}
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        {label}
+      </Typography>
+    </Box>
+  </Paper>
+);
+
+// 快速入口/占位符卡片组件
+const ActionCard = ({ icon, title, description, path, isPlaceholder, onClick }) => (
+  <Card 
+    elevation={0} 
+    onClick={onClick}
+    sx={{ 
+      height: '100%', 
+      display: 'flex', 
+      flexDirection: 'column',
+      borderRadius: 4,
+      cursor: isPlaceholder ? 'not-allowed' : 'pointer',
+      opacity: isPlaceholder ? 0.6 : 1,
+      transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+      '&:hover': {
+        transform: isPlaceholder ? 'none' : 'translateY(-4px)',
+        boxShadow: isPlaceholder ? 'none' : '0 10px 20px rgba(0,0,0,0.08)'
+      }
+    }}
+  >
+    <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
+      <Avatar sx={{ bgcolor: 'primary.light', width: 64, height: 64, margin: '0 auto 16px', fontSize: '2rem' }}>
+        {icon}
+      </Avatar>
+      <Typography variant="h6" fontWeight={600} gutterBottom>
+        {title}
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        {description}
+      </Typography>
+    </CardContent>
+  </Card>
+);
+
+function Dashboard({ user }) {
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchSummary = async () => {
+      try {
+        setLoading(true);
+        const response = await axios.get('/api/dashboard/summary');
+        setSummary(response.data);
+      } catch (error) {
+        console.error("获取首页数据失败:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSummary();
+  }, []);
+
+  const stats = summary?.stats || {};
 
   return (
-    <DashboardContainer>
-      <WelcomeSection
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-      >
-        <WelcomeTitle>欢迎回来，{user.username}！</WelcomeTitle>
-        <WelcomeSubtitle>
-          今天是个美好的日子，让我们继续这段温馨的陪伴时光吧 🌟
-        </WelcomeSubtitle>
-      </WelcomeSection>
-
-      <StatsGrid>
-        <StatCard
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-        >
-          <StatIcon><FaBook /></StatIcon>
-          <StatValue>{stats.diaries}</StatValue>
-          <StatLabel>篇日记</StatLabel>
-        </StatCard>
+    <Box p={{ xs: 1, sm: 2 }}>
+      <Grid container spacing={3}>
         
-        <StatCard
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-        >
-          <StatIcon><FaCheckCircle /></StatIcon>
-          <StatValue>{stats.checkins}</StatValue>
-          <StatLabel>次打卡</StatLabel>
-        </StatCard>
-        
-        <StatCard
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-        >
-          <StatIcon><FaGamepad /></StatIcon>
-          <StatValue>{stats.games}</StatValue>
-          <StatLabel>次游戏</StatLabel>
-        </StatCard>
-        
-        <StatCard
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
-        >
-          <StatIcon><FaHeart /></StatIcon>
-          <StatValue>{stats.streak}</StatValue>
-          <StatLabel>天连续</StatLabel>
-        </StatCard>
-      </StatsGrid>
+        {/* -- 欢迎区域 -- */}
+        <Grid item xs={12}>
+          <WelcomeCard username={summary?.username || user.username} loading={loading} />
+        </Grid>
 
-      <QuickActions>
-        {quickActions.map((action, index) => (
-          <ActionCard
-            key={action.path}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 * index }}
-            onClick={() => window.location.href = action.path}
-          >
-            <ActionIcon>
-              <action.icon />
-            </ActionIcon>
-            <ActionTitle>{action.title}</ActionTitle>
-            <ActionDescription>{action.description}</ActionDescription>
-          </ActionCard>
-        ))}
-      </QuickActions>
+        {/* -- 核心统计数据 -- */}
+        <Grid item xs={12} sm={6} md={3}><StatCard icon={<FaBook />} value={stats.diaries} label="篇日记" color="#ffb74d" loading={loading} /></Grid>
+        <Grid item xs={12} sm={6} md={3}><StatCard icon={<FaCheckCircle />} value={stats.checkins} label="次打卡" color="#4db6ac" loading={loading} /></Grid>
+        <Grid item xs={12} sm={6} md={3}><StatCard icon={<FaHeart />} value={stats.streak} label="天连续" color="#e57373" loading={loading} /></Grid>
+        <Grid item xs={12} sm={6} md={3}><StatCard icon={<FaBookOpen />} value={stats.books} label="本书籍" color="#9575cd" loading={loading} /></Grid>
 
-      <RecentActivity
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.6 }}
-      >
-        <ActivityTitle>最近活动</ActivityTitle>
-        {recentActivity.map((activity, index) => (
-          <ActivityItem key={index}>
-            <ActivityIcon>
-              <activity.icon />
-            </ActivityIcon>
-            <ActivityContent>
-              <ActivityText>{activity.text}</ActivityText>
-              <ActivityTime>{activity.time}</ActivityTime>
-            </ActivityContent>
-          </ActivityItem>
-        ))}
-      </RecentActivity>
-    </DashboardContainer>
+        {/* -- 主要功能区 -- */}
+        <Grid item xs={12} md={8}>
+          <Paper elevation={0} sx={{ p: 3, borderRadius: 4, height: '100%' }}>
+            <Typography variant="h6" fontWeight={600} gutterBottom>快速开始</Typography>
+            <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}><ActionCard icon={<FaPlus />} title="写新日记" description="记录今天的点点滴滴" onClick={() => navigate('/diary')} /></Grid>
+                <Grid item xs={12} sm={6}><ActionCard icon={<GiTomato />} title="番茄钟" description="专注工作，即将推出" isPlaceholder /></Grid>
+                <Grid item xs={12} sm={6}><ActionCard icon={<FaCheckCircle />} title="去打卡" description="完成今日份的好习惯" onClick={() => navigate('/checkin')} /></Grid>
+                <Grid item xs={12} sm={6}><ActionCard icon={<GiSprout />} title="我的花园" description="用专注浇灌成长，敬请期待" isPlaceholder /></Grid>
+            </Grid>
+          </Paper>
+        </Grid>
+
+        {/* -- 最新日记预览 -- */}
+        <Grid item xs={12} md={4}>
+          <Card elevation={0} sx={{ p: 2, borderRadius: 4, height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <CardContent sx={{ flexGrow: 1 }}>
+              <Typography variant="h6" fontWeight={600} gutterBottom>最新日记</Typography>
+              {loading ? (
+                <>
+                  <Skeleton variant="text" sx={{ fontSize: '1rem' }} />
+                  <Skeleton variant="text" sx={{ fontSize: '1rem' }} />
+                  <Skeleton variant="text" sx={{ fontSize: '1rem', width: '60%' }} />
+                </>
+              ) : summary?.latest_diary ? (
+                <Typography variant="body2" color="text.secondary">
+                  {summary.latest_diary.content_snippet}
+                </Typography>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  还没有写日记，从今天开始记录吧！
+                </Typography>
+              )}
+            </CardContent>
+            <Button fullWidth variant="contained" onClick={() => navigate('/diary')} sx={{ mt: 'auto' }}>
+              查看日记
+            </Button>
+          </Card>
+        </Grid>
+
+      </Grid>
+    </Box>
   );
 }
 
