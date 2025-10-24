@@ -107,6 +107,7 @@ playYouTubeTrack: (song) => {
     }
     
     // 3. 命令YouTube引擎加载并播放新歌
+    youtubePlayer.loadVideoById(song.videoId); 
     youtubePlayer.playVideo();
     
     // 4. [核心修正] 立刻更新Store状态，让UI即时响应
