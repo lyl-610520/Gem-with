@@ -31,7 +31,7 @@ const messageText = (isUser) => ({
 
 function MusicChatView({ user }) {
   const [messages, setMessages] = useState([
-    { sender: 'gemini', text: `嘿 ${user.nickname}！想聊点什么音乐吗？` }
+    { sender: 'gemini', text: `想聊点什么音乐吗？` }
   ]);
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -75,7 +75,7 @@ function MusicChatView({ user }) {
     };
 
     try {
-      const response = await axios.post('/api/chat/with_music', payload);
+      const response = await axios.post('/chat/with_music', payload);
       const geminiMessage = { sender: 'gemini', text: response.data.reply };
       setMessages(prev => [...prev, geminiMessage]);
     } catch (error) {
