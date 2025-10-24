@@ -113,7 +113,7 @@ function Music({ user }) {
             </AnimatePresence>
           </Box>
         </MusicContainer>
-        <FloatingChatButton />
+        <FloatingChatButton user={user} />
       </Box>
     </Container>
   );
