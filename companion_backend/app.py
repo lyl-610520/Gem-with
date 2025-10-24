@@ -373,6 +373,47 @@ def update_user_activity(user_id):
         user.last_active = datetime.utcnow()
         db.session.commit()
 
+def calculate_checkin_streak(user_id):
+    """计算用户连续打卡天数。"""
+    beijing_tz = pytz.timezone('Asia/Shanghai')
+    
+    # 查询用户所有打卡记录的日期，去重并降序排列
+    checkin_dates = db.session.query(
+        func.date(func.timezone('Asia/Shanghai', Checkin.created_at))
+    ).filter_by(user_id=user_id).distinct().order_by(
+        func.date(func.timezone('Asia/Shanghai', Checkin.created_at)).desc()
+    ).all()
+    
+    # 将查询结果转换为 date 对象列表
+    checkin_dates = [d[0] for d in checkin_dates]
+    
+    if not checkin_dates:
+        return 0
+
+    streak = 0
+    today = datetime.now(beijing_tz).date()
+    
+    # 检查今天或昨天是否打卡
+    if today in checkin_dates:
+        streak = 1
+        current_day = today - timedelta(days=1)
+    elif (today - timedelta(days=1)) in checkin_dates:
+        streak = 1
+        current_day = today - timedelta(days=2)
+    else:
+        # 如果今天和昨天都没打卡，连击中断
+        return 0
+
+    # 从昨天或前天开始，向前追溯
+    for i in range(1, len(checkin_dates)):
+        if checkin_dates[i] == current_day:
+            streak += 1
+            current_day -= timedelta(days=1)
+        else:
+            # 日期不连续，中断
+            break
+            
+    return streak
 
 # API路由
 @app.route('/api/auth/login', methods=['POST'])
@@ -405,8 +446,6 @@ def login():
         })
     else:
         return jsonify({'error': '用户名或密码错误'}), 401
-
-# 在 app.py 中，用这个函数替换掉旧的 register 函数
 
 @app.route('/api/auth/register', methods=['POST'])
 def register():
@@ -502,6 +541,51 @@ def update_profile():
     
     return jsonify({'success': True})
 
+# app.py (添加新的API路由)
+
+@app.route('/api/dashboard/summary', methods=['GET'])
+@jwt_required()
+def get_dashboard_summary():
+    """[全新] 为首页提供统一的、聚合的数据。"""
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    if not user:
+        return jsonify({'error': '用户不存在'}), 404
+
+    # 1. 获取统计数据
+    diary_count = Diary.query.filter_by(user_id=current_user_id).count()
+    checkin_count = Checkin.query.filter_by(user_id=current_user_id).count()
+    book_count = Book.query.filter_by(user_id=current_user_id).count()
+    
+    # 2. 调用新函数计算连续打卡天数
+    streak = calculate_checkin_streak(current_user_id)
+    
+    # 3. 获取最新的日记作为预览
+    latest_diary = Diary.query.filter_by(user_id=current_user_id).order_by(Diary.created_at.desc()).first()
+    latest_diary_preview = None
+    if latest_diary:
+        # 创建一个不超过50个字的摘要
+        content_snippet = latest_diary.content[:50] + ('...' if len(latest_diary.content) > 50 else '')
+        latest_diary_preview = {
+            'id': latest_diary.id,
+            'content_snippet': content_snippet,
+            'mood': latest_diary.mood
+        }
+        
+    # 4. 组合成一个完整的对象返回给前端
+    summary_data = {
+        'username': user.username,
+        'stats': {
+            'diaries': diary_count,
+            'checkins': checkin_count,
+            'books': book_count,
+            'streak': streak
+        },
+        'latest_diary': latest_diary_preview
+    }
+    
+    return jsonify(summary_data)
+    
 # 日记相关API
 @app.route('/api/diary', methods=['GET'])
 @jwt_required()
