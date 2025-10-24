@@ -124,9 +124,6 @@ else:
     CORS(app, supports_credentials=True)
     print("⚠️ 警告：未配置FRONTEND_URL环境变量，CORS已设置为允许所有来源，这在生产环境中存在安全风险。")
 # ------------------- ^^^^ 复制到这里结束 ^^^^ -------------------
-# app.py
-
-# ... CORS(app, ...) 这一行之后 ...
 
 # 配置Gemini API - 【V4修正版：使用 genai.Client()】
 GEMINI_API_KEYS_STR = os.getenv('GEMINI_API_KEYS')
@@ -151,7 +148,10 @@ def initialize_gemini_client():
     try:
         api_key = GEMINI_API_KEYS[current_key_index]
         # 严格使用 genai.Client() 初始化
-        gemini_client = genai.Client(api_key=api_key)
+        # 将 request_options 传递给 Client 的构造函数
+        gemini_client = genai.Client(
+            api_key=api_key,
+            request_options={"timeout": 120} # 设置120秒超时
         # 做一个简单的API调用来验证Key
         gemini_client.models.get(model='models/gemini-2.5-pro')
         print(f"✅ Gemini 客户端初始化成功！正使用 Key #{current_key_index + 1}")
@@ -235,10 +235,6 @@ class Checkin(db.Model):
     is_gemini_checkin = db.Column(db.Boolean, default=False)  # 是否为Gemini的打卡
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# companion_backend/app.py
-
-# companion_backend/app.py
-
 class Book(db.Model):
     """[Base64版] 书籍模型"""
     id = db.Column(db.Integer, primary_key=True)
@@ -292,7 +288,6 @@ with app.app_context():
 
 # 全局变量存储活跃的音乐会话
 
-# app.py
 
 # 辅助函数
 def get_gemini_response(prompt, user_context="", user_id=None):
@@ -340,7 +335,6 @@ def get_gemini_response(prompt, user_context="", user_id=None):
                 model='gemini-2.5-pro', # 推荐使用能力更强的模型
                 contents=contents,
                 config=config,
-                request_options={"timeout": 120}
             )
             return response.text
         except Exception as e:
