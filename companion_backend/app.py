@@ -325,7 +325,12 @@ def get_gemini_response(prompt, user_context="", user_id=None):
     
     # 使用 config 对象来传递 system_instruction
     config = types.GenerateContentConfig(
-        system_instruction=system_instruction
+        system_instruction=system_instruction,
+        tools=[
+            types.Tool(
+                google_search=types.GoogleSearch()
+            )
+        ]
     )
 
     for attempt in range(len(GEMINI_API_KEYS) + 1):
