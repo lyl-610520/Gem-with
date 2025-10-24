@@ -41,7 +41,13 @@ const initializeYoutubePlayer = () => {
                     } else if (event.data === PlayerState.PAUSED) {
                         usePlayerStore.setState({ isPlaying: false });
                     } else if (event.data === PlayerState.ENDED) {
-                        usePlayerStore.setState({ isPlaying: false });
+                        const { playbackMode } = usePlayerStore.getState();
+                        if (playbackMode === 'loop') {
+                            youtubePlayer.seekTo(0, true); // 回到视频开头
+                            youtubePlayer.playVideo();     // 再次播放
+                        } else {
+                            usePlayerStore.setState({ isPlaying: false });
+                        }
                     }
                 }
             }
@@ -76,7 +82,7 @@ playYouTubeTrack: (song) => {
     }
     
     // 3. 命令YouTube引擎加载并播放新歌
-    youtubePlayer.loadVideoById(song.videoId); 
+    youtubePlayer.playVideo();
     
     // 4. [核心修正] 立刻更新Store状态，让UI即时响应
     //    我们在这里不再猜测时长，而是将它设为0。
