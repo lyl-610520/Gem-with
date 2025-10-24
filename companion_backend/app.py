@@ -150,8 +150,7 @@ def initialize_gemini_client():
         # 严格使用 genai.Client() 初始化
         # 将 request_options 传递给 Client 的构造函数
         gemini_client = genai.Client(
-            api_key=api_key,
-            request_options={"timeout": 120} # 设置120秒超时
+            api_key=api_key
             )
         # 做一个简单的API调用来验证Key
         gemini_client.models.get(model='models/gemini-2.5-pro')
