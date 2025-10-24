@@ -64,6 +64,31 @@ const usePlayerStore = create((set, get) => ({
   currentTime: 0, source: null, playbackMode: 'list', isPlayerVisible: true,
   isSpotifyPlayerReady: false, 
 
+  // VVVV ============= 【新增：音乐聊天状态】 ============= VVVV
+  chatMessages: [], // 用来存储聊天记录
+
+  // Action: 初始化聊天或添加欢迎消息
+  initializeChat: (nickname) => {
+    // 只有在聊天记录为空时才添加欢迎语，防止重复
+    if (get().chatMessages.length === 0) {
+      set({
+        chatMessages: [{ 
+          sender: 'gemini', 
+          text: `想聊点什么音乐吗？` 
+        }]
+      });
+    }
+  },
+
+  // Action: 添加一条新的聊天消息
+  addChatMessage: (message) => {
+    set(state => ({
+      chatMessages: [...state.chatMessages, message]
+    }));
+  },
+  // ^^^^ =============================================== ^^^^
+
+
 // VVVV [这里是最终修正版] VVVV
 playYouTubeTrack: (song) => {
     // 1. 检查并确保YouTube播放器已就绪
