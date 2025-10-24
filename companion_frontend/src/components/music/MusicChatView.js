@@ -30,24 +30,35 @@ const messageText = (isUser) => ({
 
 
 function MusicChatView({ user }) {
-  const [messages, setMessages] = useState([
-    { sender: 'gemini', text: `想聊点什么音乐吗？` }
-  ]);
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
-
-  // 从 Zustand store 中获取音乐上下文
+  // VVVV ============= 【核心改造：从全局 Store 获取状态和 Actions】 ============= VVVV
+  const { 
+    chatMessages, 
+    initializeChat, 
+    addChatMessage 
+  } = usePlayerStore();
+  
+  // 从 Store 中获取音乐上下文
   const { isActive, trackInfo, source } = usePlayerStore(state => ({
     isActive: state.isActive,
     trackInfo: state.trackInfo,
     source: state.source,
   }));
 
+  // 组件加载时，调用一次初始化函数
+  useEffect(() => {
+    if (user) {
+      initializeChat(user.nickname);
+    }
+  }, [user, initializeChat]);
+  // ^^^^ =================================================================== ^^^^
+
   // 每次消息更新时，自动滚动到底部
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [chatMessages]);
 
 
   const handleSendMessage = async (e) => {
@@ -55,7 +66,7 @@ function MusicChatView({ user }) {
     if (!newMessage.trim() || isLoading) return;
 
     const userMessage = { sender: 'user', text: newMessage };
-    setMessages(prev => [...prev, userMessage]);
+    addChatMessage(userMessage); // <--- 使用全局 Action
     setNewMessage('');
     setIsLoading(true);
 
@@ -77,11 +88,11 @@ function MusicChatView({ user }) {
     try {
       const response = await axios.post('/chat/with_music', payload);
       const geminiMessage = { sender: 'gemini', text: response.data.reply };
-      setMessages(prev => [...prev, geminiMessage]);
+      addChatMessage(geminiMessage); // <--- 使用全局 Action
     } catch (error) {
       console.error("Error sending message:", error);
       const errorMessage = { sender: 'gemini', text: '抱歉，我现在有点走神了，稍后再试吧。' };
-      setMessages(prev => [...prev, errorMessage]);
+      addChatMessage(errorMessage); // <--- 使用全局 Action
     } finally {
       setIsLoading(false);
     }
@@ -118,7 +129,7 @@ function MusicChatView({ user }) {
         <Box sx={{ flexGrow: 1, overflowY: 'auto', mb: 2 }}>
             <List>
                 <AnimatePresence>
-                    {messages.map((msg, index) => (
+                    {chatMessages.map((msg, index) => (
                         <motion.div
                             key={index}
                             layout
