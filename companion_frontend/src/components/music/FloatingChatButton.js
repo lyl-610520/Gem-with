@@ -4,8 +4,8 @@ import React, { useState } from 'react';
 import { Fab, Modal, Box, Tooltip } from '@mui/material';
 import { keyframes } from '@mui/system';
 import { FaCommentDots } from 'react-icons/fa';
-// 我们假设之后会创建一个专门的音乐聊天组件
-// import MusicChatView from './MusicChatView'; 
+import MusicChatView from './MusicChatView'; // 引入我们真正的聊天视图
+import usePlayerStore from '../../stores/playerStore'; // 引入 store, 用于传递 user 属性
 
 // 呼吸光晕动画
 const pulse = keyframes`
@@ -24,7 +24,7 @@ const modalStyle = {
   border: 'none',
   borderRadius: 4,
   boxShadow: 24,
-  p: 3,
+  p: { xs: 2, sm: 3 }, // 响应式 padding
   outline: 'none',
 };
 
@@ -60,10 +60,7 @@ const FloatingChatButton = () => {
         <Box sx={modalStyle}>
           {/* 在这里，我们将放入真正的聊天界面组件 */}
           {/* 为了让项目能运行，我们先放个占位符 */}
-          <h2 id="music-chat-modal-title">一起听歌 (功能开发中)</h2>
-          <p>
-            这里将是与 Gemini 聊音乐的专属空间！
-          </p>
+          <MusicChatView user={user} />
         </Box>
       </Modal>
     </>
