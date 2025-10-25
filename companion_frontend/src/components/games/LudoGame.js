@@ -4,7 +4,7 @@ import { FaPlane } from 'react-icons/fa';
 import {
   GameContent, GameHeader, GameTitleModal, CloseButton,
   GameButtonGroup, Button as BaseButton
-} from '../Games';
+} from './GameUI';
 
 // --- 游戏核心配置 ---
 const COLORS = {
