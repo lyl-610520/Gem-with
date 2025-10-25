@@ -121,28 +121,29 @@ function WordGame({ onClose, onScore }) {
   const [isComputerTurn, setIsComputerTurn] = useState(false);
   const [gameEnded, setGameEnded] = useState(false);
 
+  // VVVV [核心加固 1/2]: 使用 Refs 来跟踪函数和状态，让回调函数完全稳定 VVVV
   const onScoreRef = useRef(onScore);
+  const scoreRef = useRef(score);
   useEffect(() => {
     onScoreRef.current = onScore;
-  }, [onScore]);
+    scoreRef.current = score;
+  }, [onScore, score]);
 
   const validatePlayerWord = async (word) => {
     try {
       const response = await axios.get(`/games/word/lookup/${word}`);
       return response.data.valid;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   };
-  
+
   const handleComputerTurn = useCallback(async (letter) => {
     setIsComputerTurn(true);
     setMessage({ text: '', error: false });
-    
+
     let currentUsedWords = [];
-    setUsedWords(prevUsedWords => {
-        currentUsedWords = Array.from(prevUsedWords);
-        return prevUsedWords;
+    setUsedWords(prev => {
+        currentUsedWords = Array.from(prev);
+        return prev;
     });
 
     try {
@@ -151,24 +152,26 @@ function WordGame({ onClose, onScore }) {
         used_words: currentUsedWords
       });
       const data = response.data;
-      if (data && data.status === 'success') {
+      
+      // 添加了对 data.definition 的安全检查，防止意外的 null 或 undefined
+      if (data && data.status === 'success' && data.definition) {
         setCurrentWord(data.word);
         setDefinition(data.definition);
         setUsedWords(prev => new Set(prev).add(data.word));
         setMessage({ text: '轮到你了！', error: false });
       } else {
-        setMessage({ text: data.message || '电脑被难倒了！', error: false });
+        setMessage({ text: (data && data.message) || '电脑被难倒了！', error: false });
         setGameEnded(true);
-        if (score > 0) onScoreRef.current('word', score);
+        const finalScore = scoreRef.current;
+        if (finalScore > 0) onScoreRef.current('word', finalScore);
       }
     } catch (error) {
       setMessage({ text: '电脑开小差了，请重试', error: true });
     } finally {
       setIsComputerTurn(false);
     }
-  }, [score]);
+  }, []); // <--- VVVV [核心加固 2/2]: 依赖项数组为空，此函数永不改变 VVVV
 
-  
   const startGame = useCallback(() => {
     setCurrentWord('');
     setDefinition({ en: '', zh: '' });
@@ -178,25 +181,19 @@ function WordGame({ onClose, onScore }) {
     setGameEnded(false);
     setIsLoading(true);
     setMessage({ text: '', error: false });
-    
     const initialLetters = 'abcdefg';
     const randomLetter = initialLetters[Math.floor(Math.random() * initialLetters.length)];
-    
     handleComputerTurn(randomLetter).finally(() => setIsLoading(false));
   }, [handleComputerTurn]);
 
-
   useEffect(() => {
     startGame();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  }, [startGame]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const input = playerInput.trim().toLowerCase();
     if (!input || isComputerTurn || gameEnded || !currentWord) return;
-
     if (input[0] !== currentWord[currentWord.length - 1]) {
       setMessage({ text: `单词必须以 '${currentWord[currentWord.length - 1]}' 开头!`, error: true });
       return;
@@ -208,10 +205,8 @@ function WordGame({ onClose, onScore }) {
 
     setIsLoading(true);
     const isValid = await validatePlayerWord(input);
-    
     if (isValid) {
-      const points = input.length;
-      setScore(prev => prev + points);
+      setScore(prev => prev + input.length);
       setUsedWords(prev => new Set(prev).add(input));
       setPlayerInput('');
       await handleComputerTurn(input[input.length - 1]);
@@ -237,16 +232,12 @@ function WordGame({ onClose, onScore }) {
         <GameTitleModal>单词接龙 (人机对战)</GameTitleModal>
         <CloseButton onClick={onClose}>×</CloseButton>
       </GameHeader>
-
       <GameInfo>
         <div>分数: {score}</div>
         <div>回合数: {Math.floor(usedWords.size / 2)}</div>
       </GameInfo>
-
       <GameArea>
-        { isLoading && !currentWord ? (
-            <LoadingSpinner>游戏正在加载中...</LoadingSpinner>
-        ) : (
+        {isLoading && !currentWord ? <LoadingSpinner>游戏正在加载中...</LoadingSpinner> : (
           <>
             <WordDisplay>
               <CurrentWord>{currentWord || '...'}</CurrentWord>
@@ -254,30 +245,18 @@ function WordGame({ onClose, onScore }) {
                 {definition.zh && <DefinitionZH>中文释义：{definition.zh}</DefinitionZH>}
                 {definition.en && <p>English: {definition.en}</p>}
               </DefinitionContainer>
-            </WordDisplay> {/* <--- 这里已经修正！ */}
-
+            </WordDisplay>
             <InputArea onSubmit={handleSubmit}>
-              <WordInput
-                type="text"
-                value={playerInput}
-                onChange={(e) => setPlayerInput(e.target.value)}
-                placeholder={isComputerTurn ? '' : `输入以 '${currentWord ? currentWord[currentWord.length - 1] : ''}' 开头的单词`}
-                disabled={isComputerTurn || gameEnded || isLoading}
-                autoFocus
-              />
-              <SubmitButton type="submit" disabled={isComputerTurn || gameEnded || isLoading || !playerInput}>
-                <FaPaperPlane />
-              </SubmitButton>
+              <WordInput type="text" value={playerInput} onChange={(e) => setPlayerInput(e.target.value)} placeholder={isComputerTurn ? '' : `输入以 '${currentWord ? currentWord[currentWord.length - 1] : ''}' 开头的单词`} disabled={isComputerTurn || gameEnded || isLoading} autoFocus />
+              <SubmitButton type="submit" disabled={isComputerTurn || gameEnded || isLoading || !playerInput}><FaPaperPlane /></SubmitButton>
             </InputArea>
-            
             <MessageDisplay error={message.error} isThinking={isComputerTurn}>
               {!isComputerTurn && message.text}
             </MessageDisplay>
           </>
         )}
       </GameArea>
-      
-       <GameButtonGroup>
+      <GameButtonGroup>
         <BaseButton onClick={startGame}><FaRedo /> 重新开始</BaseButton>
         <BaseButton primary onClick={handleEndGame}>{gameEnded ? '关闭游戏' : '结束游戏'}</BaseButton>
       </GameButtonGroup>
