@@ -6,7 +6,6 @@ import {
   GameContent, GameHeader, GameTitleModal, CloseButton, GameArea,
   GameInfo, GameButtonGroup, Button as BaseButton, LoadingSpinner
 } from './Games';
-import ErrorBoundary from './ErrorBoundary'; // 强烈建议保留错误捕获器
 
 // --- 样式部分保持不变 ---
 const thinkingAnimation = keyframes`0% { content: '电脑正在思考中'; } 25% { content: '电脑正在思考中.'; } 50% { content: '电脑正在思考中..'; } 75% { content: '电脑正在思考中...'; } 100% { content: '电脑正在思考中'; }`;
@@ -20,11 +19,13 @@ const WordInput = styled.input` flex-grow: 1; padding: 12px 15px; border-radius:
 const SubmitButton = styled.button` padding: 0 20px; border-radius: 8px; border: none; background: ${props => props.theme.primary}; color: white; font-size: 1.2rem; cursor: pointer; transition: all 0.3s ease; &:disabled { background: #ccc; cursor: not-allowed; } `;
 const MessageDisplay = styled.div` min-height: 24px; margin-top: 15px; font-weight: 500; color: ${props => props.error ? '#f44336' : (props.isThinking ? props.theme.primary : '#4caf50')}; ${props => props.isThinking && ` &:after { content: '电脑正在思考中'; animation: ${thinkingAnimation} 2s linear infinite; } `} `;
 
-function WordGameComponent({ onClose, onScore }) {
+
+// VVVV [核心改动] VVVV
+// 直接导出游戏组件，不再进行任何包裹
+function WordGame({ onClose, onScore }) {
   const [currentWord, setCurrentWord] = useState('');
-  // VVVV [核心改动 1/4]: 新增 state 用于存储单词的中文翻译 VVVV
   const [translation, setTranslation] = useState('');
-  const [definition, setDefinition] = useState(null); // 可以为 null
+  const [definition, setDefinition] = useState(null);
   const [playerInput, setPlayerInput] = useState('');
   const [usedWords, setUsedWords] = useState(new Set());
   const [score, setScore] = useState(0);
@@ -54,10 +55,9 @@ function WordGameComponent({ onClose, onScore }) {
       });
       const data = response.data;
       if (data && data.status === 'success') {
-        // VVVV [核心改动 2/4]: 更新所有新 state VVVV
         setCurrentWord(data.word);
         setTranslation(data.translation);
-        setDefinition(data.definition); // 直接设置，可能为 null
+        setDefinition(data.definition);
         setUsedWords(prev => new Set(prev).add(data.word));
         setMessage({ text: '轮到你了！', error: false });
       } else {
@@ -69,17 +69,12 @@ function WordGameComponent({ onClose, onScore }) {
     } finally {
       setIsComputerTurn(false);
     }
-  }, [usedWords]); // 依赖 usedWords 是正确的，因为它需要被发送到后端
+  }, [usedWords]);
 
   const startGame = useCallback(() => {
-    setCurrentWord('');
-    setTranslation('');
-    setDefinition(null);
-    setPlayerInput('');
-    setUsedWords(new Set());
-    setScore(0);
-    setGameEnded(false);
-    setIsLoading(true);
+    setCurrentWord(''); setTranslation(''); setDefinition(null);
+    setPlayerInput(''); setUsedWords(new Set()); setScore(0);
+    setGameEnded(false); setIsLoading(true);
     const initialLetters = 'abcdefg';
     const randomLetter = initialLetters[Math.floor(Math.random() * initialLetters.length)];
     handleComputerTurn(randomLetter).finally(() => setIsLoading(false));
@@ -122,6 +117,7 @@ function WordGameComponent({ onClose, onScore }) {
 
   return (
     <GameContent>
+      {/* JSX 内容和之前一样，保持不变 */}
       <GameHeader>
         <GameTitleModal>单词接龙 </GameTitleModal>
         <CloseButton onClick={onClose}>×</CloseButton>
@@ -135,10 +131,7 @@ function WordGameComponent({ onClose, onScore }) {
           <>
             <WordDisplay>
               <CurrentWord>{currentWord || '...'}</CurrentWord>
-              {/* VVVV [核心改动 3/4]: 展示单词的中文翻译 VVVV */}
               {translation && <WordTranslation>({translation})</WordTranslation>}
-              
-              {/* VVVV [核心改动 4/4]: 安全地渲染可能不存在的定义 VVVV */}
               {definition && (
                 <DefinitionContainer>
                   {definition.zh && <DefinitionZH>中文释义：{definition.zh}</DefinitionZH>}
@@ -164,11 +157,4 @@ function WordGameComponent({ onClose, onScore }) {
   );
 }
 
-// 最终导出时，仍然用 ErrorBoundary 包裹，确保万无一失
-export default function WordGame(props) {
-  return (
-    <ErrorBoundary>
-      <WordGameComponent {...props} />
-    </ErrorBoundary>
-  )
-}
+export default WordGame;
