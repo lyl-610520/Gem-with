@@ -26,4 +26,9 @@ google-genai
 spotipy
 cryptography
 
+#油管音乐（非官方）
 ytmusicapi
+
+#单词接龙中文释义
+requests
+googletrans
