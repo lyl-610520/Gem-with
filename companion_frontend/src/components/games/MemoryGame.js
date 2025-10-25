@@ -13,7 +13,7 @@ import {
   GameInfo,
   GameButtonGroup,
   Button
-} from '../Games';
+} from './GameUI';
 
 // --- 专属于记忆翻牌的样式 ---
 const MemoryGrid = styled.div`
