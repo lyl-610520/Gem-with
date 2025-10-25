@@ -38,6 +38,7 @@ from spotipy.oauth2 import SpotifyOAuth
 from functools import wraps
 from flask_jwt_extended import decode_token # <--- 在文件顶部，从 flask_jwt_extended 额外导入 decode_token
 from ytmusicapi import YTMusic
+import requests
 
 # 加载环境变量
 load_dotenv()
@@ -1504,6 +1505,47 @@ def save_game_score():
     update_user_activity(int(current_user_id))
     
     return jsonify({'success': True, 'score_id': game_score.id})
+
+# 单词接龙 (词典闯关模式) API
+# ------------------------------------------------------------
+@app.route('/api/games/word/lookup/<word>', methods=['GET'])
+@jwt_required()
+def lookup_word(word):
+    """
+    使用外部免费API查询单词是否存在并获取其信息。
+    """
+    try:
+        # 调用免费词典API
+        api_url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+        response = requests.get(api_url)
+
+        # 检查API的响应
+        if response.status_code == 200:
+            data = response.json()[0] # 通常返回一个列表，我们取第一个结果
+            
+            # 提取我们需要的信息
+            phonetic = next((p.get('text') for p in data.get('phonetics', []) if p.get('text')), None)
+            meaning = data['meanings'][0]['definitions'][0]['definition']
+            example = next((d.get('example') for d in data['meanings'][0]['definitions'] if d.get('example')), "No example available.")
+
+            return jsonify({
+                "valid": True,
+                "word": data['word'],
+                "phonetic": phonetic,
+                "meaning": meaning,
+                "example": example
+            })
+        elif response.status_code == 404:
+            # API返回404，意味着这不是一个有效的单词
+            return jsonify({"valid": False, "reason": "这不是一个有效的英文单词"}), 404
+        else:
+            # 其他API错误
+            return jsonify({"valid": False, "reason": "词典服务暂时不可用"}), 500
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error calling dictionary API: {e}")
+        return jsonify({"valid": False, "reason": "网络错误，无法连接到词典服务"}), 503
+        
 
 # 健康检查
 @app.route('/api/health', methods=['GET'])
