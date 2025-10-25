@@ -38,7 +38,8 @@ from spotipy.oauth2 import SpotifyOAuth
 from functools import wraps
 from flask_jwt_extended import decode_token # <--- 在文件顶部，从 flask_jwt_extended 额外导入 decode_token
 from ytmusicapi import YTMusic
-import requests
+import random
+from googletrans import Translator
 
 # 加载环境变量
 load_dotenv()
@@ -1545,6 +1546,68 @@ def lookup_word(word):
     except requests.exceptions.RequestException as e:
         print(f"Error calling dictionary API: {e}")
         return jsonify({"valid": False, "reason": "网络错误，无法连接到词典服务"}), 503
+
+# VVVV 新增：单词接龙 - 电脑回合 API VVVV
+# --------------------------------------------------------------------
+@app.route('/api/games/word/computer-turn', methods=['POST'])
+@jwt_required()
+def word_game_computer_turn():
+    """
+    为单词接龙游戏生成电脑的下一步。
+    接收玩家出的单词的最后一个字母，以及所有已使用的单词列表。
+    """
+    data = request.get_json()
+    last_letter = data.get('last_letter')
+    used_words = data.get('used_words', []) # 获取已使用单词列表，防止重复
+
+    if not last_letter:
+        return jsonify({'error': '缺少 "last_letter" 参数'}), 400
+
+    try:
+        # 1. 使用 Datamuse API 寻找以该字母开头的单词
+        #    md=d 表示同时获取单词的英文定义 (definition)
+        datamuse_url = f"https://api.datamuse.com/words?sp={last_letter}*&md=d"
+        response = requests.get(datamuse_url)
+        response.raise_for_status() # 如果请求失败则抛出异常
+
+        words_data = response.json()
+
+        # 2. 过滤掉已经使用过的单词，并且只选择包含定义的单词
+        valid_choices = [
+            word for word in words_data
+            if word.get('word') not in used_words and 'defs' in word
+        ]
+
+        if not valid_choices:
+            # 如果电脑找不到任何可以接的词
+            return jsonify({'status': 'player_wins', 'message': '恭喜你，电脑被你难倒了！'})
+
+        # 3. 随机选择一个单词
+        computer_choice = random.choice(valid_choices)
+        computer_word = computer_choice['word']
+        english_definition = computer_choice['defs'][0].split('\t')[1] # Datamuse的定义格式有点特殊
+
+        # 4. 使用 googletrans 进行翻译
+        translator = Translator()
+        translation_result = translator.translate(english_definition, src='en', dest='zh-cn')
+        chinese_definition = translation_result.text
+        
+        # 5. 返回最终结果
+        return jsonify({
+            'status': 'success',
+            'word': computer_word,
+            'definition': {
+                'en': english_definition,
+                'zh': chinese_definition
+            }
+        })
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error calling Datamuse API: {e}")
+        return jsonify({'error': '词汇服务暂时不可用'}), 503
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return jsonify({'error': '服务器内部错误'}), 500
         
 
 # 健康检查
