@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FaGamepad, FaTrophy, FaStar, FaPlay, FaRedo } from 'react-icons/fa';
+import { FaGamepad, FaTrophy, FaStar, FaPlay, FaRedo, FaPlane } from 'react-icons/fa';
 import axios from 'axios';
 import WordGame from './WordGame'; // 新增导入
 import ErrorBoundary from './ErrorBoundary'; // <--- 新增这一行导入
