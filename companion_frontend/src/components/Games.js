@@ -4,9 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FaGamepad, FaTrophy, FaPlay, FaPlane } from 'react-icons/fa';
 import axios from 'axios';
 import ErrorBoundary from './ErrorBoundary';
-import MemoryGame from './games/MemoryGame'; // <--- 路径已更新
-import WordGame from './games/WordGame';
-import LudoGame from './games/LudoGame';
+//import MemoryGame from './games/MemoryGame'; // <--- 路径已更新
+//import WordGame from './games/WordGame';
+//import LudoGame from './games/LudoGame';
 
 const games = [
   { id: 'memory', title: '记忆翻牌', description: '测试你的记忆力，翻出相同的卡片', icon: <FaGamepad /> },
@@ -98,7 +98,7 @@ function Games({ user }) {
       </ScoresSection>
 
       <AnimatePresence>
-        {currentGame === 'memory' && (
+        {/*currentGame === 'memory' && (
           <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <ErrorBoundary><MemoryGame onClose={handleGameClose} onScore={handleScore} /></ErrorBoundary>
           </GameModal>
@@ -112,7 +112,7 @@ function Games({ user }) {
           <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <ErrorBoundary><LudoGame onClose={handleGameClose} onScore={handleScore} /></ErrorBoundary>
           </GameModal>
-        )}
+        )*/}
       </AnimatePresence>
     </GamesContainer>
   );
