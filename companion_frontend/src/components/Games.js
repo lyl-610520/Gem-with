@@ -5,9 +5,9 @@ import { FaGamepad, FaTrophy, FaPlay, FaPlane } from 'react-icons/fa';
 import axios from 'axios';
 
 // [修复] 重新导入子游戏组件
-//import MemoryGame from './games/MemoryGame';
-//import WordGame from './games/WordGame';
-//import LudoGame from './games/LudoGame';
+import MemoryGame from './games/MemoryGame';
+import WordGame from './games/WordGame';
+import LudoGame from './games/LudoGame';
 
 // [修复] 将 Games.js 自身需要的样式组件定义加回来
 const GamesContainer = styled.div`
@@ -212,7 +212,7 @@ function Games({ user }) {
 
       {/* [修复] 恢复对子游戏组件的渲染 */}
       <AnimatePresence>
-        {/*currentGame === 'memory' && (
+        {currentGame === 'memory' && (
           <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <MemoryGame onClose={handleGameClose} onScore={handleScore} />
           </GameModal>
@@ -226,7 +226,7 @@ function Games({ user }) {
           <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <LudoGame onClose={handleGameClose} onScore={handleScore} />
           </GameModal>
-        )*/}
+        )}
       </AnimatePresence>
     </GamesContainer>
   );
