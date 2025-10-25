@@ -3,9 +3,10 @@ import styled from 'styled-components';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FaGamepad, FaTrophy, FaStar, FaPlay, FaRedo, FaPlane } from 'react-icons/fa';
 import axios from 'axios';
-import WordGame from './WordGame'; // 新增导入
 import ErrorBoundary from './ErrorBoundary'; // <--- 新增这一行导入
-import LudoGame from './LudoGame'; // <--- 新增导入
+import MemoryGame from './games/MemoryGame';
+import WordGame from './games/WordGame';
+import LudoGame from './games/LudoGame';
 
 const GamesContainer = styled.div`
   max-width: 1000px;
