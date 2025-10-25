@@ -5,6 +5,7 @@ import { FaGamepad, FaTrophy, FaStar, FaPlay, FaRedo } from 'react-icons/fa';
 import axios from 'axios';
 import WordGame from './WordGame'; // 新增导入
 import ErrorBoundary from './ErrorBoundary'; // <--- 新增这一行导入
+import LudoGame from './LudoGame'; // <--- 新增导入
 
 const GamesContainer = styled.div`
   max-width: 1000px;
@@ -268,18 +269,19 @@ const games = [
     icon: <FaGamepad />
   },
   {
-    id: 'puzzle',
-    title: '数字拼图',
-    description: '移动数字块，按顺序排列',
-    icon: <FaStar />
+    id: 'ludo', // <--- 新的游戏 ID
+    title: '飞行棋',
+    description: '起飞，起飞，起飞～',
+    icon: <FaPlane /> // <--- 新的图标
   },
   {
     id: 'word',
     title: '单词接龙',
-    description: '与Gemini一起玩单词游戏',
+    description: '进行一场单词学习游戏',
     icon: <FaTrophy />
   }
 ];
+
 
 // 记忆翻牌游戏组件
 function MemoryGame({ onClose, onScore }) {
@@ -433,7 +435,7 @@ function Games({ user }) {
 
   const handleScore = async (gameType, score) => {
     try {
-      await axios.post('/games/scores', {
+      await axios.post('/api/games/scores', {
         game_type: gameType,
         score: score,
         level: 1
@@ -454,7 +456,7 @@ function Games({ user }) {
     return (
       <GamesContainer>
         <LoadingSpinner>正在加载游戏...</LoadingSpinner>
-      </GamesContainer>
+      </Games-Container>
     );
   }
 
@@ -503,41 +505,30 @@ function Games({ user }) {
 
       <AnimatePresence>
         {currentGame === 'memory' && (
-          <GameModal
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <MemoryGame onClose={handleGameClose} onScore={handleScore} />
+          <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <ErrorBoundary><MemoryGame onClose={handleGameClose} onScore={handleScore} /></ErrorBoundary>
           </GameModal>
         )}
-        {/* --- 新增以下代码块 --- */}
         {currentGame === 'word' && (
-          <GameModal
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-          <ErrorBoundary> {/* <--- 加上开始标签 */}
-            <WordGame onClose={handleGameClose} onScore={handleScore} />
-          </ErrorBoundary> {/* <--- 加上结束标签 */}
+          <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <ErrorBoundary><WordGame onClose={handleGameClose} onScore={handleScore} /></ErrorBoundary>
           </GameModal>
         )}
-        {/* --- 新增代码块结束 --- */}
+        {/* VVVV 新增飞行棋的弹窗逻辑 VVVV */}
+        {currentGame === 'ludo' && (
+          <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <ErrorBoundary><LudoGame onClose={handleGameClose} onScore={handleScore} /></ErrorBoundary>
+          </GameModal>
+        )}
       </AnimatePresence>
     </GamesContainer>
   );
 }
 
+// 导出通用样式，给其他游戏组件使用
 export {
-  GameContent,
-  GameHeader,
-  GameTitleModal,
-  CloseButton,
-  GameArea,
-  GameInfo,
-  GameButtonGroup,
-  Button,
-  LoadingSpinner
+  GameContent, GameHeader, GameTitleModal, CloseButton, GameArea, GameInfo,
+  GameButtonGroup, Button, LoadingSpinner, ScoresSection, ScoresTitle, ScoreItem, ScoreGame, ScoreValue
 };
+
 export default Games;
