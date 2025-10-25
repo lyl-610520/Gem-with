@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from "socket.io-client";
-import FriendsPage from './components/FriendsPage';
 import { createTheme, ThemeProvider, Box, CircularProgress } from '@mui/material';
 
 // 组件导入 (保持不变)
@@ -21,6 +20,7 @@ import Settings from './components/Settings';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import GlobalPlayer from './components/GlobalPlayer';
+import FriendsPage from './components/friends/FriendsPage';
 
 // 您的主题创建逻辑 (保持不变)
 const getTheme = (mode, customColor) => createTheme({
