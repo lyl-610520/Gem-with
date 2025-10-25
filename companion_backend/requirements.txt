@@ -1,5 +1,5 @@
 # [最终修复版] 现代化、稳定且互相兼容的依赖组合
-Flask==3.0.3
+Flask[async]==3.0.3
 Flask-Cors==4.0.1
 gunicorn==22.0.0
 
