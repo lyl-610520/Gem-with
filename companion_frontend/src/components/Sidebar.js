@@ -1,155 +1,14 @@
+// src/components/Sidebar.js (最终重构版)
+
 import React from 'react';
-import { NavLink } from 'react-router-dom';
-import styled from 'styled-components';
+import { NavLink, useLocation } from 'react-router-dom';
+import { Box, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Divider, Avatar, useTheme, useMediaQuery } from '@mui/material';
 import { 
-  FaHome, 
-  FaBook, 
-  FaCheckCircle, 
-  FaMusic, 
-  FaBookOpen, 
-  FaGamepad, 
-  FaComments, 
-  FaCog,
-  FaBars,
-  FaTimes
+  FaHome, FaBook, FaCheckCircle, FaMusic, FaBookOpen, 
+  FaGamepad, FaComments, FaCog 
 } from 'react-icons/fa';
 
-const SidebarContainer = styled.div`
-  position: fixed;
-  left: 0;
-  top: 0;
-  height: 100vh;
-  width: 250px;
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-right: 1px solid ${props => props.theme.border};
-  transform: translateX(${props => props.isOpen ? '0' : '-100%'});
-  transition: transform 0.3s ease;
-  z-index: 1000;
-  overflow-y: auto;
-  
-  @media (max-width: 768px) {
-    width: 100%;
-    transform: translateX(${props => props.isOpen ? '0' : '-100%'});
-  }
-`;
-
-const SidebarHeader = styled.div`
-  padding: 20px;
-  border-bottom: 1px solid ${props => props.theme.border};
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-`;
-
-const UserInfo = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-`;
-
-const Username = styled.div`
-  font-weight: 600;
-  color: ${props => props.theme.text};
-  font-size: 1.1rem;
-`;
-
-const UserStatus = styled.div`
-  font-size: 0.8rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const CloseButton = styled.button`
-  background: none;
-  border: none;
-  color: ${props => props.theme.textLight};
-  cursor: pointer;
-  font-size: 1.2rem;
-  padding: 4px;
-  
-  &:hover {
-    color: ${props => props.theme.text};
-  }
-  
-  @media (min-width: 769px) {
-    display: none;
-  }
-`;
-
-const NavMenu = styled.nav`
-  padding: 20px 0;
-`;
-
-const NavItem = styled(NavLink)`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
-  color: ${props => props.theme.textLight};
-  text-decoration: none;
-  transition: all 0.3s ease;
-  border-left: 3px solid transparent;
-  
-  &:hover {
-    background: rgba(99, 102, 241, 0.1);
-    color: ${props => props.theme.primary};
-    border-left-color: ${props => props.theme.primary};
-  }
-  
-  &.active {
-    background: rgba(99, 102, 241, 0.15);
-    color: ${props => props.theme.primary};
-    border-left-color: ${props => props.theme.primary};
-    font-weight: 600;
-  }
-`;
-
-const NavIcon = styled.div`
-  font-size: 1.1rem;
-  width: 20px;
-  text-align: center;
-`;
-
-const NavText = styled.span`
-  font-size: 0.95rem;
-`;
-
-const SidebarFooter = styled.div`
-  position: absolute;
-  bottom: 20px;
-  left: 20px;
-  right: 20px;
-  padding: 15px;
-  background: rgba(99, 102, 241, 0.1);
-  border-radius: 8px;
-  text-align: center;
-`;
-
-const FooterText = styled.div`
-  font-size: 0.8rem;
-  color: ${props => props.theme.textLight};
-  margin-bottom: 5px;
-`;
-
-const FooterSubtext = styled.div`
-  font-size: 0.7rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const Overlay = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 999;
-  display: ${props => props.show ? 'block' : 'none'};
-  
-  @media (min-width: 769px) {
-    display: none;
-  }
-`;
+const drawerWidth = 250;
 
 const menuItems = [
   { path: '/', icon: FaHome, text: '首页' },
@@ -157,43 +16,110 @@ const menuItems = [
   { path: '/checkin', icon: FaCheckCircle, text: '打卡' },
   { path: '/music', icon: FaMusic, text: '音乐' },
   { path: '/reading', icon: FaBookOpen, text: '阅读' },
-  { path: '/games', icon: FaGamepad, text: '游戏' },
   { path: '/chat', icon: FaComments, text: '聊天' },
+  { path: '/games', icon: FaGamepad, text: '游戏' },
   { path: '/settings', icon: FaCog, text: '设置' }
 ];
 
 function Sidebar({ isOpen, onToggle, user }) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const location = useLocation();
+
+  // 这是抽屉的内部内容，我们将它抽离出来以便复用
+  const drawerContent = (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* -- 头部用户信息 -- */}
+      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48 }}>
+          {user?.username?.charAt(0).toUpperCase() || 'U'}
+        </Avatar>
+        <Box>
+          <Typography variant="h6" fontWeight={600}>{user?.username || '用户'}</Typography>
+          <Typography variant="body2" color="text.secondary">在线</Typography>
+        </Box>
+      </Box>
+      <Divider />
+
+      {/* -- 导航列表 -- */}
+      <List sx={{ flexGrow: 1, p: 1 }}>
+        {menuItems.map((item) => (
+          <ListItem key={item.path} disablePadding>
+            <ListItemButton
+              component={NavLink}
+              to={item.path}
+              selected={location.pathname === item.path} // 关键：高亮当前页面
+              sx={{ borderRadius: 2, mb: 0.5 }}
+              onClick={isMobile ? onToggle : undefined} // 关键：在手机上点击后自动关闭抽屉
+            >
+              <ListItemIcon sx={{ minWidth: 40, color: 'inherit' }}>{item.icon}</ListItemIcon>
+              <ListItemText primary={item.text} />
+            </ListItemButton>
+          </ListItem>
+        ))}
+      </List>
+
+      {/* -- 分隔线和设置按钮 -- */}
+      <Divider />
+      <List sx={{ p: 1 }}>
+        <ListItem disablePadding>
+          <ListItemButton
+            component={NavLink}
+            to="/settings"
+            selected={location.pathname === '/settings'}
+            sx={{ borderRadius: 2 }}
+            onClick={isMobile ? onToggle : undefined}
+          >
+            <ListItemIcon sx={{ minWidth: 40, color: 'inherit' }}><FaCog /></ListItemIcon>
+            <ListItemText primary="设置" />
+          </ListItemButton>
+        </ListItem>
+      </List>
+    </Box>
+  );
+
   return (
-    <>
-      <Overlay show={isOpen} onClick={onToggle} />
-      <SidebarContainer isOpen={isOpen}>
-        <SidebarHeader>
-          <UserInfo>
-            <Username>{user?.username || '用户'}</Username>
-            <UserStatus>在线</UserStatus>
-          </UserInfo>
-          <CloseButton onClick={onToggle}>
-            <FaTimes />
-          </CloseButton>
-        </SidebarHeader>
-        
-        <NavMenu>
-          {menuItems.map((item) => (
-            <NavItem key={item.path} to={item.path}>
-              <NavIcon>
-                <item.icon />
-              </NavIcon>
-              <NavText>{item.text}</NavText>
-            </NavItem>
-          ))}
-        </NavMenu>
-        
-        <SidebarFooter>
-          <FooterText>🌟 陪伴空间</FooterText>
-          <FooterSubtext>与Gemini一起的温馨时光</FooterSubtext>
-        </SidebarFooter>
-      </SidebarContainer>
-    </>
+    <Box
+      component="nav"
+      sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}
+      aria-label="mailbox folders"
+    >
+      {isMobile ? (
+        // --- 手机模式：临时抽屉 ---
+        <Drawer
+          variant="temporary"
+          open={isOpen}
+          onClose={onToggle}
+          ModalProps={{ keepMounted: true }} // 更好的移动端性能
+          sx={{
+            '& .MuiDrawer-paper': { 
+              boxSizing: 'border-box', 
+              width: drawerWidth,
+              borderRight: 'none',
+            },
+          }}
+        >
+          {drawerContent}
+        </Drawer>
+      ) : (
+        // --- 桌面模式：永久侧边栏 ---
+        <Drawer
+          variant="permanent"
+          open
+          sx={{
+            '& .MuiDrawer-paper': { 
+              boxSizing: 'border-box', 
+              width: drawerWidth,
+              borderRight: 'none',
+              // 让背景也应用主题颜色
+              bgcolor: 'background.default', 
+            },
+          }}
+        >
+          {drawerContent}
+        </Drawer>
+      )}
+    </Box>
   );
 }
 
