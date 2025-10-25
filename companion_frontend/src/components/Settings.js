@@ -8,7 +8,7 @@ import {
 import { FaPalette, FaSave, FaCheck } from 'react-icons/fa';
 import { MuiColorInput } from 'mui-color-input'; // 引入新的颜色选择器
 import axios from 'axios';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // 主题选项数据
 const themes = [
