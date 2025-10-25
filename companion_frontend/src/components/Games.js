@@ -456,7 +456,7 @@ function Games({ user }) {
     return (
       <GamesContainer>
         <LoadingSpinner>正在加载游戏...</LoadingSpinner>
-      </Games-Container>
+      </GamesContainer>
     );
   }
 
