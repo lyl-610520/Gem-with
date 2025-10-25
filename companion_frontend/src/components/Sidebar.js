@@ -7,6 +7,7 @@ import {
   FaHome, FaBook, FaCheckCircle, FaMusic, FaBookOpen, 
   FaGamepad, FaComments, FaCog 
 } from 'react-icons/fa';
+import PeopleAltIcon from '@mui/icons-material/PeopleAlt';
 
 const drawerWidth = 250;
 
@@ -17,6 +18,7 @@ const menuItems = [
   { path: '/music', icon: FaMusic, text: '音乐' },
   { path: '/reading', icon: FaBookOpen, text: '阅读' },
   { path: '/chat', icon: FaComments, text: '聊天' },
+  { path: '/friends', icon: <PeopleAltIcon />, text: '好友' },
   { path: '/games', icon: FaGamepad, text: '游戏' }
 ];
 
