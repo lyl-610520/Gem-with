@@ -17,8 +17,7 @@ const menuItems = [
   { path: '/music', icon: FaMusic, text: '音乐' },
   { path: '/reading', icon: FaBookOpen, text: '阅读' },
   { path: '/chat', icon: FaComments, text: '聊天' },
-  { path: '/games', icon: FaGamepad, text: '游戏' },
-  { path: '/settings', icon: FaCog, text: '设置' }
+  { path: '/games', icon: FaGamepad, text: '游戏' }
 ];
 
 function Sidebar({ isOpen, onToggle, user }) {
