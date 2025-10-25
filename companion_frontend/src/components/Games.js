@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FaGamepad, FaTrophy, FaStar, FaPlay, FaRedo } from 'react-icons/fa';
 import axios from 'axios';
+import WordGame from './WordGame'; // 新增导入
 
 const GamesContainer = styled.div`
   max-width: 1000px;
@@ -509,9 +510,31 @@ function Games({ user }) {
             <MemoryGame onClose={handleGameClose} onScore={handleScore} />
           </GameModal>
         )}
+        {/* --- 新增以下代码块 --- */}
+        {currentGame === 'word' && (
+          <GameModal
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <WordGame onClose={handleGameClose} onScore={handleScore} />
+          </GameModal>
+        )}
+        {/* --- 新增代码块结束 --- */}
       </AnimatePresence>
     </GamesContainer>
   );
 }
 
+export {
+  GameContent,
+  GameHeader,
+  GameTitleModal,
+  CloseButton,
+  GameArea,
+  GameInfo,
+  GameButtonGroup,
+  Button,
+  LoadingSpinner
+};
 export default Games;
