@@ -20,7 +20,7 @@ import Settings from './components/Settings';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import GlobalPlayer from './components/GlobalPlayer';
-import FriendsPage from './friends/FriendsPage';
+import FriendsPage from './components/friends/FriendsPage';
 
 
 // 您的主题创建逻辑 (保持不变)
