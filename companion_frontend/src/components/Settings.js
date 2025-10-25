@@ -1,283 +1,166 @@
-import React, { useState } from 'react';
-import styled from 'styled-components';
-import { motion } from 'framer-motion';
-import { FaPalette, FaMoon, FaSun, FaStar, FaSave } from 'react-icons/fa';
-import { ChromePicker } from 'react-color';
+// src/components/Settings.js (最终重构版)
+
+import React, { useState, useEffect } from 'react';
+import { 
+  Box, Grid, Paper, Typography, Button, ToggleButtonGroup, ToggleButton, 
+  Snackbar, Alert, Avatar, Card, CardContent
+} from '@mui/material';
+import { FaPalette, FaSave, FaCheck } from 'react-icons/fa';
+import { MuiColorInput } from 'mui-color-input'; // 引入新的颜色选择器
 import axios from 'axios';
+import { motion } from 'framer-motion';
 
-const SettingsContainer = styled.div`
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 20px;
-`;
-
-const Title = styled.h1`
-  font-size: 2rem;
-  font-weight: 700;
-  color: ${props => props.theme.text};
-  margin-bottom: 30px;
-`;
-
-const SettingsSection = styled.div`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 30px;
-  margin-bottom: 20px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-`;
-
-const SectionTitle = styled.h2`
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: ${props => props.theme.text};
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-`;
-
-const ThemeGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
-  margin-bottom: 30px;
-`;
-
-const ThemeCard = styled(motion.div)`
-  background: ${props => props.theme.cardBg};
-  border: 2px solid ${props => props.selected ? props.theme.primary : props.theme.border};
-  border-radius: 12px;
-  padding: 20px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-  }
-`;
-
-const ThemePreview = styled.div`
-  height: 100px;
-  border-radius: 8px;
-  margin-bottom: 15px;
-  background: ${props => props.background};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 1.5rem;
-  font-weight: 600;
-`;
-
-const ThemeName = styled.div`
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: ${props => props.theme.text};
-  margin-bottom: 5px;
-`;
-
-const ThemeDescription = styled.div`
-  font-size: 0.9rem;
-  color: ${props => props.theme.textLight};
-`;
-
-const ColorPickerSection = styled.div`
-  margin-top: 20px;
-`;
-
-const ColorPickerLabel = styled.label`
-  display: block;
-  font-weight: 500;
-  color: ${props => props.theme.text};
-  margin-bottom: 10px;
-`;
-
-const ColorPickerButton = styled.button`
-  width: 60px;
-  height: 60px;
-  border-radius: 8px;
-  border: 3px solid ${props => props.theme.border};
-  background: ${props => props.color};
-  cursor: pointer;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    transform: scale(1.1);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-  }
-`;
-
-const ColorPickerContainer = styled.div`
-  position: relative;
-  display: inline-block;
-`;
-
-const ColorPickerPopover = styled.div`
-  position: absolute;
-  top: 70px;
-  left: 0;
-  z-index: 1000;
-`;
-
-const ColorPickerCover = styled.div`
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-`;
-
-const SaveButton = styled(motion.button)`
-  background: ${props => props.theme.primary};
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 15px 30px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 20px;
-  
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
-  }
-`;
-
+// 主题选项数据
 const themes = [
-  {
-    id: 'pure',
-    name: '纯色简约',
-    description: '简洁优雅，支持自定义颜色',
-    icon: <FaPalette />,
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-  },
-  {
-    id: 'cute',
-    name: '可爱华丽',
-    description: '温馨可爱，充满活力',
-    icon: <FaSun />,
-    background: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #fecfef 100%)'
-  },
-  {
-    id: 'dreamy',
-    name: '星月梦幻',
-    description: '神秘梦幻，如星空般美丽',
-    icon: <FaMoon />,
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)'
-  }
+  { id: 'pure', name: '纯色简约', description: '简洁优雅，支持自定义颜色', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
+  { id: 'cute', name: '可爱华丽', description: '温馨可爱，充满活力', gradient: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)' },
+  { id: 'dreamy', name: '星月梦幻', description: '神秘梦幻，如星空般美丽', gradient: 'linear-gradient(135deg, #2c3e50 0%, #3498db 100%)' },
 ];
 
+// 自定义的主题选择卡片
+const ThemeCard = ({ theme, isSelected, onClick }) => (
+    <Card
+        onClick={onClick}
+        elevation={0}
+        sx={{
+            cursor: 'pointer',
+            border: '2px solid',
+            borderColor: isSelected ? 'primary.main' : 'divider',
+            transition: 'all 0.3s ease',
+            transform: isSelected ? 'scale(1.03)' : 'scale(1)',
+            boxShadow: isSelected ? '0 8px 20px rgba(0,0,0,0.1)' : 'none',
+        }}
+    >
+        <CardContent>
+            <Box sx={{ height: 80, borderRadius: 2, mb: 2, background: theme.gradient }} />
+            <Typography variant="h6" fontWeight={600}>{theme.name}</Typography>
+            <Typography variant="body2" color="text.secondary">{theme.description}</Typography>
+        </CardContent>
+    </Card>
+);
+
 function Settings({ user, theme, customColor, onThemeChange }) {
+  // 状态：使用 props 初始化，用于本地预览
   const [selectedTheme, setSelectedTheme] = useState(theme);
   const [selectedColor, setSelectedColor] = useState(customColor);
-  const [showColorPicker, setShowColorPicker] = useState(false);
+  
+  // 状态：用于控制UI反馈
   const [saving, setSaving] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
 
-  const handleThemeSelect = (themeId) => {
-    setSelectedTheme(themeId);
+  // 关键：当外部 props 变化时（例如，从服务器加载后），同步本地状态
+  useEffect(() => {
+    setSelectedTheme(theme);
+    setSelectedColor(customColor);
+  }, [theme, customColor]);
+
+  // 【核心交互】当用户选择时，立即调用 onThemeChange 进行实时预览
+  const handleThemeSelect = (newTheme) => {
+    if (newTheme) {
+      setSelectedTheme(newTheme);
+      onThemeChange(newTheme, selectedColor); // 实时预览
+    }
   };
 
-  const handleColorChange = (color) => {
-    setSelectedColor(color.hex);
+  const handleColorChange = (newColor) => {
+    setSelectedColor(newColor);
+    onThemeChange(selectedTheme, newColor); // 实时预览
   };
 
+  // 保存到后端
   const handleSave = async () => {
     try {
       setSaving(true);
+      // 注意：这里的路径是 '/user/profile'，没有 '/api'
       await axios.put('/user/profile', {
         theme: selectedTheme,
-        custom_color: selectedColor
+        custom_color: selectedColor,
       });
-      onThemeChange(selectedTheme, selectedColor);
-      alert('设置保存成功！');
+      setSnackbarOpen(true);
     } catch (error) {
       console.error('保存设置失败:', error);
-      alert('保存设置失败，请重试');
+      // 可以在这里添加一个错误提示的 Snackbar
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <SettingsContainer>
-      <Title>⚙️ 设置</Title>
+    <Box maxWidth="1000px" mx="auto" p={{ xs: 1, sm: 2 }}>
+      <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1.5, fontWeight: 700 }}>
+        <FaPalette /> 设置
+      </Typography>
 
-      <SettingsSection>
-        <SectionTitle>
-          <FaPalette />
-          主题设置
-        </SectionTitle>
-        
-        <ThemeGrid>
+      <Paper elevation={0} sx={{ p: { xs: 2, sm: 4 }, borderRadius: 4 }}>
+        <Typography variant="h5" fontWeight={600} gutterBottom>
+          外观设置
+        </Typography>
+        <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
+          选择一个你喜欢的主题，让“陪伴空间”更懂你。
+        </Typography>
+
+        <Grid container spacing={3}>
           {themes.map((themeOption) => (
-            <ThemeCard
-              key={themeOption.id}
-              selected={selectedTheme === themeOption.id}
-              onClick={() => handleThemeSelect(themeOption.id)}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <ThemePreview background={themeOption.background}>
-                {themeOption.icon}
-              </ThemePreview>
-              <ThemeName>{themeOption.name}</ThemeName>
-              <ThemeDescription>{themeOption.description}</ThemeDescription>
-            </ThemeCard>
+            <Grid item xs={12} md={4} key={themeOption.id}>
+              <motion.div whileHover={{ y: -5 }} whileTap={{ scale: 0.98 }}>
+                <ThemeCard 
+                  theme={themeOption}
+                  isSelected={selectedTheme === themeOption.id}
+                  onClick={() => handleThemeSelect(themeOption.id)}
+                />
+              </motion.div>
+            </Grid>
           ))}
-        </ThemeGrid>
-
-        {selectedTheme === 'pure' && (
-          <ColorPickerSection>
-            <ColorPickerLabel>自定义主色调</ColorPickerLabel>
-            <ColorPickerContainer>
-              <ColorPickerButton
-                color={selectedColor}
-                onClick={() => setShowColorPicker(!showColorPicker)}
-              />
-              {showColorPicker && (
-                <>
-                  <ColorPickerPopover>
-                    <ChromePicker
-                      color={selectedColor}
-                      onChange={handleColorChange}
-                    />
-                  </ColorPickerPopover>
-                  <ColorPickerCover onClick={() => setShowColorPicker(false)} />
-                </>
-              )}
-            </ColorPickerContainer>
-          </ColorPickerSection>
-        )}
-      </SettingsSection>
-
-      <SettingsSection>
-        <SectionTitle>
-          <FaStar />
-          其他设置
-        </SectionTitle>
+        </Grid>
         
-        <div style={{ color: '#6b7280', fontSize: '0.95rem' }}>
-          更多设置功能正在开发中...
-        </div>
-      </SettingsSection>
+        {/* 条件渲染颜色选择器 */}
+        <AnimatePresence>
+          {selectedTheme === 'pure' && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              style={{ marginTop: '32px' }}
+            >
+              <Typography variant="h6" fontWeight={600} gutterBottom>
+                自定义主色调
+              </Typography>
+              <MuiColorInput 
+                format="hex"
+                value={selectedColor} 
+                onChange={handleColorChange} 
+                sx={{ width: '100%', maxWidth: '300px' }}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </Paper>
 
-      <SaveButton
-        onClick={handleSave}
-        disabled={saving}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
+      <Box sx={{ mt: 4, display: 'flex', justifyContent: 'flex-end' }}>
+        <Button
+          variant="contained"
+          size="large"
+          startIcon={<FaSave />}
+          onClick={handleSave}
+          disabled={saving}
+          sx={{ borderRadius: 99, px: 4, py: 1.5, fontWeight: 600 }}
+        >
+          {saving ? '保存中...' : '保存更改'}
+        </Button>
+      </Box>
+
+      {/* 保存成功的提示 */}
+      <Snackbar 
+        open={snackbarOpen} 
+        autoHideDuration={4000} 
+        onClose={() => setSnackbarOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <FaSave />
-        {saving ? '保存中...' : '保存设置'}
-      </SaveButton>
-    </SettingsContainer>
+        <Alert onClose={() => setSnackbarOpen(false)} severity="success" sx={{ width: '100%' }}>
+          设置已成功保存！
+        </Alert>
+      </Snackbar>
+    </Box>
   );
 }
 
