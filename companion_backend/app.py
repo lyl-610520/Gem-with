@@ -29,9 +29,7 @@ from ebooklib import epub
 import base64
 import tempfile
 import traceback
-# --- 新增下面这行 ---
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, JWTManager
-# ... 在其他 import 语句附近添加 ...
 from cryptography.fernet import Fernet
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -40,6 +38,7 @@ from flask_jwt_extended import decode_token # <--- 在文件顶部，从 flask_j
 from ytmusicapi import YTMusic
 import random
 from googletrans import Translator
+from flask_socketio import SocketIO, emit, join_room, leave_room # <--- 新增导入
 
 # 加载环境变量
 load_dotenv()
@@ -51,6 +50,10 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
 app.config["JWT_SECRET_KEY"] = app.config['SECRET_KEY'] # JWT需要一个自己的密钥
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24) # 令牌24小时后过期
 jwt = JWTManager(app) # 初始化JWT工具
+# --- VVVV 新增 SocketIO 初始化 VVVV ---
+# 我们直接复用您之前的CORS配置
+socketio = SocketIO(app, cors_allowed_origins=frontend_url if frontend_url else "*")
+# --- ^^^^ 新增结束 ^^^^ ---
 # --- VVVV  在这里添加下面这两行“侦探代码” VVVV ---
 @jwt.unauthorized_loader
 def unauthorized_callback(reason):
@@ -208,6 +211,29 @@ class User(db.Model):
     
     # [新增] 与长期记忆的关联关系
     memories = db.relationship('LongTermMemory', backref='user', lazy=True, cascade='all, delete-orphan')
+
+class Friendship(db.Model):
+    """好友关系模型"""
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # 发起请求的用户
+    requester_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # 被请求的用户
+    addressee_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # 关系状态: 'pending', 'accepted', 'blocked'
+    status = db.Column(db.String(20), default='pending', nullable=False)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # 使用 SQLAlchemy 的 backref 来自动创建反向关系
+    # requester 指向发起请求的用户
+    requester = db.relationship('User', foreign_keys=[requester_id], backref='sent_friend_requests')
+    # addressee 指向被请求的用户
+    addressee = db.relationship('User', foreign_keys=[addressee_id], backref='received_friend_requests')
+
+    # 确保一对好友关系是唯一的
+    __table_args__ = (db.UniqueConstraint('requester_id', 'addressee_id', name='_requester_addressee_uc'),)
 
 # [新增] 长期记忆模型
 class LongTermMemory(db.Model):
@@ -587,6 +613,279 @@ def get_dashboard_summary():
     }
     
     return jsonify(summary_data)
+
+# ==========================================================
+# [全新] 实时通信与好友状态 (WebSocket Events)
+# ==========================================================
+
+# 用于存储在线用户的全局字典: { user_id: socket_id }
+online_users = {}
+
+@socketio.on('connect')
+@jwt_required(optional=True) # 使用 optional=True 允许连接，但之后我们会检查
+def handle_connect():
+    """
+    当用户前端成功连接 WebSocket 时触发。
+    """
+    # 从 JWT 中获取用户ID
+    current_user_id = get_jwt_identity()
+    if not current_user_id:
+        print("WebSocket 连接被拒绝：缺少有效的 JWT。")
+        return False # 拒绝连接
+
+    current_user_id = int(current_user_id)
+    sid = request.sid # 获取当前连接的唯一 ID
+    online_users[current_user_id] = sid
+    print(f"✅ 用户 {current_user_id} 已上线，SID: {sid}")
+
+    # 将用户加入以他自己ID命名的“房间”，方便我们之后单独给他发消息
+    join_room(str(current_user_id))
+    
+    # 通知所有在线的好友“我上线了”
+    # (我们稍后会编写 get_online_friends 函数)
+    online_friends = get_online_friends(current_user_id)
+    for friend_id, friend_sid in online_friends.items():
+        emit('friend_online', {'user_id': current_user_id}, to=friend_sid)
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """
+    当用户断开 WebSocket 连接时触发。
+    """
+    # 查找是哪个用户断开了连接
+    disconnected_user_id = None
+    for user_id, sid in online_users.items():
+        if sid == request.sid:
+            disconnected_user_id = user_id
+            break
+            
+    if disconnected_user_id:
+        del online_users[disconnected_user_id]
+        print(f"❌ 用户 {disconnected_user_id} 已下线。")
+        
+        # 通知所有在线的好友“我下线了”
+        online_friends = get_online_friends(disconnected_user_id)
+        for friend_id, friend_sid in online_friends.items():
+            emit('friend_offline', {'user_id': disconnected_user_id}, to=friend_sid)
+
+# 辅助函数，用于获取用户的所有在线好友
+def get_online_friends(user_id):
+    friendships = Friendship.query.filter(
+        ((Friendship.requester_id == user_id) | (Friendship.addressee_id == user_id)) &
+        (Friendship.status == 'accepted')
+    ).all()
+    
+    friend_ids = set()
+    for f in friendships:
+        friend_ids.add(f.addressee_id if f.requester_id == user_id else f.requester_id)
+        
+    online_friends_dict = {fid: online_users[fid] for fid in friend_ids if fid in online_users}
+    return online_friends_dict
+
+# ==========================================================
+# [全新] 好友系统 API (Friendship APIs)
+# ==========================================================
+
+@app.route('/api/users/search', methods=['GET'])
+@jwt_required()
+def search_users():
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify([])
+
+    # 模糊搜索用户名或精确匹配QQ号
+    users = User.query.filter(
+        (User.username.ilike(f'%{query}%')) | (User.qq_id == query)
+    ).limit(10).all()
+    
+    # 过滤掉自己
+    current_user_id = int(get_jwt_identity())
+    
+    users_data = [{
+        'id': user.id,
+        'username': user.username,
+        'qq_id': user.qq_id
+    } for user in users if user.id != current_user_id]
+    
+    return jsonify(users_data)
+
+@app.route('/api/friends/request', methods=['POST'])
+@jwt_required()
+def send_friend_request():
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+    addressee_id = data.get('user_id')
+
+    if not addressee_id:
+        return jsonify({'error': '缺少 user_id'}), 400
+        
+    if current_user_id == addressee_id:
+        return jsonify({'error': '不能添加自己为好友'}), 400
+
+    # 检查是否已经是好友或已发送请求
+    existing = Friendship.query.filter(
+        ((Friendship.requester_id == current_user_id) & (Friendship.addressee_id == addressee_id)) |
+        ((Friendship.requester_id == addressee_id) & (Friendship.addressee_id == current_user_id))
+    ).first()
+    
+    if existing:
+        return jsonify({'error': '你们已经是好友或请求已发送'}), 409
+        
+    new_request = Friendship(requester_id=current_user_id, addressee_id=addressee_id)
+    db.session.add(new_request)
+    db.session.commit()
+    
+    # 实时通知对方有新的好友请求
+    if addressee_id in online_users:
+        requester = User.query.get(current_user_id)
+        emit('new_friend_request', 
+             {'from_user': {'id': requester.id, 'username': requester.username}},
+             to=online_users[addressee_id],
+             namespace='/') # 确保在全局命名空间发送
+             
+    return jsonify({'success': True, 'message': '好友请求已发送'}), 201
+
+@app.route('/api/friends/requests', methods=['GET'])
+@jwt_required()
+def get_friend_requests():
+    """获取当前用户收到的所有待处理的好友请求。"""
+    current_user_id = int(get_jwt_identity())
+    
+    # 查询所有发送给我、且状态为 'pending' 的请求
+    pending_requests = Friendship.query.filter_by(
+        addressee_id=current_user_id, 
+        status='pending'
+    ).order_by(Friendship.created_at.desc()).all()
+    
+    requests_data = [{
+        'request_id': req.id,
+        'from_user': {
+            'id': req.requester.id,
+            'username': req.requester.username,
+            'qq_id': req.requester.qq_id
+        },
+        'created_at': req.created_at.isoformat()
+    } for req in pending_requests]
+    
+    return jsonify(requests_data)
+
+@app.route('/api/friends/accept', methods=['POST'])
+@jwt_required()
+def accept_friend_request():
+    """接受好友请求。"""
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+    request_id = data.get('request_id')
+
+    if not request_id:
+        return jsonify({'error': '缺少 request_id'}), 400
+
+    friend_request = Friendship.query.get(request_id)
+
+    # 安全检查：确保这个请求是发给我的，并且是待处理状态
+    if not friend_request or friend_request.addressee_id != current_user_id or friend_request.status != 'pending':
+        return jsonify({'error': '请求不存在或已处理'}), 404
+        
+    # 更新请求状态为 'accepted'
+    friend_request.status = 'accepted'
+    db.session.commit()
+    
+    # 实时通知请求发送方“你的好友请求已被接受”
+    requester_id = friend_request.requester_id
+    if requester_id in online_users:
+        # 获取当前用户信息（即接受请求的人）
+        me = User.query.get(current_user_id)
+        emit('request_accepted', 
+             {'accepted_by_user': {'id': me.id, 'username': me.username}},
+             to=online_users[requester_id],
+             namespace='/')
+             
+    return jsonify({'success': True, 'message': '好友已添加'})
+
+@app.route('/api/friends/reject', methods=['POST'])
+@jwt_required()
+def reject_friend_request():
+    """拒绝或忽略好友请求。"""
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+    request_id = data.get('request_id')
+
+    if not request_id:
+        return jsonify({'error': '缺少 request_id'}), 400
+
+    friend_request = Friendship.query.get(request_id)
+
+    # 安全检查：确保这个请求是发给我的
+    if not friend_request or friend_request.addressee_id != current_user_id:
+        return jsonify({'error': '请求不存在'}), 404
+        
+    # 直接删除这条请求记录
+    db.session.delete(friend_request)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': '请求已忽略'})
+
+@app.route('/api/friends', methods=['GET'])
+@jwt_required()
+def get_friends_list():
+    """获取当前用户的好友列表，并附带在线状态。"""
+    current_user_id = int(get_jwt_identity())
+    
+    # 查询所有与我相关、且状态为 'accepted' 的关系
+    accepted_friendships = Friendship.query.filter(
+        ((Friendship.requester_id == current_user_id) | (Friendship.addressee_id == current_user_id)) &
+        (Friendship.status == 'accepted')
+    ).all()
+    
+    friends_data = []
+    for friendship in accepted_friendships:
+        # 确定好友是关系中的哪一方
+        friend_user = friendship.addressee if friendship.requester_id == current_user_id else friendship.requester
+        
+        friends_data.append({
+            'id': friend_user.id,
+            'username': friend_user.username,
+            'qq_id': friend_user.qq_id,
+            'is_online': friend_user.id in online_users # 核心：直接从 online_users 字典判断在线状态
+        })
+        
+    return jsonify(friends_data)
+
+@app.route('/api/friends/remove', methods=['POST'])
+@jwt_required()
+def remove_friend():
+    """删除好友。"""
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+    friend_id = data.get('friend_id')
+
+    if not friend_id:
+        return jsonify({'error': '缺少 friend_id'}), 400
+
+    # 查找好友关系，无论我是请求方还是接收方
+    friendship = Friendship.query.filter(
+        (
+            (Friendship.requester_id == current_user_id) & (Friendship.addressee_id == friend_id) |
+            (Friendship.requester_id == friend_id) & (Friendship.addressee_id == current_user_id)
+        ) &
+        (Friendship.status == 'accepted')
+    ).first()
+    
+    if not friendship:
+        return jsonify({'error': '你们不是好友关系'}), 404
+        
+    # 直接删除关系记录
+    db.session.delete(friendship)
+    db.session.commit()
+    
+    # （可选）实时通知对方“你已被移除好友”
+    if friend_id in online_users:
+        emit('friend_removed', 
+             {'removed_by_user_id': current_user_id}, 
+             to=online_users[friend_id],
+             namespace='/')
+    
+    return jsonify({'success': True, 'message': '好友已删除'})
     
 # 日记相关API
 @app.route('/api/diary', methods=['GET'])
