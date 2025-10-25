@@ -19,7 +19,7 @@ const WordInput = styled.input` flex-grow: 1; padding: 12px 15px; border-radius:
 const SubmitButton = styled.button` padding: 0 20px; border-radius: 8px; border: none; background: ${props => props.theme.primary}; color: white; font-size: 1.2rem; cursor: pointer; transition: all 0.3s ease; &:disabled { background: #ccc; cursor: not-allowed; } `;
 const MessageDisplay = styled.div` min-height: 24px; margin-top: 15px; font-weight: 500; color: ${props => props.error ? '#f44336' : (props.isThinking ? props.theme.primary : '#4caf50')}; ${props => props.isThinking && ` &:after { content: '电脑正在思考中'; animation: ${thinkingAnimation} 2s linear infinite; } `} `;
 
-function WordGameComponent({ onClose, onScore }) {
+function WordGame({ onClose, onScore }) {
   const [currentWord, setCurrentWord] = useState('');
   const [translation, setTranslation] = useState('');
   const [definition, setDefinition] = useState(null);
