@@ -1,150 +1,79 @@
+// src/components/Header.js (最终重构版)
+
 import React from 'react';
-import styled from 'styled-components';
+import { AppBar, Toolbar, IconButton, Typography, Box, Avatar, Badge, Tooltip } from '@mui/material';
 import { FaBars, FaSignOutAlt, FaBell } from 'react-icons/fa';
-
-const HeaderContainer = styled.header`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid ${props => props.theme.border};
-  padding: 0 20px;
-  height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-`;
-
-const LeftSection = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 15px;
-`;
-
-const MenuButton = styled.button`
-  background: none;
-  border: none;
-  color: ${props => props.theme.text};
-  cursor: pointer;
-  font-size: 1.2rem;
-  padding: 8px;
-  border-radius: 6px;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    background: rgba(99, 102, 241, 0.1);
-    color: ${props => props.theme.primary};
-  }
-  
-  @media (min-width: 769px) {
-    display: none;
-  }
-`;
-
-const Title = styled.h1`
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: ${props => props.theme.text};
-  margin: 0;
-`;
-
-const RightSection = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 15px;
-`;
-
-const NotificationButton = styled.button`
-  background: none;
-  border: none;
-  color: ${props => props.theme.textLight};
-  cursor: pointer;
-  font-size: 1.1rem;
-  padding: 8px;
-  border-radius: 6px;
-  transition: all 0.3s ease;
-  position: relative;
-  
-  &:hover {
-    background: rgba(99, 102, 241, 0.1);
-    color: ${props => props.theme.primary};
-  }
-`;
-
-const NotificationBadge = styled.span`
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  background: #ef4444;
-  color: white;
-  font-size: 0.7rem;
-  padding: 2px 6px;
-  border-radius: 10px;
-  min-width: 16px;
-  text-align: center;
-`;
-
-const LogoutButton = styled.button`
-  background: none;
-  border: none;
-  color: ${props => props.theme.textLight};
-  cursor: pointer;
-  font-size: 1.1rem;
-  padding: 8px;
-  border-radius: 6px;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
-  }
-`;
-
-const UserAvatar = styled.div`
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: ${props => props.theme.primary};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 600;
-  font-size: 0.9rem;
-`;
+import { useNavigate } from 'react-router-dom';
 
 function Header({ user, onLogout, onToggleSidebar }) {
+  const navigate = useNavigate();
+
   const handleLogout = () => {
+    // 使用 MUI Dialog 会更优雅，但 confirm 也能工作
     if (window.confirm('确定要退出登录吗？')) {
       onLogout();
     }
   };
 
   return (
-    <HeaderContainer>
-      <LeftSection>
-        <MenuButton onClick={onToggleSidebar}>
+    <AppBar 
+      position="sticky" 
+      elevation={0}
+      sx={{
+        // 关键：创建毛玻璃效果
+        bgcolor: (theme) => `rgba(${theme.palette.mode === 'light' ? '255, 255, 255, 0.7' : '26, 26, 46, 0.7'})`,
+        backdropFilter: 'blur(10px)',
+        borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+        color: 'text.primary',
+      }}
+    >
+      <Toolbar>
+        {/* -- 左侧区域 -- */}
+        <IconButton
+          color="inherit"
+          aria-label="open drawer"
+          edge="start"
+          onClick={onToggleSidebar}
+          sx={{ 
+            mr: 2, 
+            // 关键：只在平板及以下尺寸显示
+            display: { md: 'none' } 
+          }}
+        >
           <FaBars />
-        </MenuButton>
-        <Title>陪伴空间</Title>
-      </LeftSection>
-      
-      <RightSection>
-        <NotificationButton>
-          <FaBell />
-          <NotificationBadge>3</NotificationBadge>
-        </NotificationButton>
+        </IconButton>
         
-        <UserAvatar>
-          {user?.username?.charAt(0).toUpperCase() || 'U'}
-        </UserAvatar>
-        
-        <LogoutButton onClick={handleLogout} title="退出登录">
-          <FaSignOutAlt />
-        </LogoutButton>
-      </RightSection>
-    </HeaderContainer>
+        <Typography variant="h6" noWrap component="div" sx={{ fontWeight: 600 }}>
+          陪伴空间
+        </Typography>
+
+        {/* 一个弹性的空白，将右侧图标推到最右边 */}
+        <Box sx={{ flexGrow: 1 }} />
+
+        {/* -- 右侧区域 -- */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Tooltip title="通知">
+            <IconButton color="inherit">
+              <Badge badgeContent={3} color="error">
+                <FaBell />
+              </Badge>
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title={user?.username || '用户'}>
+            <Avatar sx={{ bgcolor: 'primary.main', width: 36, height: 36, fontSize: '1rem' }}>
+              {user?.username?.charAt(0).toUpperCase() || 'U'}
+            </Avatar>
+          </Tooltip>
+          
+          <Tooltip title="退出登录">
+            <IconButton color="inherit" onClick={handleLogout}>
+              <FaSignOutAlt />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      </Toolbar>
+    </AppBar>
   );
 }
 
