@@ -10,16 +10,17 @@ import {
   GameArea,
   GameInfo,
   GameButtonGroup,
-  Button as BaseButton
-} from './Games'; // 确保从 Games.js 导出了这些
+  Button as BaseButton,
+  LoadingSpinner
+} from './Games';
 
-// --- 动画和新样式 ---
+// --- 动画和样式 (保持不变) ---
 const thinkingAnimation = keyframes`
-  0% { content: '正在思考中'; }
-  25% { content: '正在思考中.'; }
-  50% { content: '正在思考中..'; }
-  75% { content: '正在思考中...'; }
-  100% { content: '正在思考中'; }
+  0% { content: '电脑正在思考中'; }
+  25% { content: '电脑正在思考中.'; }
+  50% { content: '电脑正在思考中..'; }
+  75% { content: '电脑正在思考中...'; }
+  100% { content: '电脑正在思考中'; }
 `;
 
 const WordDisplay = styled.div`
@@ -101,15 +102,14 @@ const MessageDisplay = styled.div`
 
   ${props => props.isThinking && `
     &:after {
-      content: '正在思考中';
+      content: '电脑正在思考中';
       animation: ${thinkingAnimation} 2s linear infinite;
     }
   `}
 `;
 
-// --- 单词接龙游戏核心组件 (人机对战版) ---
 
-const initialWords = ['apple', 'game', 'hello', 'world', 'react', 'space'];
+// --- 单词接龙游戏核心组件 (最终修正版) ---
 
 function WordGame({ onClose, onScore }) {
   const [currentWord, setCurrentWord] = useState('');
@@ -122,7 +122,7 @@ function WordGame({ onClose, onScore }) {
   const [isComputerTurn, setIsComputerTurn] = useState(false);
   const [gameEnded, setGameEnded] = useState(false);
 
-  // 验证玩家输入的单词
+  // 验证玩家输入的单词 (保持不变)
   const validatePlayerWord = async (word) => {
     try {
       const response = await axios.get(`/games/word/lookup/${word}`);
@@ -131,28 +131,12 @@ function WordGame({ onClose, onScore }) {
       return false;
     }
   };
-
-  const startGame = useCallback(() => {
-    setIsLoading(true);
-    const randomWord = initialWords[Math.floor(Math.random() * initialWords.length)];
-    // 在游戏开始时，让电脑先出一个词
-    handleComputerTurn(randomWord[randomWord.length - 1]);
-    
-    // 重置状态
-    setGameEnded(false);
-    setScore(0);
-    setUsedWords(new Set([randomWord])); // 把起始词加入已使用列表
-    setMessage({ text: '游戏开始，请接龙！', error: false });
-    setIsLoading(false);
-  }, []); // Eslint might complain, but we want this to run once.
-
-  useEffect(() => {
-    startGame();
-  }, [startGame]);
-
-
-  const handleComputerTurn = async (letter) => {
+  
+  // VVVV [核心修正区域 1/3] VVVV
+  // 电脑回合的逻辑，用 useCallback 包裹，并正确添加依赖
+  const handleComputerTurn = useCallback(async (letter) => {
       setIsComputerTurn(true);
+      setMessage({ text: '', error: false }); // 清除上一条消息
       try {
         const response = await axios.post('/games/word/computer-turn', {
           last_letter: letter,
@@ -160,31 +144,57 @@ function WordGame({ onClose, onScore }) {
         });
 
         const data = response.data;
-        if (data.status === 'success') {
+        if (data && data.status === 'success') {
           setCurrentWord(data.word);
           setDefinition(data.definition);
           setUsedWords(prev => new Set(prev).add(data.word));
           setMessage({text: '轮到你了！', error: false});
         } else {
-          // 电脑找不到词，玩家胜利
-          setMessage({ text: data.message, error: false });
-          handleEndGame();
+          setMessage({ text: data.message || '电脑被难倒了！', error: false });
+          setGameEnded(true); // 玩家胜利，结束游戏
+          if (score > 0) onScore('word', score);
         }
       } catch (error) {
         setMessage({ text: '电脑开小差了，请重试', error: true });
       } finally {
         setIsComputerTurn(false);
       }
-  };
+  }, [usedWords, score, onScore]); // 添加依赖，确保函数能获取到最新的 state
+
+  
+  // VVVV [核心修正区域 2/3] VVVV
+  // 游戏初始化和重置逻辑
+  const startGame = useCallback(() => {
+    // 重置所有状态
+    setCurrentWord('');
+    setDefinition({ en: '', zh: '' });
+    setPlayerInput('');
+    setUsedWords(new Set());
+    setScore(0);
+    setGameEnded(false);
+    setIsLoading(true);
+    
+    // 让电脑开始第一回合
+    const initialLetters = 'abcdefg'; // 从简单的字母开始
+    const randomLetter = initialLetters[Math.floor(Math.random() * initialLetters.length)];
+    handleComputerTurn(randomLetter).finally(() => setIsLoading(false));
+
+  }, [handleComputerTurn]); // startGame 依赖于 handleComputerTurn
+
+
+  // VVVV [核心修正区域 3/3] VVVV
+  // 使用 useEffect 来处理组件的第一次加载
+  useEffect(() => {
+    startGame();
+  }, [startGame]); // 依赖 startGame，确保组件加载时游戏正确初始化
 
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const input = playerInput.trim().toLowerCase();
 
-    if (!input || isComputerTurn || gameEnded) return;
+    if (!input || isComputerTurn || gameEnded || !currentWord) return;
 
-    // 1. 基本规则检查
     if (input[0] !== currentWord[currentWord.length - 1]) {
       setMessage({ text: `单词必须以 '${currentWord[currentWord.length - 1]}' 开头!`, error: true });
       return;
@@ -194,37 +204,38 @@ function WordGame({ onClose, onScore }) {
       return;
     }
 
-    // 2. 验证单词有效性
     setIsLoading(true);
     const isValid = await validatePlayerWord(input);
-    setIsLoading(false);
-
+    
     if (isValid) {
       const points = input.length;
       setScore(prev => prev + points);
-      setMessage({ text: `很棒! +${points}分`, error: false });
-      setPlayerInput('');
-      
-      // 3. 将玩家单词加入列表，然后触发电脑回合
       setUsedWords(prev => new Set(prev).add(input));
-      handleComputerTurn(input[input.length - 1]);
+      setPlayerInput('');
+      // 关键：在玩家成功后，立即调用电脑回合
+      await handleComputerTurn(input[input.length - 1]);
     } else {
       setMessage({ text: '这不是一个有效的英文单词哦!', error: true });
     }
+    setIsLoading(false);
   };
   
   const handleEndGame = () => {
-    setGameEnded(true);
-    if (score > 0) {
-      onScore('word', score);
+    if (!gameEnded) {
+        setGameEnded(true);
+        if (score > 0) {
+          onScore('word', score);
+        }
+        setMessage({ text: `游戏结束! 你的最终得分是: ${score}`, error: false });
+    } else {
+        onClose(); // 如果游戏已经结束，按钮变为关闭
     }
-    setMessage({ text: `游戏结束! 你的最终得分是: ${score}`, error: false });
   }
 
   return (
     <GameContent>
       <GameHeader>
-        <GameTitleModal>单词接龙 </GameTitleModal>
+        <GameTitleModal>单词接龙 (人机对战)</GameTitleModal>
         <CloseButton onClick={onClose}>×</CloseButton>
       </GameHeader>
 
@@ -234,34 +245,40 @@ function WordGame({ onClose, onScore }) {
       </GameInfo>
 
       <GameArea>
-          <WordDisplay>
-            <CurrentWord>{currentWord || '...'}</CurrentWord>
-            <DefinitionContainer>
-              {definition.zh && <DefinitionZH>中文释义：{definition.zh}</DefinitionZH>}
-              {definition.en && <p>English: {definition.en}</p>}
-            </DefinitionContainer>
-          </WordDisplay>
+        { isLoading && !currentWord ? (
+            <LoadingSpinner>游戏正在加载中...</LoadingSpinner>
+        ) : (
+          <>
+            <WordDisplay>
+              <CurrentWord>{currentWord || '...'}</CurrentWord>
+              <DefinitionContainer>
+                {definition.zh && <DefinitionZH>中文释义：{definition.zh}</DefinitionZH>}
+                {definition.en && <p>English: {definition.en}</p>}
+              </DefinitionContainer>
+            </WordDisplay>
 
-          <InputArea onSubmit={handleSubmit}>
-            <WordInput
-              type="text"
-              value={playerInput}
-              onChange={(e) => setPlayerInput(e.target.value)}
-              placeholder={isComputerTurn ? '' : `输入以 '${currentWord ? currentWord[currentWord.length - 1] : ''}' 开头的单词`}
-              disabled={isComputerTurn || gameEnded || isLoading}
-              autoFocus
-            />
-            <SubmitButton type="submit" disabled={isComputerTurn || gameEnded || isLoading}>
-              <FaPaperPlane />
-            </SubmitButton>
-          </InputArea>
-          
-          <MessageDisplay 
-            error={message.error} 
-            isThinking={isComputerTurn}
-          >
-             {!isComputerTurn && message.text}
-          </MessageDisplay>
+            <InputArea onSubmit={handleSubmit}>
+              <WordInput
+                type="text"
+                value={playerInput}
+                onChange={(e) => setPlayerInput(e.target.value)}
+                placeholder={isComputerTurn ? '' : `输入以 '${currentWord ? currentWord[currentWord.length - 1] : ''}' 开头的单词`}
+                disabled={isComputerTurn || gameEnded || isLoading}
+                autoFocus
+              />
+              <SubmitButton type="submit" disabled={isComputerTurn || gameEnded || isLoading || !playerInput}>
+                <FaPaperPlane />
+              </SubmitButton>
+            </InputArea>
+            
+            <MessageDisplay 
+              error={message.error} 
+              isThinking={isComputerTurn}
+            >
+              {!isComputerTurn && message.text}
+            </MessageDisplay>
+          </>
+        )}
       </GameArea>
       
        <GameButtonGroup>
@@ -269,7 +286,7 @@ function WordGame({ onClose, onScore }) {
           <FaRedo />
           重新开始
         </BaseButton>
-        <BaseButton primary onClick={gameEnded ? onClose : handleEndGame}>
+        <BaseButton primary onClick={handleEndGame}>
           {gameEnded ? '关闭游戏' : '结束游戏'}
         </BaseButton>
       </GameButtonGroup>
