@@ -1547,52 +1547,47 @@ def lookup_word(word):
         print(f"Error calling dictionary API: {e}")
         return jsonify({"valid": False, "reason": "网络错误，无法连接到词典服务"}), 503
 
-# VVVV 新增：单词接龙 - 电脑回合 API VVVV
+# VVVV 修正版：单词接龙 - 电脑回合 API (异步) VVVV
 # --------------------------------------------------------------------
 @app.route('/api/games/word/computer-turn', methods=['POST'])
 @jwt_required()
-def word_game_computer_turn():
+async def word_game_computer_turn(): # <--- 1. 让路由支持异步操作 (async def)
     """
-    为单词接龙游戏生成电脑的下一步。
-    接收玩家出的单词的最后一个字母，以及所有已使用的单词列表。
+    为单词接龙游戏生成电脑的下一步。(异步版本)
     """
     data = request.get_json()
     last_letter = data.get('last_letter')
-    used_words = data.get('used_words', []) # 获取已使用单词列表，防止重复
+    used_words = data.get('used_words', [])
 
     if not last_letter:
         return jsonify({'error': '缺少 "last_letter" 参数'}), 400
 
     try:
-        # 1. 使用 Datamuse API 寻找以该字母开头的单词
-        #    md=d 表示同时获取单词的英文定义 (definition)
+        # 1. 寻找单词 (这部分是同步的，保持不变)
         datamuse_url = f"https://api.datamuse.com/words?sp={last_letter}*&md=d"
         response = requests.get(datamuse_url)
-        response.raise_for_status() # 如果请求失败则抛出异常
-
+        response.raise_for_status()
         words_data = response.json()
 
-        # 2. 过滤掉已经使用过的单词，并且只选择包含定义的单词
         valid_choices = [
             word for word in words_data
             if word.get('word') not in used_words and 'defs' in word
         ]
 
         if not valid_choices:
-            # 如果电脑找不到任何可以接的词
             return jsonify({'status': 'player_wins', 'message': '恭喜你，电脑被你难倒了！'})
 
-        # 3. 随机选择一个单词
         computer_choice = random.choice(valid_choices)
         computer_word = computer_choice['word']
-        english_definition = computer_choice['defs'][0].split('\t')[1] # Datamuse的定义格式有点特殊
+        english_definition = computer_choice['defs'][0].split('\t')[1]
 
-        # 4. 使用 googletrans 进行翻译
+        # 2. 使用异步方式进行翻译
         translator = Translator()
-        translation_result = translator.translate(english_definition, src='en', dest='zh-cn')
+        # <--- 2. 等待翻译操作完成 (await)
+        translation_result = await translator.translate(english_definition, src='en', dest='zh-cn')
         chinese_definition = translation_result.text
         
-        # 5. 返回最终结果
+        # 3. 返回结果 (保持不变)
         return jsonify({
             'status': 'success',
             'word': computer_word,
@@ -1606,7 +1601,8 @@ def word_game_computer_turn():
         print(f"Error calling Datamuse API: {e}")
         return jsonify({'error': '词汇服务暂时不可用'}), 503
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        # 打印更详细的错误信息，方便调试
+        print(f"An unexpected error occurred in word_game_computer_turn: {e}")
         return jsonify({'error': '服务器内部错误'}), 500
         
 
