@@ -6,7 +6,6 @@ import {
   GameContent, GameHeader, GameTitleModal, CloseButton, GameArea,
   GameInfo, GameButtonGroup, Button as BaseButton, LoadingSpinner
 } from './GameUI';
-import ErrorBoundary from '../ErrorBoundary';
 
 // --- 样式部分保持不变 ---
 const thinkingAnimation = keyframes`0% { content: '电脑正在思考中'; } 25% { content: '电脑正在思考中.'; } 50% { content: '电脑正在思考中..'; } 75% { content: '电脑正在思考中...'; } 100% { content: '电脑正在思考中'; }`;
@@ -167,10 +166,4 @@ function WordGameComponent({ onClose, onScore }) {
   );
 }
 
-export default function WordGame(props) {
-  return (
-    <ErrorBoundary>
-      <WordGameComponent {...props} />
-    </ErrorBoundary>
-  )
-}
+export default WordGame;
