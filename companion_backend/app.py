@@ -50,10 +50,6 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
 app.config["JWT_SECRET_KEY"] = app.config['SECRET_KEY'] # JWT需要一个自己的密钥
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24) # 令牌24小时后过期
 jwt = JWTManager(app) # 初始化JWT工具
-# --- VVVV 新增 SocketIO 初始化 VVVV ---
-# 我们直接复用您之前的CORS配置
-socketio = SocketIO(app, cors_allowed_origins=frontend_url if frontend_url else "*")
-# --- ^^^^ 新增结束 ^^^^ ---
 # --- VVVV  在这里添加下面这两行“侦探代码” VVVV ---
 @jwt.unauthorized_loader
 def unauthorized_callback(reason):
@@ -129,6 +125,10 @@ else:
     CORS(app, supports_credentials=True)
     print("⚠️ 警告：未配置FRONTEND_URL环境变量，CORS已设置为允许所有来源，这在生产环境中存在安全风险。")
 # ------------------- ^^^^ 复制到这里结束 ^^^^ -------------------
+# --- VVVV 新增 SocketIO 初始化 VVVV ---
+# 我们直接复用您之前的CORS配置
+socketio = SocketIO(app, cors_allowed_origins=frontend_url if frontend_url else "*")
+# --- ^^^^ 新增结束 ^^^^ ---
 
 # 配置Gemini API - 【V4修正版：使用 genai.Client()】
 GEMINI_API_KEYS_STR = os.getenv('GEMINI_API_KEYS')
