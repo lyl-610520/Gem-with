@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FaGamepad, FaTrophy, FaStar, FaPlay, FaRedo } from 'react-icons/fa';
 import axios from 'axios';
 import WordGame from './WordGame'; // 新增导入
+import ErrorBoundary from './ErrorBoundary'; // <--- 新增这一行导入
 
 const GamesContainer = styled.div`
   max-width: 1000px;
@@ -517,7 +518,9 @@ function Games({ user }) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
+          <ErrorBoundary> {/* <--- 加上开始标签 */}
             <WordGame onClose={handleGameClose} onScore={handleScore} />
+          </ErrorBoundary> {/* <--- 加上结束标签 */}
           </GameModal>
         )}
         {/* --- 新增代码块结束 --- */}
