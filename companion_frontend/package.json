@@ -25,7 +25,6 @@
     "framer-motion": "^11.2.10",
     "zustand": "^4.5.2",
     "styled-components": "^5.3.9",
-    "framer-motion": "^10.0.1",
     "react-icons": "^4.7.1",
     "react-color": "^2.19.3",
     "web-vitals": "^2.1.4",
