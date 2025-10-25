@@ -1547,14 +1547,9 @@ def lookup_word(word):
         print(f"Error calling dictionary API: {e}")
         return jsonify({"valid": False, "reason": "网络错误，无法连接到词典服务"}), 503
 
-# VVVV 修正版：单词接龙 - 电脑回合 API (异步) VVVV
-# --------------------------------------------------------------------
 @app.route('/api/games/word/computer-turn', methods=['POST'])
 @jwt_required()
-async def word_game_computer_turn(): # <--- 1. 让路由支持异步操作 (async def)
-    """
-    为单词接龙游戏生成电脑的下一步。(异步版本)
-    """
+async def word_game_computer_turn():
     data = request.get_json()
     last_letter = data.get('last_letter')
     used_words = data.get('used_words', [])
@@ -1563,46 +1558,66 @@ async def word_game_computer_turn(): # <--- 1. 让路由支持异步操作 (asyn
         return jsonify({'error': '缺少 "last_letter" 参数'}), 400
 
     try:
-        # 1. 寻找单词 (这部分是同步的，保持不变)
+        # 1. 仍然使用 Datamuse 寻找合适的英文单词，这是它的强项
         datamuse_url = f"https://api.datamuse.com/words?sp={last_letter}*&md=d"
         response = requests.get(datamuse_url)
         response.raise_for_status()
         words_data = response.json()
 
-        valid_choices = [
-            word for word in words_data
-            if word.get('word') not in used_words and 'defs' in word
-        ]
-
-        if not valid_choices:
+        # 过滤掉已使用的词，优先选择有定义的，但如果没有也无所谓
+        potential_choices = [w for w in words_data if w.get('word') not in used_words]
+        
+        if not potential_choices:
             return jsonify({'status': 'player_wins', 'message': '恭喜你，电脑被你难倒了！'})
 
-        computer_choice = random.choice(valid_choices)
-        computer_word = computer_choice['word']
-        english_definition = computer_choice['defs'][0].split('\t')[1]
+        # 为了更好的游戏体验，优先选有定义的词
+        choices_with_defs = [w for w in potential_choices if 'defs' in w]
+        if choices_with_defs:
+            computer_choice = random.choice(choices_with_defs)
+        else:
+            computer_choice = random.choice(potential_choices)
 
-        # 2. 使用异步方式进行翻译
+        computer_word = computer_choice['word']
+
+        # 2. VVVV [核心任务 - 必须] VVVV
+        # 获取单词本身的中文翻译
         translator = Translator()
-        # <--- 2. 等待翻译操作完成 (await)
-        translation_result = await translator.translate(english_definition, src='en', dest='zh-cn')
-        chinese_definition = translation_result.text
+        word_translation_result = await translator.translate(computer_word, src='en', dest='zh-cn')
+        chinese_translation = word_translation_result.text
         
-        # 3. 返回结果 (保持不变)
+        # 3. VVVV [可选任务] VVVV
+        # 尝试获取并翻译定义，如果失败，则优雅地跳过
+        definition_payload = None # 默认为空
+        if computer_choice.get('defs'):
+            try:
+                english_definition_raw = computer_choice['defs'][0]
+                english_definition = english_definition_raw.split('\t', 1)[1] if '\t' in english_definition_raw else english_definition_raw
+                
+                # 如果有英文定义，才去翻译它
+                definition_translation_result = await translator.translate(english_definition, src='en', dest='zh-cn')
+                chinese_definition = definition_translation_result.text
+                
+                definition_payload = {
+                    'en': english_definition,
+                    'zh': chinese_definition
+                }
+            except Exception as e:
+                print(f"Could not process definition for '{computer_word}', but continuing: {e}")
+                # 即使这里出错，游戏也能继续，因为定义是可选的
+
+        # 4. 返回符合您新要求的、干净的数据结构
         return jsonify({
             'status': 'success',
             'word': computer_word,
-            'definition': {
-                'en': english_definition,
-                'zh': chinese_definition
-            }
+            'translation': chinese_translation, # (必须) 单词的中文翻译
+            'definition': definition_payload  # (可选) 定义对象，可能为 null
         })
 
     except requests.exceptions.RequestException as e:
         print(f"Error calling Datamuse API: {e}")
         return jsonify({'error': '词汇服务暂时不可用'}), 503
     except Exception as e:
-        # 打印更详细的错误信息，方便调试
-        print(f"An unexpected error occurred in word_game_computer_turn: {e}")
+        print(f"An unexpected error occurred: {e}")
         return jsonify({'error': '服务器内部错误'}), 500
         
 
