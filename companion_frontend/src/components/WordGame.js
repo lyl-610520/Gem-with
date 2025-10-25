@@ -94,8 +94,8 @@ function WordGameComponent({ onClose, onScore }) {
     e.preventDefault();
     const input = playerInput.trim().toLowerCase();
     if (!input || isComputerTurn || gameEnded || !currentWord) return;
-    if (input[0] !== currentWord[current-word.length - 1]) {
-      setMessage({ text: `单词必须以 '${current-word[current-word.length - 1]}' 开头!`, error: true }); return;
+    if (input[0] !== currentWord[currentword.length - 1]) {
+      setMessage({ text: `单词必须以 '${currentword[currentword.length - 1]}' 开头!`, error: true }); return;
     }
     const currentUsedWords = new Set(usedWords);
     if (currentUsedWords.has(input)) {
