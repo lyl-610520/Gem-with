@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'; // 新增 useRef
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import styled, { keyframes } from 'styled-components';
 import axios from 'axios';
 import { FaPaperPlane, FaRedo } from 'react-icons/fa';
@@ -108,7 +108,7 @@ const MessageDisplay = styled.div`
   `}
 `;
 
-// --- 单词接龙游戏核心组件 (修复无限循环版) ---
+// --- 单词接龙游戏核心组件 (已修复语法错误) ---
 
 function WordGame({ onClose, onScore }) {
   const [currentWord, setCurrentWord] = useState('');
@@ -121,12 +121,10 @@ function WordGame({ onClose, onScore }) {
   const [isComputerTurn, setIsComputerTurn] = useState(false);
   const [gameEnded, setGameEnded] = useState(false);
 
-  // VVVV [核心修正 1/3]: 使用 useRef 来跟踪 onScore 函数，避免它成为依赖项 VVVV
   const onScoreRef = useRef(onScore);
   useEffect(() => {
     onScoreRef.current = onScore;
   }, [onScore]);
-
 
   const validatePlayerWord = async (word) => {
     try {
@@ -137,12 +135,10 @@ function WordGame({ onClose, onScore }) {
     }
   };
   
-  // VVVV [核心修正 2/3]: 稳定 handleComputerTurn 函数，移除变化的依赖 VVVV
   const handleComputerTurn = useCallback(async (letter) => {
     setIsComputerTurn(true);
     setMessage({ text: '', error: false });
     
-    // 使用函数式更新来获取最新的 usedWords，避免将其作为依赖
     let currentUsedWords = [];
     setUsedWords(prevUsedWords => {
         currentUsedWords = Array.from(prevUsedWords);
@@ -163,7 +159,6 @@ function WordGame({ onClose, onScore }) {
       } else {
         setMessage({ text: data.message || '电脑被难倒了！', error: false });
         setGameEnded(true);
-        // 使用 ref 来调用最新的 onScore
         if (score > 0) onScoreRef.current('word', score);
       }
     } catch (error) {
@@ -171,7 +166,7 @@ function WordGame({ onClose, onScore }) {
     } finally {
       setIsComputerTurn(false);
     }
-  }, [score]); // 现在只依赖 score
+  }, [score]);
 
   
   const startGame = useCallback(() => {
@@ -194,7 +189,7 @@ function WordGame({ onClose, onScore }) {
   useEffect(() => {
     startGame();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // VVVV [核心修正 3/3]: 确保 useEffect 只在组件挂载时运行一次 VVVV
+  }, []);
 
 
   const handleSubmit = async (e) => {
@@ -259,7 +254,7 @@ function WordGame({ onClose, onScore }) {
                 {definition.zh && <DefinitionZH>中文释义：{definition.zh}</DefinitionZH>}
                 {definition.en && <p>English: {definition.en}</p>}
               </DefinitionContainer>
-            </Display>
+            </WordDisplay> {/* <--- 这里已经修正！ */}
 
             <InputArea onSubmit={handleSubmit}>
               <WordInput
