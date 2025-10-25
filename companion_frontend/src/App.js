@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
-
+import { io } from "socket.io-client";
+import FriendsPage from './components/FriendsPage';
 import { createTheme, ThemeProvider, Box, CircularProgress } from '@mui/material';
 
 // 组件导入 (保持不变)
@@ -57,10 +58,12 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   // VVVV [核心加固区域] VVVV
-  // 我们将更新 user 状态的逻辑封装成一个函数，确保每次更新都是完整的
+  // VVVV [核心修正 1/3]: 在这里定义 socket 状态 VVVV
+  const [socket, setSocket] = useState(null);
+
   const updateUserState = (userData) => {
     if (userData) {
-      setUser(userData); // 直接使用后端返回的完整对象
+      setUser(userData);
       setThemeName(userData.theme || 'pure');
       setCustomColor(userData.custom_color || '#6366f1');
     } else {
@@ -75,10 +78,7 @@ function App() {
       const token = localStorage.getItem('token');
       if (token) {
         try {
-          // axios 拦截器会自动添加 token
-          // 请求我们修改过的 /user/profile 接口
           const response = await axios.get('/user/profile');
-          // 使用新的函数来更新状态，确保 is_spotify_linked 等字段被正确设置
           updateUserState(response.data); 
         } catch (error) {
           console.error("Token 无效或已过期, 正在登出.", error);
@@ -91,39 +91,71 @@ function App() {
     checkAuthStatus();
   }, []);
 
+  // VVVV [核心修正 2/3]: 将所有 WebSocket 逻辑都包裹在一个新的 useEffect 中 VVVV
+  useEffect(() => {
+    // 只有在用户登录后 (user 对象存在时) 才建立 WebSocket 连接
+    if (user && !socket) {
+      const token = localStorage.getItem('token');
+      if (token) {
+        const newSocket = io(process.env.REACT_APP_API_URL || 'http://localhost:5000', {
+          // 在 Socket.IO v3+ 中，认证信息应该放在 auth 对象里
+          // 但为了兼容您后端可能使用的 query 方式，我们暂时保留 query
+          query: { token }
+        });
+
+        newSocket.on('connect', () => {
+          console.log('✅ WebSocket 连接成功！');
+        });
+
+        newSocket.on('disconnect', () => {
+          console.log('❌ WebSocket 连接已断开。');
+        });
+
+        setSocket(newSocket);
+      }
+    } else if (!user && socket) {
+      // 如果用户登出，则断开连接
+      socket.disconnect();
+      setSocket(null);
+    }
+    
+    // VVVV [核心修正 3/3]: useEffect 的清理函数 VVVV
+    // 这个函数会在组件卸载时，或者在下一次 useEffect 运行前执行
+    return () => {
+      // 如果 socket 存在，确保在组件卸载时断开它
+      if (socket) {
+        socket.disconnect();
+      }
+    };
+  }, [user, socket]); // 这个 useEffect 依赖于 user 和 socket 状态
+
   const handleLogin = (loginResponseData) => {
-    // 登录成功后，后端通常会返回 user 对象和 token
-    // 我们直接使用这个 user 对象来更新状态
     if (loginResponseData && loginResponseData.user) {
         updateUserState(loginResponseData.user);
     }
   };
 
   const handleLogout = () => {
+    // 登出时，user 状态会变为 null，上面的 useEffect 会自动处理 socket 断开
     localStorage.removeItem('token');
     updateUserState(null);
   };
-  // ^^^^ [核心加固结束] ^^^^
   
   const handleThemeChange = (newTheme, newColor = null) => {
     setThemeName(newTheme);
-    if (newColor) {
-      setCustomColor(newColor);
-    }
+    if (newColor) { setCustomColor(newColor); }
   };
 
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
+  const toggleSidebar = () => { setSidebarOpen(!sidebarOpen); };
   
   const theme = useMemo(() => getTheme(themeName, customColor), [themeName, customColor]);
 
   if (loading) {
     return (
       <ThemeProvider theme={theme}>
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: 'background.default', color: 'text.primary' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
           <CircularProgress color="primary" />
-          <Box component="span" sx={{ ml: 2, fontSize: '1.2rem' }}>正在加载陪伴空间...</Box>
+          <Box component="span" sx={{ ml: 2 }}>正在加载陪伴空间...</Box>
         </Box>
       </ThemeProvider>
     );
@@ -179,6 +211,7 @@ function App() {
                   <Route path="/reading" element={<Reading user={user} />} />
                   <Route path="/reading/:bookId" element={<Reader user={user} />} />
                   <Route path="/games" element={<Games user={user} />} />
+                  <Route path="/friends" element={<FriendsPage user={user} socket={socket} />} />
                   <Route path="/chat" element={<Chat user={user} />} />
                   <Route 
                     path="/settings" 
