@@ -5,7 +5,7 @@ import { FaPaperPlane, FaRedo } from 'react-icons/fa';
 import {
   GameContent, GameHeader, GameTitleModal, CloseButton, GameArea,
   GameInfo, GameButtonGroup, Button as BaseButton, LoadingSpinner
-} from '../Games';
+} from './GameUI';
 import ErrorBoundary from '../ErrorBoundary';
 
 // --- 样式部分保持不变 ---
