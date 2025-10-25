@@ -5,8 +5,8 @@ import { FaPaperPlane, FaRedo } from 'react-icons/fa';
 import {
   GameContent, GameHeader, GameTitleModal, CloseButton, GameArea,
   GameInfo, GameButtonGroup, Button as BaseButton, LoadingSpinner
-} from './Games';
-import ErrorBoundary from './ErrorBoundary';
+} from '../Games';
+import ErrorBoundary from '../ErrorBoundary';
 
 // --- 样式部分保持不变 ---
 const thinkingAnimation = keyframes`0% { content: '电脑正在思考中'; } 25% { content: '电脑正在思考中.'; } 50% { content: '电脑正在思考中..'; } 75% { content: '电脑正在思考中...'; } 100% { content: '电脑正在思考中'; }`;
