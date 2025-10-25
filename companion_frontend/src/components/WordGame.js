@@ -104,25 +104,32 @@ function WordGame({ onClose, onScore }) {
   const [isLoading, setIsLoading] = useState(true);
   const [gameEnded, setGameEnded] = useState(false);
 
-  const fetchWordData = useCallback(async (word) => {
+const fetchWordData = useCallback(async (word) => {
     setIsLoading(true);
     setMessage({ text: '', error: false });
     try {
-      const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
-      const data = response.data[0];
-      const wordDef = data.meanings[0]?.definitions[0]?.definition || '暂无释义';
-      
-      setCurrentWord(word);
-      setDefinition(wordDef);
-      setUsedWords(prev => new Set(prev).add(word));
-      return true;
+      // 请求我们自己的后端 API
+      const response = await axios.get(`/games/word/lookup/${word}`);
+      const data = response.data; // 后端已经处理好了数据格式
+
+      if (data.valid) {
+        setCurrentWord(data.word);
+        // 使用后端返回的更丰富的释义
+        setDefinition(data.meaning || '暂无释义'); 
+        setUsedWords(prev => new Set(prev).add(data.word));
+        return true;
+      } else {
+        // 如果后端返回 "valid: false"，我们也可以在这里处理
+        return false;
+      }
     } catch (error) {
+      // axios 对于 404 等状态码会抛出异常，这里统一捕获
       console.error(`Could not find definition for ${word}`, error);
       return false;
     } finally {
       setIsLoading(false);
     }
-  }, []);
+}, []);
 
   const startGame = useCallback(() => {
     setGameEnded(false);
