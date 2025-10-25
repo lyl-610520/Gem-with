@@ -3,7 +3,6 @@ import styled from 'styled-components';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FaGamepad, FaTrophy, FaPlay, FaPlane } from 'react-icons/fa';
 import axios from 'axios';
-import ErrorBoundary from './ErrorBoundary';
 
 // [修复] 重新导入子游戏组件
 import MemoryGame from './games/MemoryGame';
@@ -215,17 +214,17 @@ function Games({ user }) {
       <AnimatePresence>
         {currentGame === 'memory' && (
           <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <ErrorBoundary><MemoryGame onClose={handleGameClose} onScore={handleScore} /></ErrorBoundary>
+            <MemoryGame onClose={handleGameClose} onScore={handleScore} />
           </GameModal>
         )}
         {currentGame === 'word' && (
           <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <ErrorBoundary><WordGame onClose={handleGameClose} onScore={handleScore} /></ErrorBoundary>
+            <WordGame onClose={handleGameClose} onScore={handleScore} />
           </GameModal>
         )}
         {currentGame === 'ludo' && (
           <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <ErrorBoundary><LudoGame onClose={handleGameClose} onScore={handleScore} /></ErrorBoundary>
+            <LudoGame onClose={handleGameClose} onScore={handleScore} />
           </GameModal>
         )}
       </AnimatePresence>
