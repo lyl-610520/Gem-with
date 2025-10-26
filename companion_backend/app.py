@@ -3,6 +3,8 @@
 陪伴空间后端API
 功能：用户认证、日记管理、打卡系统、音乐播放、阅读批注、小游戏等
 """
+from gevent import monkey
+monkey.patch_all()
 
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
