@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
-import FriendListComponent from './FriendListComponent'; // 我们稍后会创建这个文件
+
+// [修复] 导入所有需要的子组件，而不仅仅是 FriendListComponent
+import FriendListComponent from './FriendListComponent';
+import FriendRequestsComponent from './FriendRequestsComponent';
+import AddFriendComponent from './AddFriendComponent';
 
 const FriendsWrapper = styled.div`
   max-width: 1000px;
@@ -38,7 +42,7 @@ const TabButton = styled.button`
   }
 `;
 
-function FriendsPage({ user, socket }) { // 我们需要从 App.js 传入 socket
+function FriendsPage({ user, socket }) {
   const [activeTab, setActiveTab] = useState('list');
 
   return (
@@ -51,9 +55,10 @@ function FriendsPage({ user, socket }) { // 我们需要从 App.js 传入 socket
       </TabContainer>
 
       <div>
+        {/* [修复] 使用真正的组件替换掉 “待开发” 的 div */}
         {activeTab === 'list' && <FriendListComponent user={user} socket={socket} />}
-        {activeTab === 'requests' && <div>好友请求功能待开发...</div>}
-        {activeTab === 'add' && <div>添加好友功能待开发...</div>}
+        {activeTab === 'requests' && <FriendRequestsComponent socket={socket} />}
+        {activeTab === 'add' && <AddFriendComponent />}
       </div>
     </FriendsWrapper>
   );
