@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
+import useFriendChatStore from '../../stores/friendChatStore'; // <-- 1. 导入 store
 
-// --- 复用您聊天室UI风格的 Styled Components ---
+// --- 复用聊天室UI风格的 Styled Components ---
 const ChatWrapper = styled.div`
   display: flex;
   flex-direction: column;
@@ -71,33 +72,11 @@ const SendButton = styled.button`
 `;
 
 function ChatWindow({ currentUser, chatPartner, socket }) {
-  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
 
-  useEffect(() => {
-    // 每次切换聊天对象时，清空消息
-    setMessages([]);
-  }, [chatPartner]);
-
-  useEffect(() => {
-    const handleReceiveMessage = (msg) => {
-      // 只接收与当前聊天对象相关的消息
-      const isRelevant = 
-        (msg.from_user_id === currentUser.id && msg.to_user_id === chatPartner.id) ||
-        (msg.from_user_id === chatPartner.id && msg.to_user_id === currentUser.id);
-      
-      if (isRelevant) {
-        setMessages(prev => [...prev, msg]);
-      }
-    };
-
-    socket.on('receive_private_message', handleReceiveMessage);
-
-    return () => {
-      socket.off('receive_private_message', handleReceiveMessage);
-    };
-  }, [socket, currentUser.id, chatPartner.id]);
+  // 2. 从 store 中订阅与当前聊天对象相关的消息
+  const messages = useFriendChatStore((state) => state.chats[chatPartner.id] || []);
 
   useEffect(() => {
     // 消息滚动到底部
@@ -106,7 +85,7 @@ function ChatWindow({ currentUser, chatPartner, socket }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (input.trim()) {
+    if (input.trim() && socket) {
       socket.emit('private_message', {
         recipient_id: chatPartner.id,
         message: input.trim(),
