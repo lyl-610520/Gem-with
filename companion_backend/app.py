@@ -569,7 +569,6 @@ def update_profile():
     
     return jsonify({'success': True})
 
-# app.py (添加新的API路由)
 
 @app.route('/api/dashboard/summary', methods=['GET'])
 @jwt_required()
@@ -615,58 +614,97 @@ def get_dashboard_summary():
     return jsonify(summary_data)
 
 # ==========================================================
-# [全新] 实时通信与好友状态 (WebSocket Events)
+# 实时通信与好友状态 (WebSocket Events) - 加固最终版
 # ==========================================================
 
 # 用于存储在线用户的全局字典: { user_id: socket_id }
 online_users = {}
 
+# [新增] 统一的、健壮的状态通知函数
+def notify_friends_status_change(user_id, status):
+    """
+    通知一个用户的所有在线好友，其最新的状态。
+    status: 'online' 或 'offline'
+    """
+    try: # 内部也加上保护
+        online_friends = get_online_friends(user_id)
+        # [修复] 发送前端正在监听的 'friend_status_update' 事件！
+        payload = {'user_id': user_id, 'status': status}
+        for friend_id, friend_sid in online_friends.items():
+            emit('friend_status_update', payload, to=friend_sid)
+    except Exception as e:
+        print(f"!!!!!!!!!! notify_friends_status_change 发生错误: {e}")
+
 @socketio.on('connect')
-@jwt_required(optional=True) # 使用 optional=True 允许连接，但之后我们会检查
+@jwt_required(optional=True)
 def handle_connect():
-    """
-    当用户前端成功连接 WebSocket 时触发。
-    """
-    # 从 JWT 中获取用户ID
-    current_user_id = get_jwt_identity()
-    if not current_user_id:
-        print("WebSocket 连接被拒绝：缺少有效的 JWT。")
-        return False # 拒绝连接
+    try: # [修复] 用 try...except 包裹所有逻辑，防止崩溃
+        current_user_id = get_jwt_identity()
+        if not current_user_id:
+            print("WebSocket 连接被拒绝：缺少有效的 JWT。")
+            return False
 
-    current_user_id = int(current_user_id)
-    sid = request.sid # 获取当前连接的唯一 ID
-    online_users[current_user_id] = sid
-    print(f"✅ 用户 {current_user_id} 已上线，SID: {sid}")
+        current_user_id = int(current_user_id)
+        sid = request.sid
+        online_users[current_user_id] = sid
+        print(f"✅ 用户 {current_user_id} 已上线，SID: {sid}")
 
-    # 将用户加入以他自己ID命名的“房间”，方便我们之后单独给他发消息
-    join_room(str(current_user_id))
-    
-    # 通知所有在线的好友“我上线了”
-    # (我们稍后会编写 get_online_friends 函数)
-    online_friends = get_online_friends(current_user_id)
-    for friend_id, friend_sid in online_friends.items():
-        emit('friend_online', {'user_id': current_user_id}, to=friend_sid)
+        join_room(str(current_user_id))
+        
+        # [修复] 使用新的通知函数，发送正确的事件和状态
+        notify_friends_status_change(current_user_id, 'online')
+
+    except Exception as e:
+        print(f"!!!!!!!!!! handle_connect 发生严重错误: {e}")
+
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    """
-    当用户断开 WebSocket 连接时触发。
-    """
-    # 查找是哪个用户断开了连接
-    disconnected_user_id = None
-    for user_id, sid in online_users.items():
-        if sid == request.sid:
-            disconnected_user_id = user_id
-            break
+    try: # [修复] 用 try...except 包裹所有逻辑，防止崩溃
+        disconnected_user_id = None
+        for user_id, sid in online_users.items():
+            if sid == request.sid:
+                disconnected_user_id = user_id
+                break
+                
+        if disconnected_user_id in online_users: # 加上更安全的检查
+            del online_users[disconnected_user_id]
+            print(f"❌ 用户 {disconnected_user_id} 已下线。")
             
-    if disconnected_user_id:
-        del online_users[disconnected_user_id]
-        print(f"❌ 用户 {disconnected_user_id} 已下线。")
-        
-        # 通知所有在线的好友“我下线了”
-        online_friends = get_online_friends(disconnected_user_id)
-        for friend_id, friend_sid in online_friends.items():
-            emit('friend_offline', {'user_id': disconnected_user_id}, to=friend_sid)
+            # [修复] 使用新的通知函数，发送正确的事件和状态
+            notify_friends_status_change(disconnected_user_id, 'offline')
+            
+    except Exception as e:
+        print(f"!!!!!!!!!! handle_disconnect 发生严重错误: {e}")
+
+
+@socketio.on('private_message')
+@jwt_required()
+def handle_private_message(data):
+    try: # [修复] 用 try...except 包裹所有逻辑，防止崩溃
+        sender_id = int(get_jwt_identity())
+        recipient_id = data.get('recipient_id')
+        message_content = data.get('message')
+
+        if not all([recipient_id, message_content]):
+            return
+
+        message_payload = {
+            'from_user_id': sender_id,
+            'to_user_id': recipient_id,
+            'content': message_content,
+            'timestamp': datetime.utcnow().isoformat() + 'Z'
+        }
+
+        recipient_sid = online_users.get(recipient_id)
+        if recipient_sid:
+            emit('receive_private_message', message_payload, to=recipient_sid)
+
+        sender_sid = request.sid
+        emit('receive_private_message', message_payload, to=sender_sid)
+
+    except Exception as e:
+        print(f"!!!!!!!!!! handle_private_message 发生严重错误: {e}")
 
 # 辅助函数，用于获取用户的所有在线好友
 def get_online_friends(user_id):
