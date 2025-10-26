@@ -3,8 +3,13 @@
 陪伴空间后端API
 功能：用户认证、日记管理、打卡系统、音乐播放、阅读批注、小游戏等
 """
+# [最终修复] 猴子补丁 (必须放在所有 import 的最顶端)
 from gevent import monkey
 monkey.patch_all()
+
+# [最终修复] 授权 psycogreen 去改造 psycopg2
+from psycogreen.gevent import patch_psycopg
+patch_psycopg()
 
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
