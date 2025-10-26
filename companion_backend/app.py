@@ -66,6 +66,7 @@ def invalid_token_callback(error):
 # 智能数据库连接配置
 database_url = os.getenv('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
+    pass
 
 # 使用处理过的新地址，或者在没有配置时退回使用本地SQLite文件
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///companion.db'
