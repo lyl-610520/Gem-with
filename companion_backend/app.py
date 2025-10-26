@@ -127,7 +127,7 @@ else:
 # ------------------- ^^^^ 复制到这里结束 ^^^^ -------------------
 # --- VVVV 新增 SocketIO 初始化 VVVV ---
 # 我们直接复用您之前的CORS配置
-socketio = SocketIO(app, cors_allowed_origins=frontend_url if frontend_url else "*")
+socketio = SocketIO(app, cors_allowed_origins=frontend_url if frontend_url else "*", async_mode='gevent')
 # --- ^^^^ 新增结束 ^^^^ ---
 
 # 配置Gemini API - 【V4修正版：使用 genai.Client()】
