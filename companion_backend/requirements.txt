@@ -6,6 +6,7 @@ Flask-SocketIO==5.3.6
 gunicorn
 gevent
 gevent-websocket
+psycogreen
 
 # 数据库核心
 Flask-SQLAlchemy==3.1.1
