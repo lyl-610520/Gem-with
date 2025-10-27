@@ -127,7 +127,7 @@ else:
 # ------------------- ^^^^ 复制到这里结束 ^^^^ -------------------
 # --- VVVV 新增 SocketIO 初始化 VVVV ---
 # 我们直接复用您之前的CORS配置
-socketio = SocketIO(app, cors_allowed_origins=frontend_url if frontend_url else "*", async_mode='asgi')
+socketio = SocketIO(app, cors_allowed_origins=frontend_url if frontend_url else "*", async_mode='eventlet')
 # --- ^^^^ 新增结束 ^^^^ ---
 
 # 配置Gemini API - 【V4修正版：使用 genai.Client()】
@@ -2258,3 +2258,7 @@ def create_and_populate_playlist():
 
     except Exception as e:
         return jsonify({'error': f'An error occurred: {e}'}), 500
+
+# 为实现异步（见ChatGPTasgi和eventlet）
+if __name__ == "__main__":
+    socketio.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)), debug=False)
