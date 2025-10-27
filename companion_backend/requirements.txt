@@ -5,7 +5,6 @@ uvicorn
 
 # --- WebSocket 核心 ---
 Flask-SocketIO==5.3.6
-python-socketio[asyncio_client]
 
 
 # 数据库核心
