@@ -3,13 +3,6 @@
 陪伴空间后端API
 功能：用户认证、日记管理、打卡系统、音乐播放、阅读批注、小游戏等
 """
-# [最终修复] 猴子补丁 (必须放在所有 import 的最顶端)
-from gevent import monkey
-monkey.patch_all()
-
-# [最终修复] 授权 psycogreen 去改造 psycopg2
-from psycogreen.gevent import patch_psycopg
-patch_psycopg()
 
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
@@ -22,6 +15,7 @@ import re
 import io
 import hashlib
 import secrets
+import httpx
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -133,7 +127,7 @@ else:
 # ------------------- ^^^^ 复制到这里结束 ^^^^ -------------------
 # --- VVVV 新增 SocketIO 初始化 VVVV ---
 # 我们直接复用您之前的CORS配置
-socketio = SocketIO(app, cors_allowed_origins=frontend_url if frontend_url else "*", async_mode='gevent')
+socketio = SocketIO(app, cors_allowed_origins=frontend_url if frontend_url else "*", async_mode='asgi')
 # --- ^^^^ 新增结束 ^^^^ ---
 
 # 配置Gemini API - 【V4修正版：使用 genai.Client()】
