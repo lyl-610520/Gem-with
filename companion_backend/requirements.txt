@@ -1,7 +1,6 @@
 
 Flask[async]
 Flask-Cors
-uvicorn
 
 # --- WebSocket 核心 ---
 Flask-SocketIO
