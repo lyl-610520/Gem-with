@@ -5,6 +5,7 @@ uvicorn
 
 # --- WebSocket 核心 ---
 Flask-SocketIO
+eventlet
 
 
 # 数据库核心
