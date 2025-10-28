@@ -633,7 +633,7 @@ def notify_friends_status_change(user_id, status):
         # [修复] 发送前端正在监听的 'friend_status_update' 事件！
         payload = {'user_id': user_id, 'status': status}
         for friend_id, friend_sid in online_friends.items():
-            emit('friend_status_update', payload, to=friend_sid)
+            emit('friend_status_update', payload, to=friend_sid, namespace='/')
     except Exception as e:
         print(f"!!!!!!!!!! notify_friends_status_change 发生错误: {e}")
 
@@ -700,10 +700,10 @@ def handle_private_message(data):
 
         recipient_sid = online_users.get(recipient_id)
         if recipient_sid:
-            emit('receive_private_message', message_payload, to=recipient_sid)
+            emit('receive_private_message', message_payload, to=recipient_sid, namespace='/')
 
         sender_sid = request.sid
-        emit('receive_private_message', message_payload, to=sender_sid)
+        emit('receive_private_message', message_payload, to=sender_sid, namespace='/')
 
     except Exception as e:
         print(f"!!!!!!!!!! handle_private_message 发生严重错误: {e}")
