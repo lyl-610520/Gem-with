@@ -1,8 +1,10 @@
+// src/components/friends/FriendListComponent.js
+
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import axios from 'axios';
-import ChatWindow from './ChatWindow'; // 我们马上就创建它
-import useFriendChatStore from '../../stores/friendChatStore'; // <-- 1. 导入 store
+import ChatWindow from './ChatWindow';
+import useFriendChatStore from '../../stores/friendChatStore';
 
 const FriendListWrapper = styled.div`
   display: grid;
@@ -24,13 +26,19 @@ const List = styled.ul`
 const FriendItem = styled.li`
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 15px;
   border-bottom: 1px solid ${props => props.theme.border};
-  cursor: pointer;
-  transition: background-color 0.2s ease;
+`;
 
+const FriendInfo = styled.div`
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  flex-grow: 1;
+  transition: opacity 0.2s ease;
   &:hover {
-    background-color: rgba(0, 0, 0, 0.05);
+    opacity: 0.8;
   }
 `;
 
@@ -42,6 +50,12 @@ const StatusIndicator = styled.div`
   background-color: ${props => props.isOnline ? '#48bb78' : '#a0aec0'};
 `;
 
+const ActionsContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+`;
+
 const UnreadBadge = styled.div`
   background-color: #e53e3e;
   color: white;
@@ -49,7 +63,21 @@ const UnreadBadge = styled.div`
   font-weight: bold;
   padding: 2px 6px;
   border-radius: 10px;
-  margin-left: auto; // 把它推到最右边
+`;
+
+const DeleteButton = styled.button`
+  background-color: #e53e3e;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  ${FriendItem}:hover & {
+    opacity: 1;
+  }
 `;
 
 const Placeholder = styled.div`
@@ -67,67 +95,76 @@ function FriendListComponent({ user, socket }) {
   const [friends, setFriends] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
   
-  // 2. 从 store 中获取需要的数据和方法
   const unreadCounts = useFriendChatStore((state) => state.unreadCounts);
   const addMessage = useFriendChatStore((state) => state.addMessage);
   const clearUnreadCount = useFriendChatStore((state) => state.clearUnreadCount);
   const setActiveIds = useFriendChatStore((state) => state.setActiveIds);
 
   useEffect(() => {
-    // 3. 每次 activeChat 或 user 变化时，都通知 store
     setActiveIds(activeChat ? activeChat.id : null, user.id);
   }, [activeChat, user.id, setActiveIds]);
 
   useEffect(() => {
-    if (!socket) return; // 安全检查
+    if (!socket) return;
 
-    // 1. 获取好友列表
-    axios.get('/friends').then(res => {
-      setFriends(res.data);
-    });
+    axios.get('/friends').then(res => setFriends(res.data));
 
-    // 2. [修复] 监听正确的在线状态更新事件
     const handleStatusUpdate = ({ user_id, status }) => {
-      const isOnline = status === 'online'; // 后端发来 'online' 或 'offline'
-      setFriends(prev => prev.map(f => f.id === user_id ? { ...f, is_online: isOnline } : f));
+      setFriends(prev => prev.map(f => f.id === user_id ? { ...f, is_online: status === 'online' } : f));
     };
-
-    // 3. [新] 监听所有私聊消息
-    const handleReceiveMessage = (message) => {
-      addMessage(message); // 直接把消息交给 store 处理
-    };
+    const handleReceiveMessage = (message) => addMessage(message);
 
     socket.on('friend_status_update', handleStatusUpdate);
     socket.on('receive_private_message', handleReceiveMessage);
 
-    // 4. 组件卸载时，清理所有监听器
     return () => {
       socket.off('friend_status_update', handleStatusUpdate);
       socket.off('receive_private_message', handleReceiveMessage);
     };
-  }, [socket, addMessage]); // 依赖数组里加入 addMessage
+  }, [socket, addMessage]);
 
   const handleFriendClick = (friend) => {
     setActiveChat(friend);
-    clearUnreadCount(friend.id); // 点开聊天，清除未读
+    clearUnreadCount(friend.id);
+  };
+
+  const handleRemoveFriend = async (friendId) => {
+    if (window.confirm("确定要删除这位好友吗？")) {
+      try {
+        await axios.post('/friends/remove', { friend_id: friendId });
+        setFriends(prev => prev.filter(f => f.id !== friendId));
+        if (activeChat && activeChat.id === friendId) {
+          setActiveChat(null);
+        }
+      } catch (error) {
+        console.error("删除好友失败:", error);
+        alert("删除好友失败，请稍后再试。");
+      }
+    }
   };
 
   return (
     <FriendListWrapper>
       <List>
         {friends.map(friend => (
-          <FriendItem key={friend.id} onClick={() => handleFriendClick(friend)}>
-            <StatusIndicator isOnline={friend.is_online} />
-            <span>{friend.username}</span>
-            {unreadCounts[friend.id] > 0 && (
-              <UnreadBadge>{unreadCounts[friend.id]}</UnreadBadge>
-            )}
+          <FriendItem key={friend.id}>
+            <FriendInfo onClick={() => handleFriendClick(friend)}>
+              <StatusIndicator isOnline={friend.is_online} />
+              <span>{friend.username}</span>
+            </FriendInfo>
+            <ActionsContainer>
+              <DeleteButton onClick={() => handleRemoveFriend(friend.id)}>
+                删除
+              </DeleteButton>
+              {unreadCounts[friend.id] > 0 && (
+                <UnreadBadge>{unreadCounts[friend.id]}</UnreadBadge>
+              )}
+            </ActionsContainer>
           </FriendItem>
         ))}
       </List>
       <div>
         {activeChat ? (
-          // 4. 把 user 重命名为 currentUser 传递给 ChatWindow，避免混淆
           <ChatWindow currentUser={user} chatPartner={activeChat} socket={socket} />
         ) : (
           <Placeholder>选择一位好友开始聊天</Placeholder>
