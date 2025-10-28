@@ -332,7 +332,7 @@ def get_gemini_response(prompt, user_context="", user_id=None):
     user_memories_prompt = ""
 
     if user_id:
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if user:
             user_persona = user.persona
             recent_memories = LongTermMemory.query.filter_by(user_id=user.id).order_by(LongTermMemory.id.desc()).limit(50).all()
@@ -389,7 +389,7 @@ def get_gemini_response(prompt, user_context="", user_id=None):
 
 def check_user_activity(user_id):
     """检查用户活跃度，如果用户连续三天不活跃，Gemini也停止活动"""
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         return False
     
@@ -537,7 +537,7 @@ def logout():
 def get_profile():
     """获取用户资料"""
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    user = db.session.get(User, current_user_id)
     if not user:
         return jsonify({'error': '用户不存在'}), 404
 
@@ -557,7 +557,7 @@ def get_profile():
 def update_profile():
     """更新用户资料"""
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    user = db.session.get(User, current_user_id)
     
     data = request.get_json()
     if 'theme' in data:
@@ -777,7 +777,7 @@ def send_friend_request():
     
     # 实时通知对方有新的好友请求
     if addressee_id in online_users:
-        requester = User.query.get(current_user_id)
+        requester = db.session.get(User, current_user_id)
         emit('new_friend_request', 
              {'from_user': {'id': requester.id, 'username': requester.username}},
              to=online_users[addressee_id],
@@ -820,7 +820,7 @@ def accept_friend_request():
     if not request_id:
         return jsonify({'error': '缺少 request_id'}), 400
 
-    friend_request = Friendship.query.get(request_id)
+    friend_request = db.session.get(Friendship, request_id)
 
     # 安全检查：确保这个请求是发给我的，并且是待处理状态
     if not friend_request or friend_request.addressee_id != current_user_id or friend_request.status != 'pending':
@@ -834,7 +834,7 @@ def accept_friend_request():
     requester_id = friend_request.requester_id
     if requester_id in online_users:
         # 获取当前用户信息（即接受请求的人）
-        me = User.query.get(current_user_id)
+        me = db.session.get(User, current_user_id)
         emit('request_accepted', 
              {'accepted_by_user': {'id': me.id, 'username': me.username}},
              to=online_users[requester_id],
@@ -853,7 +853,7 @@ def reject_friend_request():
     if not request_id:
         return jsonify({'error': '缺少 request_id'}), 400
 
-    friend_request = Friendship.query.get(request_id)
+    friend_request = db.session.get(Friendship, request_id)
 
     # 安全检查：确保这个请求是发给我的
     if not friend_request or friend_request.addressee_id != current_user_id:
@@ -927,7 +927,6 @@ def remove_friend():
     
     return jsonify({'success': True, 'message': '好友已删除'})
 
-# app.py
 
 # ... 在 @socketio.on('disconnect') 函数的下方添加 ...
 
@@ -1521,7 +1520,7 @@ def get_spotify_token():
     安全地获取当前用户的 Spotify Access Token，用于前端SDK初始化。
     """
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    user = db.session.get(User, current_user_id)
     
     # get_spotify_client_for_user 这个函数会自动处理 token 刷新
     sp = get_spotify_client_for_user(user.qq_id)
@@ -1544,7 +1543,7 @@ def spotify_proxy():
     它不再关心具体的 endpoint 是什么，而是直接透传请求。
     """
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    user = db.session.get(User, current_user_id)
     
     sp = get_spotify_client_for_user(user.qq_id)
     if not sp:
@@ -1713,7 +1712,7 @@ def chat_with_music_context():
     [最终版] 处理带有音乐上下文的聊天请求，并复用 get_gemini_response 辅助函数。
     """
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id) # 获取用户信息，用于传递给 get_gemini_response
+    user = db.session.get(User, current_user_id) # 获取用户信息，用于传递给 get_gemini_response
 
     data = request.get_json()
     user_message = data.get('message')
@@ -1825,7 +1824,7 @@ def chat_with_gemini():
     if not message:
         return jsonify({'error': '消息不能为空'}), 400
     
-    user = User.query.get(current_user_id)
+    user = db.session.get(User, current_user_id)
     recent_diaries = Diary.query.filter_by(user_id=current_user_id).order_by(Diary.created_at.desc()).limit(3).all()
     context = f"用户：{user.username}，最近日记：{[d.content[:50] + '...' for d in recent_diaries]}"
     
