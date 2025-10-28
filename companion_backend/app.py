@@ -398,7 +398,7 @@ def check_user_activity(user_id):
 
 def update_user_activity(user_id):
     """更新用户活跃时间"""
-    db.session.get(User, user_id)
+    user = db.session.get(User, user_id)
     if user:
         user.last_active = datetime.utcnow()
         db.session.commit()
