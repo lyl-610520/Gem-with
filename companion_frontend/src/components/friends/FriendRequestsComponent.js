@@ -1,177 +1,95 @@
-// src/components/friends/FriendListComponent.js
+// src/components/friends/FriendRequestsComponent.js
 
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import axios from 'axios';
-import ChatWindow from './ChatWindow';
-import useFriendChatStore from '../../stores/friendChatStore';
 
-const FriendListWrapper = styled.div`
-  display: grid;
-  grid-template-columns: 300px 1fr;
-  gap: 20px;
-  height: 70vh;
+const RequestsWrapper = styled.div`
+  padding: 20px;
+  background: ${props => props.theme.cardBg};
+  border: 1px solid ${props => props.theme.border};
+  border-radius: ${props => props.theme.borderRadius};
 `;
-
-const List = styled.ul`
+const RequestList = styled.ul`
   list-style: none;
   padding: 0;
   margin: 0;
-  background: ${props => props.theme.cardBg};
-  border: 1px solid ${props => props.theme.border};
-  border-radius: ${props => props.theme.borderRadius};
-  overflow-y: auto;
 `;
-
-const FriendItem = styled.li`
+const RequestItem = styled.li`
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
   padding: 15px;
   border-bottom: 1px solid ${props => props.theme.border};
-`;
-
-const FriendInfo = styled.div`
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  flex-grow: 1;
-  transition: opacity 0.2s ease;
-  &:hover {
-    opacity: 0.8;
+   &:last-child {
+    border-bottom: none;
   }
 `;
-
-const StatusIndicator = styled.div`
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-right: 15px;
-  background-color: ${props => props.isOnline ? '#48bb78' : '#a0aec0'};
-`;
-
-const ActionsContainer = styled.div`
+const ButtonGroup = styled.div`
   display: flex;
-  align-items: center;
   gap: 10px;
 `;
-
-const UnreadBadge = styled.div`
-  background-color: #e53e3e;
-  color: white;
-  font-size: 0.7rem;
-  font-weight: bold;
-  padding: 2px 6px;
-  border-radius: 10px;
-`;
-
-const DeleteButton = styled.button`
-  background-color: #e53e3e;
+const ActionButton = styled.button`
   color: white;
   border: none;
-  border-radius: 5px;
-  padding: 3px 8px;
-  font-size: 0.8rem;
+  border-radius: 6px;
+  padding: 8px 15px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  ${FriendItem}:hover & {
-    opacity: 1;
-  }
+  background: ${props => props.accept ? '#48bb78' : '#e53e3e'};
 `;
 
-const Placeholder = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  background: ${props => props.theme.cardBg};
-  border: 1px solid ${props => props.theme.border};
-  border-radius: ${props => props.theme.borderRadius};
-  color: ${props => props.theme.textLight};
-`;
+function FriendRequestsComponent({ socket }) {
+  const [requests, setRequests] = useState([]);
 
-function FriendListComponent({ user, socket }) {
-  const [friends, setFriends] = useState([]);
-  const [activeChat, setActiveChat] = useState(null);
-  
-  const unreadCounts = useFriendChatStore((state) => state.unreadCounts);
-  const addMessage = useFriendChatStore((state) => state.addMessage);
-  const clearUnreadCount = useFriendChatStore((state) => state.clearUnreadCount);
-  const setActiveIds = useFriendChatStore((state) => state.setActiveIds);
-
-  useEffect(() => {
-    setActiveIds(activeChat ? activeChat.id : null, user.id);
-  }, [activeChat, user.id, setActiveIds]);
-
-  useEffect(() => {
-    if (!socket) return;
-
-    axios.get('/friends').then(res => setFriends(res.data));
-
-    const handleStatusUpdate = ({ user_id, status }) => {
-      setFriends(prev => prev.map(f => f.id === user_id ? { ...f, is_online: status === 'online' } : f));
-    };
-    const handleReceiveMessage = (message) => addMessage(message);
-
-    socket.on('friend_status_update', handleStatusUpdate);
-    socket.on('receive_private_message', handleReceiveMessage);
-
-    return () => {
-      socket.off('friend_status_update', handleStatusUpdate);
-      socket.off('receive_private_message', handleReceiveMessage);
-    };
-  }, [socket, addMessage]);
-
-  const handleFriendClick = (friend) => {
-    setActiveChat(friend);
-    clearUnreadCount(friend.id);
+  const fetchRequests = async () => {
+    try {
+      const response = await axios.get('/friends/requests');
+      setRequests(response.data);
+    } catch (error) {
+      console.error("获取好友请求失败:", error);
+    }
   };
 
-  const handleRemoveFriend = async (friendId) => {
-    if (window.confirm("确定要删除这位好友吗？")) {
-      try {
-        await axios.post('/friends/remove', { friend_id: friendId });
-        setFriends(prev => prev.filter(f => f.id !== friendId));
-        if (activeChat && activeChat.id === friendId) {
-          setActiveChat(null);
-        }
-      } catch (error) {
-        console.error("删除好友失败:", error);
-        alert("删除好友失败，请稍后再试。");
-      }
+  useEffect(() => {
+    fetchRequests();
+    const handleNewRequest = (newRequestData) => {
+      alert(`收到了来自 ${newRequestData.from_user.username} 的好友请求！`);
+      fetchRequests(); // 重新获取列表以显示新请求
+    };
+    socket.on('new_friend_request', handleNewRequest);
+    return () => {
+      socket.off('new_friend_request', handleNewRequest);
+    };
+  }, [socket]);
+
+  const handleAction = async (action, requestId) => {
+    try {
+      await axios.post(`/friends/${action}`, { request_id: requestId });
+      setRequests(prev => prev.filter(req => req.request_id !== requestId));
+    } catch (error) {
+      alert(`${action === 'accept' ? '接受' : '拒绝'}请求失败。`);
     }
   };
 
   return (
-    <FriendListWrapper>
-      <List>
-        {friends.map(friend => (
-          <FriendItem key={friend.id}>
-            <FriendInfo onClick={() => handleFriendClick(friend)}>
-              <StatusIndicator isOnline={friend.is_online} />
-              <span>{friend.username}</span>
-            </FriendInfo>
-            <ActionsContainer>
-              <DeleteButton onClick={() => handleRemoveFriend(friend.id)}>
-                删除
-              </DeleteButton>
-              {unreadCounts[friend.id] > 0 && (
-                <UnreadBadge>{unreadCounts[friend.id]}</UnreadBadge>
-              )}
-            </ActionsContainer>
-          </FriendItem>
-        ))}
-      </List>
-      <div>
-        {activeChat ? (
-          <ChatWindow currentUser={user} chatPartner={activeChat} socket={socket} />
-        ) : (
-          <Placeholder>选择一位好友开始聊天</Placeholder>
-        )}
-      </div>
-    </FriendListWrapper>
+    <RequestsWrapper>
+      {requests.length === 0 ? (
+        <p>没有待处理的好友请求。</p>
+      ) : (
+        <RequestList>
+          {requests.map(req => (
+            <RequestItem key={req.request_id}>
+              <span>来自 <strong>{req.from_user.username}</strong> 的好友请求</span>
+              <ButtonGroup>
+                <ActionButton accept onClick={() => handleAction('accept', req.request_id)}>接受</ActionButton>
+                <ActionButton onClick={() => handleAction('reject', req.request_id)}>拒绝</ActionButton>
+              </ButtonGroup>
+            </RequestItem>
+          ))}
+        </RequestList>
+      )}
+    </RequestsWrapper>
   );
 }
 
-export default FriendListComponent;
+export default FriendRequestsComponent;
