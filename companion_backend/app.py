@@ -398,7 +398,7 @@ def check_user_activity(user_id):
 
 def update_user_activity(user_id):
     """更新用户活跃时间"""
-    user = User.query.get(user_id)
+    db.session.get(User, user_id)
     if user:
         user.last_active = datetime.utcnow()
         db.session.commit()
@@ -577,7 +577,7 @@ def update_profile():
 def get_dashboard_summary():
     """[全新] 为首页提供统一的、聚合的数据。"""
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    user = db.session.get(User, current_user_id)
     if not user:
         return jsonify({'error': '用户不存在'}), 404
 
