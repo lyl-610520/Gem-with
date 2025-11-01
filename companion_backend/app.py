@@ -666,7 +666,7 @@ def handle_connect():
         except (InvalidTokenError, KeyError, ValueError) as e:
             print(f"❌ WebSocket 连接被拒绝：token 无效 - {e}")
             return False
-        
+        session['user_id'] = current_user_id # 把用户ID存入会话
         # Token 有效,建立连接
         sid = request.sid
         online_users[current_user_id] = sid
@@ -703,34 +703,6 @@ def handle_disconnect():
             
     except Exception as e:
         print(f"!!!!!!!!!! handle_disconnect 发生严重错误: {e}")
-
-
-@socketio.on('private_message', namespace='/api')  # <--- 添加这个
-def handle_private_message(data):
-    try: # [修复] 用 try...except 包裹所有逻辑，防止崩溃
-        sender_id = int(get_jwt_identity())
-        recipient_id = data.get('recipient_id')
-        message_content = data.get('message')
-
-        if not all([recipient_id, message_content]):
-            return
-
-        message_payload = {
-            'from_user_id': sender_id,
-            'to_user_id': recipient_id,
-            'content': message_content,
-            'timestamp': datetime.utcnow().isoformat() + 'Z'
-        }
-
-        recipient_sid = online_users.get(recipient_id)
-        if recipient_sid:
-            emit('receive_private_message', message_payload, to=recipient_sid, namespace='/api')
-
-        sender_sid = request.sid
-        emit('receive_private_message', message_payload, to=sender_sid, namespace='/api')
-
-    except Exception as e:
-        print(f"!!!!!!!!!! handle_private_message 发生严重错误: {e}")
 
 # 辅助函数，用于获取用户的所有在线好友
 def get_online_friends(user_id):
@@ -952,12 +924,15 @@ def remove_friend():
     return jsonify({'success': True, 'message': '好友已删除'})
 
 @socketio.on('private_message')
-@jwt_required() # 确保只有登录用户才能发私信
 def handle_private_message(data):
     """处理用户发送的私信。"""
-    sender_id = int(get_jwt_identity())
+    sender_id = session.get('user_id')
     recipient_id = data.get('recipient_id')
     message_content = data.get('message')
+
+    if not sender_id:
+            print("警告：在 'private_message' 事件中无法从 session 获取 user_id")
+            return
 
     if not all([recipient_id, message_content]):
         return # 如果数据不完整，则忽略
