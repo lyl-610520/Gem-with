@@ -962,7 +962,7 @@ def handle_private_message(data):
     #    从 online_users 字典中找到接收方的 socket_id
     recipient_sid = online_users.get(recipient_id)
     if recipient_sid:
-        emit('receive_private_message', message_payload, to=recipient_sid)
+        emit('receive_private_message', message_payload, namespace='/api',to=recipient_sid)
 
     # 2. 也发一份给自己，这样自己的聊天窗口也能立即显示
     sender_sid = request.sid
