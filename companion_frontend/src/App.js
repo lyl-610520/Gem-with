@@ -21,6 +21,8 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import GlobalPlayer from './components/GlobalPlayer';
 import FriendsPage from './components/friends/FriendsPage';
+import useFriendChatStore from './stores/friendChatStore'; // 确保路径正确
+
 
 
 // 您的主题创建逻辑 (保持不变)
@@ -57,6 +59,29 @@ function App() {
   const [customColor, setCustomColor] = useState('#6366f1');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
+  // --- VVVV  请把下面这一整段 useEffect 添加进去 VVVV ---
+  useEffect(() => {
+    // 如果 socket 还没有连接好，就什么都不做
+    if (!socket) return;
+
+    // 定义一个处理函数，用来接收消息
+    const handleNewMessage = (message) => {
+      console.log('✅ WebSocket 收到新消息:', message);
+      // 调用 store 的 action，把新消息添加到“仓库”里
+      // 我们用 getState().addMessage 是因为它是在回调函数中，非React组件渲染周期内
+      useFriendChatStore.getState().addMessage(message);
+    };
+
+    // 开始监听 'receive_private_message' 事件
+    socket.on('receive_private_message', handleNewMessage);
+
+    // 【重要】组件卸载时，一定要取消监听，防止内存泄漏！
+    return () => {
+      socket.off('receive_private_message', handleNewMessage);
+    };
+
+  }, [socket]); // 这个 effect 仅在 socket 实例变化时重新运行
+  // --- ^^^^ 添加结束 ^^^^
 
   // VVVV [核心加固区域] VVVV
   // VVVV [核心修正 1/3]: 在这里定义 socket 状态 VVVV
