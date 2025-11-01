@@ -712,10 +712,10 @@ def handle_private_message(data):
 
         recipient_sid = online_users.get(recipient_id)
         if recipient_sid:
-            emit('receive_private_message', message_payload, to=recipient_sid, namespace='/')
+            emit('receive_private_message', message_payload, to=recipient_sid, namespace='/api')
 
         sender_sid = request.sid
-        emit('receive_private_message', message_payload, to=sender_sid, namespace='/')
+        emit('receive_private_message', message_payload, to=sender_sid, namespace='/api')
 
     except Exception as e:
         print(f"!!!!!!!!!! handle_private_message 发生严重错误: {e}")
@@ -793,7 +793,7 @@ def send_friend_request():
         emit('new_friend_request', 
              {'from_user': {'id': requester.id, 'username': requester.username}},
              to=online_users[addressee_id],
-             namespace='/') # 确保在全局命名空间发送
+             namespace='/api') # 确保在全局命名空间发送
              
     return jsonify({'success': True, 'message': '好友请求已发送'}), 201
 
@@ -850,7 +850,7 @@ def accept_friend_request():
         emit('request_accepted', 
              {'accepted_by_user': {'id': me.id, 'username': me.username}},
              to=online_users[requester_id],
-             namespace='/')
+             namespace='/api')
              
     return jsonify({'success': True, 'message': '好友已添加'})
 
@@ -935,12 +935,9 @@ def remove_friend():
         emit('friend_removed', 
              {'removed_by_user_id': current_user_id}, 
              to=online_users[friend_id],
-             namespace='/')
+             namespace='/api')
     
     return jsonify({'success': True, 'message': '好友已删除'})
-
-
-# ... 在 @socketio.on('disconnect') 函数的下方添加 ...
 
 @socketio.on('private_message')
 @jwt_required() # 确保只有登录用户才能发私信
@@ -969,7 +966,7 @@ def handle_private_message(data):
 
     # 2. 也发一份给自己，这样自己的聊天窗口也能立即显示
     sender_sid = request.sid
-    emit('receive_private_message', message_payload, to=sender_sid)
+    emit('receive_private_message', message_payload,namespace='/api', to=sender_sid)
     
 # 日记相关API
 @app.route('/api/diary', methods=['GET'])
