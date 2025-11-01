@@ -59,6 +59,7 @@ function App() {
   const [customColor, setCustomColor] = useState('#6366f1');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [socket, setSocket] = useState(null);
   // --- VVVV  请把下面这一整段 useEffect 添加进去 VVVV ---
   useEffect(() => {
     // 如果 socket 还没有连接好，就什么都不做
@@ -85,7 +86,7 @@ function App() {
 
   // VVVV [核心加固区域] VVVV
   // VVVV [核心修正 1/3]: 在这里定义 socket 状态 VVVV
-  const [socket, setSocket] = useState(null);
+  
 
   const updateUserState = (userData) => {
     if (userData) {
