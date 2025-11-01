@@ -649,28 +649,42 @@ def notify_friends_status_change(user_id, status):
     except Exception as e:
         print(f"!!!!!!!!!! notify_friends_status_change 发生错误: {e}")
 
-@socketio.on('connect', namespace='/api')  # <--- 添加这个
-@jwt_required(optional=True)
+@socketio.on('connect', namespace='/api')
 def handle_connect():
-    try: # [修复] 用 try...except 包裹所有逻辑，防止崩溃
-        current_user_id = get_jwt_identity()
-        if not current_user_id:
-            print("WebSocket 连接被拒绝：缺少有效的 JWT。")
+    """处理 WebSocket 连接"""
+    try:
+        # 手动从 URL 参数获取 token
+        token = request.args.get('token')
+        
+        if not token:
+            print("❌ WebSocket 连接被拒绝：缺少 token 参数")
+            return False  # 拒绝连接
+        
+        # 手动解码和验证 token
+        try:
+            decoded = decode_token(token)
+            current_user_id = int(decoded['sub'])
+        except (InvalidTokenError, KeyError, ValueError) as e:
+            print(f"❌ WebSocket 连接被拒绝：token 无效 - {e}")
             return False
-
-        current_user_id = int(current_user_id)
+        
+        # Token 有效,建立连接
         sid = request.sid
         online_users[current_user_id] = sid
         print(f"✅ 用户 {current_user_id} 已上线，SID: {sid}")
-
-        join_room(str(current_user_id))
         
-        # [修复] 使用新的通知函数，发送正确的事件和状态
+        join_room(str(current_user_id), namespace='/api')
+        
+        # 通知好友上线
         notify_friends_status_change(current_user_id, 'online')
-
+        
+        return True  # 允许连接
+        
     except Exception as e:
-        print(f"!!!!!!!!!! handle_connect 发生严重错误: {e}")
-
+        print(f"❌ handle_connect 发生严重错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 @socketio.on('disconnect', namespace='/api')  # <--- 添加这个
 def handle_disconnect():
@@ -693,7 +707,6 @@ def handle_disconnect():
 
 
 @socketio.on('private_message', namespace='/api')  # <--- 添加这个
-@jwt_required()
 def handle_private_message(data):
     try: # [修复] 用 try...except 包裹所有逻辑，防止崩溃
         sender_id = int(get_jwt_identity())
