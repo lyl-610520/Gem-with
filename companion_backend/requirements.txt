@@ -4,7 +4,6 @@ Flask-Cors
 
 # --- WebSocket 核心 ---
 Flask-SocketIO
-eventlet
 gunicorn
 
 # 数据库核心
