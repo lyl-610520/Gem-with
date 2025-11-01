@@ -134,7 +134,7 @@ else:
 socketio = SocketIO(
     app,
     cors_allowed_origins=frontend_url if frontend_url else "*",
-    async_mode='eventlet',
+    async_mode='threading',
     ping_interval=25,
     ping_timeout=60,  # 增加超时时间
     logger=True,
