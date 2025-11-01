@@ -135,10 +135,12 @@ socketio = SocketIO(
     app,
     cors_allowed_origins=frontend_url if frontend_url else "*",
     async_mode='eventlet',
-    ping_interval=20,
-    ping_timeout=10,
+    ping_interval=25,
+    ping_timeout=60,  # 增加超时时间
     logger=True,
-    engineio_logger=True
+    engineio_logger=True,
+    allow_upgrades=True,
+    transports=['polling', 'websocket']  # 明确支持的传输方式
 )
 # --- ^^^^ 新增结束 ^^^^ ---
 
