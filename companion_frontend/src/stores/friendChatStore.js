@@ -9,9 +9,13 @@ const useFriendChatStore = create((set, get) => ({
   unreadCounts: {}, 
   
   // 添加一条新消息
-  addMessage: (message) => {
+  addMessage: (message, currentUserId) => {
     const { from_user_id, to_user_id } = message;
-    const currentUserId = get().currentUserId; // 我们会从外部注入当前用户ID
+    // 2. 直接使用传入的 currentUserId，不再从 get() 获取
+    if (!currentUserId) {
+        console.error("addMessage 错误: 必须提供 currentUserId!");
+        return; // 如果没有提供ID，直接返回，防止出错
+    }
     
     // 确定这条消息属于哪个好友的对话
     const friendId = from_user_id === currentUserId ? to_user_id : from_user_id;
