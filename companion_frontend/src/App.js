@@ -63,14 +63,14 @@ function App() {
   // --- VVVV  请把下面这一整段 useEffect 添加进去 VVVV ---
   useEffect(() => {
     // 如果 socket 还没有连接好，就什么都不做
-    if (!socket) return;
+    if (!socket || !user) return; // <-- 加上 !user 的判断更安全
 
     // 定义一个处理函数，用来接收消息
     const handleNewMessage = (message) => {
       console.log('✅ WebSocket 收到新消息:', message);
       // 调用 store 的 action，把新消息添加到“仓库”里
       // 我们用 getState().addMessage 是因为它是在回调函数中，非React组件渲染周期内
-      useFriendChatStore.getState().addMessage(message);
+      useFriendChatStore.getState().addMessage(message, user.id); 
     };
 
     // 开始监听 'receive_private_message' 事件
@@ -81,7 +81,7 @@ function App() {
       socket.off('receive_private_message', handleNewMessage);
     };
 
-  }, [socket]); // 这个 effect 仅在 socket 实例变化时重新运行
+  }, [socket, user]); // 这个 effect 仅在 socket 实例变化时重新运行
   // --- ^^^^ 添加结束 ^^^^
 
   // VVVV [核心加固区域] VVVV
