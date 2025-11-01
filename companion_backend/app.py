@@ -42,6 +42,8 @@ from ytmusicapi import YTMusic
 import random
 from googletrans import Translator
 from flask_socketio import SocketIO, emit, join_room, leave_room # <--- 新增导入
+import logging
+logging.basicConfig(level=logging.DEBUG, force=True)
 
 # 加载环境变量
 load_dotenv()
@@ -129,7 +131,15 @@ else:
 # ------------------- ^^^^ 复制到这里结束 ^^^^ -------------------
 # --- VVVV 新增 SocketIO 初始化 VVVV ---
 # 我们直接复用您之前的CORS配置
-socketio = SocketIO(app, cors_allowed_origins=frontend_url if frontend_url else "*", async_mode='eventlet')
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=frontend_url if frontend_url else "*",
+    async_mode='eventlet',
+    ping_interval=20,
+    ping_timeout=10,
+    logger=True,
+    engineio_logger=True
+)
 # --- ^^^^ 新增结束 ^^^^ ---
 
 # 配置Gemini API - 【V4修正版：使用 genai.Client()】
