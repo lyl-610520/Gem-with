@@ -645,11 +645,11 @@ def notify_friends_status_change(user_id, status):
         # [修复] 发送前端正在监听的 'friend_status_update' 事件！
         payload = {'user_id': user_id, 'status': status}
         for friend_id, friend_sid in online_friends.items():
-            emit('friend_status_update', payload, to=friend_sid, namespace='/')
+            emit('friend_status_update', payload, to=friend_sid, namespace='/api')
     except Exception as e:
         print(f"!!!!!!!!!! notify_friends_status_change 发生错误: {e}")
 
-@socketio.on('connect')
+@socketio.on('connect', namespace='/api')  # <--- 添加这个
 @jwt_required(optional=True)
 def handle_connect():
     try: # [修复] 用 try...except 包裹所有逻辑，防止崩溃
@@ -672,7 +672,7 @@ def handle_connect():
         print(f"!!!!!!!!!! handle_connect 发生严重错误: {e}")
 
 
-@socketio.on('disconnect')
+@socketio.on('disconnect', namespace='/api')  # <--- 添加这个
 def handle_disconnect():
     try: # [修复] 用 try...except 包裹所有逻辑，防止崩溃
         disconnected_user_id = None
@@ -692,7 +692,7 @@ def handle_disconnect():
         print(f"!!!!!!!!!! handle_disconnect 发生严重错误: {e}")
 
 
-@socketio.on('private_message')
+@socketio.on('private_message', namespace='/api')  # <--- 添加这个
 @jwt_required()
 def handle_private_message(data):
     try: # [修复] 用 try...except 包裹所有逻辑，防止崩溃
