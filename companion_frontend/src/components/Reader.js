@@ -1,4 +1,4 @@
-// src/components/Reader.js (最终融合版：包含移动端修复 + 实时协作 - 完整无省略)
+// src/components/Reader.js (最终修复版：基于成功代码融合实时功能 - 完整无省略)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -45,7 +45,7 @@ function GeminiChat({ open, onClose, onSendMessage, messages, isSending }) {
   );
 }
 
-// 一个简单的函数，根据用户ID生成一个稳定的颜色
+// 多用户颜色函数
 const getUserColor = (userId) => {
   const colors = ['rgba(255, 173, 173, 0.5)', 'rgba(255, 214, 165, 0.5)', 'rgba(253, 255, 182, 0.5)', 'rgba(202, 255, 191, 0.5)', 'rgba(155, 246, 255, 0.5)', 'rgba(160, 196, 255, 0.5)', 'rgba(189, 178, 255, 0.5)', 'rgba(255, 198, 255, 0.5)'];
   return colors[userId % colors.length];
@@ -103,14 +103,13 @@ function Reader({ user, socket }) {
       const response = await axios.get(`/books/${bookId}`);
       const loadedAnnotations = response.data.annotations || [];
       
-      if (viewerRef.current) {
-        setBookTitle(response.data.title);
-        setAnnotations(loadedAnnotations);
-        
-        if (renditionRef.current && renditionRef.current.getContents()) {
-          renditionRef.current.annotations.removeAll();
+      setBookTitle(response.data.title);
+      setAnnotations(loadedAnnotations);
+      
+      if (renditionRef.current && renditionRef.current.annotations) {
+          // 使用你之前成功代码中的全小写版本！
+          renditionRef.current.annotations.removeall(); 
           loadedAnnotations.forEach(anno => drawHighlight(anno));
-        }
       }
     } catch (err) {
       console.error("获取书籍详情失败:", err);
@@ -119,37 +118,29 @@ function Reader({ user, socket }) {
       } else {
         setError("无法加载书籍详情和批注。");
       }
-      setIsLoading(false);
     }
   }, [bookId, drawHighlight]);
 
   useEffect(() => {
     if (!socket || !bookId) return;
-
-    console.log(`[Socket] Joining room: book_${bookId}`);
     socket.emit('join_book_room', { book_id: bookId });
-
     const handleNewAnnotation = (newAnnotation) => {
       setSnackbar({ open: true, message: `收到来自 ${newAnnotation.username} 的新批注！` });
       setAnnotations(prev => [...prev, newAnnotation]);
       drawHighlight(newAnnotation);
     };
-    
     const handleAnnotationDeleted = (data) => {
       setAnnotations(prev => {
           const annotationToRemove = prev.find(a => a.id === data.annotation_id);
-          if (annotationToRemove && renditionRef.current) {
+          if (annotationToRemove && renditionRef.current && renditionRef.current.annotations) {
               renditionRef.current.annotations.remove(annotationToRemove.cfi, "highlight");
           }
           return prev.filter(a => a.id !== data.annotation_id);
       });
     };
-
     socket.on('new_annotation', handleNewAnnotation);
     socket.on('annotation_deleted', handleAnnotationDeleted);
-
     return () => {
-      console.log(`[Socket] Leaving room: book_${bookId}`);
       socket.emit('leave_book_room', { book_id: bookId });
       socket.off('new_annotation', handleNewAnnotation);
       socket.off('annotation_deleted', handleAnnotationDeleted);
@@ -163,22 +154,17 @@ function Reader({ user, socket }) {
       setIsLoading(false);
       return;
     }
-
     const loadBook = async () => {
       try {
         setIsLoading(true); setError('');
-
         const fileResponse = await axios.get(`/books/${bookId}/file`, { responseType: 'arraybuffer' });
         if (!isMounted) return;
-
         bookRef.current = Epub(fileResponse.data);
         await bookRef.current.ready;
         if (!isMounted) return;
-
         if (isMounted) {
             setToc(bookRef.current.navigation.toc);
         }
-
         if (viewerRef.current) {
           renditionRef.current = bookRef.current.renderTo(viewerRef.current, { 
             width: '100%', 
@@ -190,8 +176,12 @@ function Reader({ user, socket }) {
 
           renditionRef.current.themes.register("custom", {
             "rules": {
-              ".custom-highlight": {
-                // 这个类只是一个标记，颜色在 drawHighlight 中动态设置
+              ".custom-highlight": {},
+              ".user-highlight": { // 保留旧的以防万一
+                "fill": "rgba(255, 255, 0, 0.4) !important",
+              },
+              ".gemini-highlight": { // 保留旧的以防万一
+                "fill": "rgba(135, 206, 250, 0.4) !important",
               }
             },
             "body": { 
@@ -276,7 +266,6 @@ function Reader({ user, socket }) {
         }
       }
     };
-
     loadBook();
 
     return () => {
@@ -332,7 +321,6 @@ function Reader({ user, socket }) {
             page_content: currentPageText,
             cfi: pageStartCfi
         });
-        // 成功后的UI更新会由websocket来完成，这里只需给个提示
         setSnackbar({ open: true, message: 'Gem 批注请求已发送' });
     } catch (err) {
         console.error("Gemini annotation generation failed:", err);
