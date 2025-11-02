@@ -1,78 +1,26 @@
-// src/components/friends/AddFriendComponent.js
-
+// src/components/friends/AddFriendComponent.js (全新重构版)
 import React, { useState } from 'react';
-import styled from 'styled-components';
+import { Box, TextField, IconButton, List, ListItem, ListItemAvatar, Avatar, ListItemText, Button, CircularProgress } from '@mui/material';
+import { FaSearch } from 'react-icons/fa';
 import axios from 'axios';
 
-const AddFriendWrapper = styled.div`
-  padding: 20px;
-  background: ${props => props.theme.cardBg};
-  border: 1px solid ${props => props.theme.border};
-  border-radius: ${props => props.theme.borderRadius};
-`;
-const SearchForm = styled.form`
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-`;
-const SearchInput = styled.input`
-  flex-grow: 1;
-  padding: 10px 15px;
-  border-radius: 8px;
-  border: 1px solid ${props => props.theme.border};
-  font-size: 1rem;
-`;
-const SearchButton = styled.button`
-  background: ${props => props.theme.primary};
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 0 20px;
-  font-weight: 600;
-  cursor: pointer;
-`;
-const ResultList = styled.ul`
-  list-style: none;
-  padding: 0;
-  margin: 0;
-`;
-const ResultItem = styled.li`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 15px;
-  border-bottom: 1px solid ${props => props.theme.border};
-  &:last-child {
-    border-bottom: none;
-  }
-`;
-const AddButton = styled.button`
-  background: #48bb78;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 15px;
-  cursor: pointer;
-  &:disabled {
-    background: #a0aec0;
-    cursor: not-allowed;
-  }
-`;
-
-function AddFriendComponent() {
+const AddFriendComponent = () => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [sentRequests, setSentRequests] = useState({});
+  const [loading, setLoading] = useState(false);
 
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!query.trim()) return;
+    setLoading(true);
     try {
       const response = await axios.get(`/users/search?q=${query}`);
       setResults(response.data);
     } catch (error) {
       console.error("搜索用户失败:", error);
-      alert('搜索失败，请稍后重试。');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -81,37 +29,47 @@ function AddFriendComponent() {
       await axios.post('/friends/request', { user_id: userId });
       setSentRequests(prev => ({ ...prev, [userId]: true }));
     } catch (error) {
-      console.error("发送好友请求失败:", error);
       alert(error.response?.data?.error || '发送请求失败。');
     }
   };
 
   return (
-    <AddFriendWrapper>
-      <SearchForm onSubmit={handleSearch}>
-        <SearchInput
-          type="text"
+    <Box>
+      <Box component="form" onSubmit={handleSearch} sx={{ display: 'flex', gap: 1, mb: 3 }}>
+        <TextField
+          fullWidth
+          variant="outlined"
+          label="输入好友的昵称或QQ号"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="输入好友的昵称或QQ号"
         />
-        <SearchButton type="submit">搜索</SearchButton>
-      </SearchForm>
-      <ResultList>
-        {results.length === 0 && <p>没有搜索结果。</p>}
+        <IconButton type="submit" color="primary" size="large" disabled={loading}>
+          {loading ? <CircularProgress size={24} /> : <FaSearch />}
+        </IconButton>
+      </Box>
+      <List>
         {results.map(user => (
-          <ResultItem key={user.id}>
-            <span>{user.username} ({user.qq_id})</span>
-            <AddButton
-              onClick={() => handleSendRequest(user.id)}
-              disabled={sentRequests[user.id]}
-            >
-              {sentRequests[user.id] ? '已发送' : '添加好友'}
-            </AddButton>
-          </ResultItem>
+          <ListItem
+            key={user.id}
+            secondaryAction={
+              <Button
+                variant="contained"
+                onClick={() => handleSendRequest(user.id)}
+                disabled={sentRequests[user.id]}
+              >
+                {sentRequests[user.id] ? '已发送' : '添加好友'}
+              </Button>
+            }
+          >
+            <ListItemAvatar>
+              <Avatar sx={{ bgcolor: 'primary.light' }}>{user.username.charAt(0).toUpperCase()}</Avatar>
+            </ListItemAvatar>
+            <ListItemText primary={user.username} secondary={`QQ: ${user.qq_id}`} />
+          </ListItem>
         ))}
-      </ResultList>
-    </AddFriendWrapper>
+      </List>
+    </Box>
   );
-}
+};
+
 export default AddFriendComponent;
