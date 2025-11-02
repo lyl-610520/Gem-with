@@ -124,22 +124,36 @@ function App() {
     if (user && !socket) {
       const token = localStorage.getItem('token');
       if (token) {
+         // 1. 获取基础URL
         const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-        const newSocket = io(`${apiUrl}/api`, { // <--- 在URL后面加上 /api
-          // 在 Socket.IO v3+ 中，认证信息应该放在 auth 对象里
-          // 但为了兼容您后端可能使用的 query 方式，我们暂时保留 query
+        
+        // 2. [核心修复] 移除可能存在的尾部斜杠或/api
+        const cleanApiUrl = apiUrl.replace(/\/api$/, '').replace(/\/$/, '');
+        
+        // 3. 构建最终的、绝对正确的socket连接URL
+        const socketUrl = `${cleanApiUrl}/api`;
+
+        console.log("正在尝试连接到WebSocket:", socketUrl); // <-- 添加一条日志用于调试
+
+        const newSocket = io(socketUrl, { 
           query: { token }
         });
 
         newSocket.on('connect', () => {
-          console.log('✅ WebSocket 连接成功！');
+          console.log(`✅ 成功连接到 ${socketUrl}！`);
         });
 
-        newSocket.on('disconnect', () => {
-          console.log('❌ WebSocket 连接已断开。');
+        newSocket.on('disconnect', (reason) => {
+          console.log(`❌ WebSocket 连接已断开: ${reason}`);
+        });
+
+        newSocket.on('connect_error', (err) => {
+           console.error("WebSocket 连接错误:", err.message);
         });
 
         setSocket(newSocket);
+        
+        // ^^^^ 替换结束 ^^^^
       }
     } else if (!user && socket) {
       // 如果用户登出，则断开连接
