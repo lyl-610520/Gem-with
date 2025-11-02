@@ -112,7 +112,10 @@ function FriendListComponent({ user, socket }) {
     const handleStatusUpdate = ({ user_id, status }) => {
       setFriends(prev => prev.map(f => f.id === user_id ? { ...f, is_online: status === 'online' } : f));
     };
-    const handleReceiveMessage = (message) => addMessage(message);
+    const handleReceiveMessage = (message) => {
+    console.log('📩 收到私信:', message); // 加个日志方便调试
+    addMessage(message, user.id); // ✅ 传入 user.id
+    };
 
     socket.on('friend_status_update', handleStatusUpdate);
     socket.on('receive_private_message', handleReceiveMessage);
