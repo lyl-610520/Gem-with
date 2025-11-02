@@ -112,17 +112,19 @@ useEffect(() => {
     const newSocket = io(socketUrl, { query: { token } });
 
     // 2. [核心] 在 'connect' 事件触发后，才设置监听器并更新 state
-    newSocket.on('connect', () => {
-      console.log(`✅ 成功连接到 ${socketUrl}！`);
-      setSocket(newSocket); // 更新 state，让其他组件能拿到 socket 实例
-
-      // 在这里定义并设置消息监听器
       const handleNewMessage = (message) => {
         console.log('✅ WebSocket 收到新消息:', message);
+        // 确保 user.id 是最新的
         useFriendChatStore.getState().addMessage(message, user.id);
       };
-      newSocket.on('receive_private_message', handleNewMessage);
-    });
+
+      newSocket.on('connect', () => {
+        console.log(`✅ 成功连接到 ${socketUrl}！`);
+        setSocket(newSocket);
+        
+        // [修改] 将监听器注册移到 connect 成功之后
+        newSocket.on('receive_private_message', handleNewMessage);
+      });
 
     // 3. (推荐) 添加其他生命周期事件的监听
     newSocket.on('disconnect', (reason) => {
@@ -135,6 +137,7 @@ useEffect(() => {
     // 4. 定义清理函数
     return () => {
       console.log("正在断开 WebSocket 连接...");
+      newSocket.off('receive_private_message', handleNewMessage); // <--- 关键！移除监听
       newSocket.disconnect();
       setSocket(null); // 登出或组件卸载时，清理 socket state
     };
