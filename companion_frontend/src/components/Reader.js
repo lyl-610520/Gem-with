@@ -108,7 +108,7 @@ function Reader({ user, socket }) {
         setAnnotations(loadedAnnotations);
         
         if (renditionRef.current && renditionRef.current.getContents()) {
-          renditionRef.current.annotations.removeall();
+          renditionRef.current.annotations.removeAll();
           loadedAnnotations.forEach(anno => drawHighlight(anno));
         }
       }
