@@ -113,9 +113,25 @@ function FriendListComponent({ user, socket }) {
       setFriends(prev => prev.map(f => f.id === user_id ? { ...f, is_online: status === 'online' } : f));
     };
     const handleReceiveMessage = (message) => {
-    console.log('📩 收到私信:', message); // 加个日志方便调试
-    addMessage(message, user.id); // ✅ 传入 user.id
-    };
+  console.log('📩 收到私信:', message);
+  console.log('👤 当前用户ID:', user.id);
+  console.log('📨 发送者ID:', message.from_user_id);
+  console.log('📬 接收者ID:', message.to_user_id);
+  
+  // 手动计算应该存到哪个好友ID下
+  const friendId = message.from_user_id === user.id 
+    ? message.to_user_id 
+    : message.from_user_id;
+  console.log('🎯 应该存到的好友ID:', friendId);
+  console.log('💬 当前打开的聊天对象:', activeChat?.id);
+  
+  addMessage(message, user.id);
+  
+  // 调用后检查 store 状态
+  const storeState = useFriendChatStore.getState();
+  console.log('💾 Store 中的聊天记录:', storeState.chats);
+  console.log('🔢 未读计数:', storeState.unreadCounts);
+};
 
     socket.on('friend_status_update', handleStatusUpdate);
     socket.on('receive_private_message', handleReceiveMessage);
