@@ -124,7 +124,8 @@ function App() {
     if (user && !socket) {
       const token = localStorage.getItem('token');
       if (token) {
-        const newSocket = io(process.env.REACT_APP_API_URL || 'http://localhost:5000', {
+        const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+        const newSocket = io(`${apiUrl}/api`, { // <--- 在URL后面加上 /api
           // 在 Socket.IO v3+ 中，认证信息应该放在 auth 对象里
           // 但为了兼容您后端可能使用的 query 方式，我们暂时保留 query
           query: { token }
