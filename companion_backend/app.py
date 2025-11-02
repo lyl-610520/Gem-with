@@ -923,21 +923,25 @@ def remove_friend():
     
     return jsonify({'success': True, 'message': '好友已删除'})
 
-@socketio.on('private_message')
+@socketio.on('private_message', namespace='/api')  # ✅ 加上这个
 def handle_private_message(data):
     """处理用户发送的私信。"""
+    print(f"🔍 收到 private_message 事件: {data}")  # 添加日志
+    
     sender_id = session.get('user_id')
     recipient_id = data.get('recipient_id')
     message_content = data.get('message')
 
+    print(f"📤 发送者: {sender_id}, 接收者: {recipient_id}")  # 添加日志
+
     if not sender_id:
-            print("警告：在 'private_message' 事件中无法从 session 获取 user_id")
-            return
+        print("❌ 警告：无法从 session 获取 user_id")
+        return
 
     if not all([recipient_id, message_content]):
-        return # 如果数据不完整，则忽略
+        print("❌ 数据不完整")
+        return
 
-    # 准备好要广播的消息体
     message_payload = {
         'from_user_id': sender_id,
         'to_user_id': recipient_id,
@@ -946,14 +950,17 @@ def handle_private_message(data):
     }
 
     # 1. 发送给接收方
-    #    从 online_users 字典中找到接收方的 socket_id
     recipient_sid = online_users.get(recipient_id)
+    print(f"🎯 接收者 SID: {recipient_sid}")  # 添加日志
+    
     if recipient_sid:
-        emit('receive_private_message', message_payload, namespace='/api',to=recipient_sid)
+        emit('receive_private_message', message_payload, namespace='/api', to=recipient_sid)
+        print(f"✅ 已发送给接收者 {recipient_id}")
 
-    # 2. 也发一份给自己，这样自己的聊天窗口也能立即显示
+    # 2. 发送给自己
     sender_sid = request.sid
-    emit('receive_private_message', message_payload,namespace='/api', to=sender_sid)
+    emit('receive_private_message', message_payload, namespace='/api', to=sender_sid)
+    print(f"✅ 已发送给发送者 {sender_id}")
     
 # 日记相关API
 @app.route('/api/diary', methods=['GET'])
