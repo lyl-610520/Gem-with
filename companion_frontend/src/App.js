@@ -223,7 +223,7 @@ useEffect(() => {
                   <Route path="/checkin" element={<Checkin user={user} />} />
                   <Route path="/music" element={<Music user={user} />} /> 
                   <Route path="/reading" element={<Reading user={user} />} />
-                  <Route path="/reading/:bookId" element={<Reader user={user} socket={socket} />}
+                  <Route path="/reading/:bookId" element={<Reader user={user} socket={socket} />} />
                   <Route path="/games" element={<Games user={user} />} />
                   <Route path="/friends" element={<FriendsPage user={user} socket={socket} />} />
                   <Route path="/chat" element={<Chat user={user} />} />
