@@ -61,28 +61,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [socket, setSocket] = useState(null);
   // --- VVVV  请把下面这一整段 useEffect 添加进去 VVVV ---
-  useEffect(() => {
-    // 如果 socket 还没有连接好，就什么都不做
-    if (!socket || !user) return; // <-- 加上 !user 的判断更安全
-
-    // 定义一个处理函数，用来接收消息
-    const handleNewMessage = (message) => {
-      console.log('✅ WebSocket 收到新消息:', message);
-      // 调用 store 的 action，把新消息添加到“仓库”里
-      // 我们用 getState().addMessage 是因为它是在回调函数中，非React组件渲染周期内
-      useFriendChatStore.getState().addMessage(message, user.id); 
-    };
-
-    // 开始监听 'receive_private_message' 事件
-    socket.on('receive_private_message', handleNewMessage);
-
-    // 【重要】组件卸载时，一定要取消监听，防止内存泄漏！
-    return () => {
-      socket.off('receive_private_message', handleNewMessage);
-    };
-
-  }, [socket, user]); // 这个 effect 仅在 socket 实例变化时重新运行
-  // --- ^^^^ 添加结束 ^^^^
 
   // VVVV [核心加固区域] VVVV
   // VVVV [核心修正 1/3]: 在这里定义 socket 状态 VVVV
@@ -119,57 +97,51 @@ function App() {
   }, []);
 
   // VVVV [核心修正 2/3]: 将所有 WebSocket 逻辑都包裹在一个新的 useEffect 中 VVVV
-  useEffect(() => {
-    // 只有在用户登录后 (user 对象存在时) 才建立 WebSocket 连接
-    if (user && !socket) {
-      const token = localStorage.getItem('token');
-      if (token) {
-         // 1. 获取基础URL
-        const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-        
-        // 2. [核心修复] 移除可能存在的尾部斜杠或/api
-        const cleanApiUrl = apiUrl.replace(/\/api$/, '').replace(/\/$/, '');
-        
-        // 3. 构建最终的、绝对正确的socket连接URL
-        const socketUrl = `${cleanApiUrl}/api`;
+// VVVVVV  请用下面这一整段代码，替换掉您现有的、负责创建 socket 的 useEffect VVVVVV
 
-        console.log("正在尝试连接到WebSocket:", socketUrl); // <-- 添加一条日志用于调试
-
-        const newSocket = io(socketUrl, { 
-          query: { token }
-        });
-
-        newSocket.on('connect', () => {
-          console.log(`✅ 成功连接到 ${socketUrl}！`);
-        });
-
-        newSocket.on('disconnect', (reason) => {
-          console.log(`❌ WebSocket 连接已断开: ${reason}`);
-        });
-
-        newSocket.on('connect_error', (err) => {
-           console.error("WebSocket 连接错误:", err.message);
-        });
-
-        setSocket(newSocket);
-        
-        // ^^^^ 替换结束 ^^^^
-      }
-    } else if (!user && socket) {
-      // 如果用户登出，则断开连接
-      socket.disconnect();
-      setSocket(null);
-    }
+useEffect(() => {
+  // 只有在用户登录后才进行所有 socket 相关操作
+  if (user) {
+    // 1. 创建 socket 连接实例
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+    const cleanApiUrl = apiUrl.replace(/\/api$/, '').replace(/\/$/, '');
+    const socketUrl = `${cleanApiUrl}/api`;
+    const token = localStorage.getItem('token');
     
-    // VVVV [核心修正 3/3]: useEffect 的清理函数 VVVV
-    // 这个函数会在组件卸载时，或者在下一次 useEffect 运行前执行
+    console.log("正在尝试连接到WebSocket:", socketUrl);
+    const newSocket = io(socketUrl, { query: { token } });
+
+    // 2. [核心] 在 'connect' 事件触发后，才设置监听器并更新 state
+    newSocket.on('connect', () => {
+      console.log(`✅ 成功连接到 ${socketUrl}！`);
+      setSocket(newSocket); // 更新 state，让其他组件能拿到 socket 实例
+
+      // 在这里定义并设置消息监听器
+      const handleNewMessage = (message) => {
+        console.log('✅ WebSocket 收到新消息:', message);
+        useFriendChatStore.getState().addMessage(message, user.id);
+      };
+      newSocket.on('receive_private_message', handleNewMessage);
+    });
+
+    // 3. (推荐) 添加其他生命周期事件的监听
+    newSocket.on('disconnect', (reason) => {
+      console.log(`❌ WebSocket 连接已断开: ${reason}`);
+    });
+    newSocket.on('connect_error', (err) => {
+      console.error("WebSocket 连接错误:", err.message);
+    });
+
+    // 4. 定义清理函数
     return () => {
-      // 如果 socket 存在，确保在组件卸载时断开它
-      if (socket) {
-        socket.disconnect();
-      }
+      console.log("正在断开 WebSocket 连接...");
+      newSocket.disconnect();
+      setSocket(null); // 登出或组件卸载时，清理 socket state
     };
-  }, [user, socket]); // 这个 useEffect 依赖于 user 和 socket 状态
+  }
+}, [user]); // 这个 effect 只依赖于 user 的登录/登出状态
+
+// ^^^^^^ 替换到这里结束 ^^^^^^
 
   const handleLogin = (loginResponseData) => {
     if (loginResponseData && loginResponseData.user) {
