@@ -304,6 +304,51 @@ class Annotation(db.Model):
     is_gemini_annotation = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+class SharedBook(db.Model):
+    """书籍分享记录模型"""
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # 关联到原始书籍
+    book_id = db.Column(db.Integer, db.ForeignKey('book.id'), nullable=False)
+    
+    # 分享者 (书籍的拥有者)
+    sharer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # 接收者 (被分享的好友)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # 建立关系，方便查询
+    book = db.relationship('Book', backref='shares')
+    sharer = db.relationship('User', foreign_keys=[sharer_id])
+    recipient = db.relationship('User', foreign_keys=[recipient_id])
+    
+    # 确保同一本书对同一好友只分享一次
+    __table_args__ = (db.UniqueConstraint('book_id', 'recipient_id', name='_book_recipient_uc'),)
+
+class Message(db.Model):
+    """私信消息模型"""
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # [核心] 消息类型: 'text' 或 'book_share'
+    message_type = db.Column(db.String(20), default='text', nullable=False)
+    
+    # 文本内容 (如果是text类型)
+    content = db.Column(db.Text, nullable=True) 
+    
+    # 关联的书籍ID (如果是book_share类型)
+    book_id = db.Column(db.Integer, db.ForeignKey('book.id'), nullable=True)
+    
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    
+    # 建立关系 (可选，但推荐)
+    sender = db.relationship('User', foreign_keys=[sender_id])
+    recipient = db.relationship('User', foreign_keys=[recipient_id])
+    book = db.relationship('Book')
+
 class GameScore(db.Model):
     """游戏分数模型"""
     id = db.Column(db.Integer, primary_key=True)
@@ -704,6 +749,25 @@ def handle_disconnect():
     except Exception as e:
         print(f"!!!!!!!!!! handle_disconnect 发生严重错误: {e}")
 
+# 当用户打开一本书开始阅读时，让他们加入这本书的房间
+@socketio.on('join_book_room', namespace='/api')
+def handle_join_book_room(data):
+    """客户端进入阅读界面时调用"""
+    book_id = data.get('book_id')
+    if book_id:
+        # 使用 join_room 函数将当前客户端加入一个以 book_id 命名的房间
+        join_room(f'book_{book_id}')
+        print(f"用户 {session.get('user_id')} 加入了书籍房间: book_{book_id}")
+
+# 当用户关闭阅读界面时，让他们离开房间
+@socketio.on('leave_book_room', namespace='/api')
+def handle_leave_book_room(data):
+    """客户端离开阅读界面时调用"""
+    book_id = data.get('book_id')
+    if book_id:
+        leave_room(f'book_{book_id}')
+        print(f"用户 {session.get('user_id')} 离开了书籍房间: book_{book_id}")
+        
 # 辅助函数，用于获取用户的所有在线好友
 def get_online_friends(user_id):
     friendships = Friendship.query.filter(
@@ -923,44 +987,125 @@ def remove_friend():
     
     return jsonify({'success': True, 'message': '好友已删除'})
 
-@socketio.on('private_message', namespace='/api')  # ✅ 加上这个
+@socketio.on('private_message', namespace='/api')
 def handle_private_message(data):
-    """处理用户发送的私信。"""
-    print(f"🔍 收到 private_message 事件: {data}")  # 添加日志
-    
+    """
+    处理用户发送的私信，支持文本和书籍分享，并进行持久化。
+    """
     sender_id = session.get('user_id')
-    recipient_id = data.get('recipient_id')
-    message_content = data.get('message')
-
-    print(f"📤 发送者: {sender_id}, 接收者: {recipient_id}")  # 添加日志
-
     if not sender_id:
         print("❌ 警告：无法从 session 获取 user_id")
         return
 
-    if not all([recipient_id, message_content]):
-        print("❌ 数据不完整")
+    recipient_id = data.get('recipient_id')
+    message_type = data.get('type', 'text') # <--- 1. 获取消息类型
+
+    if not recipient_id:
         return
 
-    message_payload = {
-        'from_user_id': sender_id,
-        'to_user_id': recipient_id,
-        'content': message_content,
-        'timestamp': datetime.utcnow().isoformat() + 'Z'
-    }
+    # [新增] 权限验证：检查双方是否为好友
+    friendship = Friendship.query.filter(
+        (
+            ((Friendship.requester_id == sender_id) & (Friendship.addressee_id == recipient_id)) |
+            ((Friendship.requester_id == recipient_id) & (Friendship.addressee_id == sender_id))
+        ),
+        Friendship.status == 'accepted'
+    ).first()
 
-    # 1. 发送给接收方
-    recipient_sid = online_users.get(recipient_id)
-    print(f"🎯 接收者 SID: {recipient_sid}")  # 添加日志
+    if not friendship:
+        # (可选) 可以给发送者一个错误提示
+        print(f"❌ 权限错误：用户 {sender_id} 和 {recipient_id} 不是好友。")
+        return
+
+    # --- 根据消息类型分别处理 ---
     
+    db_message = None
+    message_payload = None
+
+    if message_type == 'book_share':
+        book_id = data.get('book_id')
+        book_to_share = Book.query.filter_by(id=book_id, user_id=sender_id).first()
+        
+        if not book_to_share:
+            print(f"❌ 书籍分享失败：书籍 {book_id} 不存在或不属于用户 {sender_id}")
+            return
+            
+        # 创建分享记录
+        existing_share = SharedBook.query.filter_by(book_id=book_id, recipient_id=recipient_id).first()
+        if not existing_share:
+            new_share = SharedBook(book_id=book_id, sharer_id=sender_id, recipient_id=recipient_id)
+            db.session.add(new_share)
+            
+        # 创建要存入数据库的消息记录
+        db_message = Message(
+            sender_id=sender_id, 
+            recipient_id=recipient_id,
+            message_type='book_share',
+            book_id=book_id
+        )
+        
+    elif message_type == 'text':
+        message_content = data.get('message')
+        if not message_content or not message_content.strip():
+            return
+            
+        # 创建要存入数据库的消息记录
+        db_message = Message(
+            sender_id=sender_id,
+            recipient_id=recipient_id,
+            message_type='text',
+            content=message_content
+        )
+
+    else:
+        print(f"❌ 未知消息类型: {message_type}")
+        return
+
+    # --- 统一保存和发送 ---
+
+    try:
+        db.session.add(db_message)
+        db.session.commit() # 先提交，确保消息有ID和时间戳
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ 数据库错误，保存消息失败: {e}")
+        return
+
+    # 构建要发送给前端的 payload
+    if db_message.message_type == 'book_share':
+        # 需要重新查询 book_to_share，因为上面的作用域可能没覆盖到
+        book_info = db.session.get(Book, db_message.book_id)
+        message_payload = {
+            'id': db_message.id,
+            'from_user_id': sender_id,
+            'to_user_id': recipient_id,
+            'timestamp': db_message.timestamp.isoformat() + 'Z',
+            'type': 'book_share',
+            'content': { # content 变成了一个对象
+                'id': book_info.id,
+                'title': book_info.title,
+                'author': book_info.author,
+                'cover_image_data': book_info.cover_image_data
+            }
+        }
+    else: # 文本消息
+        message_payload = {
+            'id': db_message.id,
+            'from_user_id': sender_id,
+            'to_user_id': recipient_id,
+            'timestamp': db_message.timestamp.isoformat() + 'Z',
+            'type': 'text',
+            'content': db_message.content # content 是字符串
+        }
+
+    # 使用 online_users 字典实时推送
+    recipient_sid = online_users.get(recipient_id)
     if recipient_sid:
         emit('receive_private_message', message_payload, namespace='/api', to=recipient_sid)
-        print(f"✅ 已发送给接收者 {recipient_id}")
-
-    # 2. 发送给自己
+    
+    # 总是给自己也发一份，用于UI同步
     sender_sid = request.sid
     emit('receive_private_message', message_payload, namespace='/api', to=sender_sid)
-    print(f"✅ 已发送给发送者 {sender_id}")
     
 # 日记相关API
 @app.route('/api/diary', methods=['GET'])
@@ -1300,19 +1445,40 @@ def upload_book():
 @app.route('/api/books', methods=['GET'])
 @jwt_required()
 def get_books():
-    """[Base64版] 获取书架列表 (不包含书籍内容)"""
+    """获取书架列表，包含自己的书和分享的书"""
     current_user_id = get_jwt_identity()
-    books = Book.query.filter_by(user_id=current_user_id).order_by(Book.created_at.desc()).all()
     
-    books_data = [{
+    # 1. 获取用户自己的书
+    my_books_query = Book.query.filter_by(user_id=current_user_id).order_by(Book.created_at.desc()).all()
+    my_books_data = [{
         'id': book.id,
         'title': book.title,
         'author': book.author,
         'cover_image_data': book.cover_image_data,
-    } for book in books]
+    } for book in my_books_query]
     
-    return jsonify({'books': books_data})
-
+    # 2. 获取别人分享给我的书
+    shared_items = SharedBook.query.filter_by(recipient_id=current_user_id).order_by(SharedBook.created_at.desc()).all()
+    shared_books_data = []
+    for item in shared_items:
+        book = item.book # 通过 relationship 获取书籍对象
+        sharer = item.sharer # 获取分享者信息
+        shared_books_data.append({
+            'id': book.id,
+            'title': book.title,
+            'author': book.author,
+            'cover_image_data': book.cover_image_data,
+            'shared_by': {
+                'id': sharer.id,
+                'username': sharer.username
+            }
+        })
+        
+    return jsonify({
+        'my_books': my_books_data,
+        'shared_books': shared_books_data
+    })
+    
 @app.route('/api/books/<int:book_id>/file')
 def get_book_file(book_id):
     """[最终性能版] 直接提供EPUB文件流"""
@@ -1336,15 +1502,35 @@ def get_book_file(book_id):
 @app.route('/api/books/<int:book_id>', methods=['GET'])
 @jwt_required()
 def get_book_details(book_id):
-    """获取单本书的详细内容和所有批注"""
-    current_user_id = get_jwt_identity()
-    book = Book.query.filter_by(id=book_id, user_id=current_user_id).first_or_404()
+    """获取单本书的详细内容和所有协作者的批注"""
+    current_user_id = int(get_jwt_identity())
+    book = db.session.get(Book, book_id)
+    if not book:
+        return jsonify({'error': '书籍不存在'}), 404
+
+    # 1. 权限检查：用户要么是书的拥有者，要么是这本书的被分享者
+    is_owner = (book.user_id == current_user_id)
+    is_recipient = SharedBook.query.filter_by(book_id=book_id, recipient_id=current_user_id).first()
     
-    annotations = Annotation.query.filter_by(book_id=book.id).order_by(Annotation.created_at.asc()).all()
+    if not is_owner and not is_recipient:
+        return jsonify({'error': '无权访问此书籍'}), 403
+
+    # 2. 获取所有协作者的 ID (拥有者 + 所有被分享者)
+    collaborator_ids = {book.user_id}
+    shares = SharedBook.query.filter_by(book_id=book_id).all()
+    for share in shares:
+        collaborator_ids.add(share.recipient_id)
+
+    # 3. 查询这些协作者在这本书上的所有批注
+    annotations = Annotation.query.filter(
+        Annotation.book_id == book_id,
+        Annotation.user_id.in_(collaborator_ids)
+    ).join(User).order_by(Annotation.created_at.asc()).all()
     
     annotations_data = [{
         'id': anno.id,
         'user_id': anno.user_id,
+        'username': anno.user.username, # [新增] 返回批注者的用户名
         'content': anno.content,
         'highlighted_text': anno.highlighted_text,
         'cfi': anno.cfi,
@@ -1359,7 +1545,6 @@ def get_book_details(book_id):
         'author': book.author,
         'annotations': annotations_data
     })
-
 @app.route('/api/books/<int:book_id>/annotations', methods=['POST'])
 @jwt_required()
 def add_annotation(book_id):
@@ -1385,16 +1570,25 @@ def add_annotation(book_id):
     )
     db.session.add(new_annotation)
     db.session.commit()
+    # [新增] 广播新批注
+    # 查询新批注，并附带上用户信息
+    new_annotation_with_user = db.session.query(Annotation, User).join(User).filter(Annotation.id == new_annotation.id).one()
+    anno, user = new_annotation_with_user
     
     anno_data = {
-        'id': new_annotation.id,
-        'content': new_annotation.content,
-        'highlighted_text': new_annotation.highlighted_text,
-        'cfi': new_annotation.cfi,
-        'page_number': new_annotation.page_number,
-        'is_gemini_annotation': new_annotation.is_gemini_annotation,
-        'created_at': new_annotation.created_at.isoformat() + 'Z'
+        'id': anno.id,
+        'user_id': anno.user_id,
+        'username': user.username, # 附带用户名
+        'content': anno.content,
+        'highlighted_text': anno.highlighted_text,
+        'cfi': anno.cfi,
+        'page_number': anno.page_number,
+        'is_gemini_annotation': anno.is_gemini_annotation,
+        'created_at': anno.created_at.isoformat() + 'Z'
     }
+    
+    # 向书籍房间广播，除了自己
+    socketio.emit('new_annotation', anno_data, to=f'book_{book_id}', include_self=False, namespace='/api')
     
     return jsonify({'success': True, 'annotation': anno_data}), 201
 
@@ -1415,9 +1609,12 @@ def delete_annotation(book_id, annotation_id):
         
     db.session.delete(annotation)
     db.session.commit()
-    
-    return jsonify({'success': True, 'message': '批注已删除'})
+    # [新增] 广播删除事件
+    payload = {'annotation_id': annotation_id, 'book_id': book_id}
+    socketio.emit('annotation_deleted', payload, to=f'book_{book_id}', include_self=False, namespace='/api')
 
+    return jsonify({'success': True, 'message': '批注已删除'})
+    
 @app.route('/api/books/<int:book_id>/chat', methods=['POST'])
 @jwt_required()
 def chat_about_book(book_id):
