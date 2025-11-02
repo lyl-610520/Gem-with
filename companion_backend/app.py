@@ -1545,6 +1545,9 @@ def get_book_details(book_id):
         'author': book.author,
         'annotations': annotations_data
     })
+    
+# 在你的 Flask app 文件中 (例如 app.py)
+
 @app.route('/api/books/<int:book_id>/annotations', methods=['POST'])
 @jwt_required()
 def add_annotation(book_id):
@@ -1559,6 +1562,11 @@ def add_annotation(book_id):
     if not all([content, cfi]):
         return jsonify({'error': '缺少必要参数(content, cfi)'}), 400
 
+    # [核心修复] 先获取 User 对象
+    user = db.session.get(User, current_user_id)
+    if not user:
+        return jsonify({'error': '用户不存在'}), 404
+
     new_annotation = Annotation(
         user_id=current_user_id,
         book_id=book_id,
@@ -1566,30 +1574,36 @@ def add_annotation(book_id):
         highlighted_text=highlighted_text,
         cfi=cfi,
         page_number=page_number,
-        is_gemini_annotation=False
+        is_gemini_annotation=False,
+        user=user # [核心修复] 直接将 user 对象关联上
     )
     db.session.add(new_annotation)
-    db.session.commit()
-    # [新增] 广播新批注
-    # 查询新批注，并附带上用户信息
-    new_annotation_with_user = db.session.query(Annotation, User).join(User).filter(Annotation.id == new_annotation.id).one()
-    anno, user = new_annotation_with_user
     
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"!!! 保存批注失败: {e}")
+        return jsonify({'error': '数据库错误，保存批注失败'}), 500
+    
+    # 构建要广播和返回的数据
+    # 因为我们已经关联了 user 对象，所以可以直接访问其属性
     anno_data = {
-        'id': anno.id,
-        'user_id': anno.user_id,
-        'username': user.username, # 附带用户名
-        'content': anno.content,
-        'highlighted_text': anno.highlighted_text,
-        'cfi': anno.cfi,
-        'page_number': anno.page_number,
-        'is_gemini_annotation': anno.is_gemini_annotation,
-        'created_at': anno.created_at.isoformat() + 'Z'
+        'id': new_annotation.id,
+        'user_id': new_annotation.user_id,
+        'username': new_annotation.user.username, # <--- 现在可以安全地访问
+        'content': new_annotation.content,
+        'highlighted_text': new_annotation.highlighted_text,
+        'cfi': new_annotation.cfi,
+        'page_number': new_annotation.page_number,
+        'is_gemini_annotation': new_annotation.is_gemini_annotation,
+        'created_at': new_annotation.created_at.isoformat() + 'Z'
     }
     
-    # 向书籍房间广播，除了自己
+    # 向书籍房间广播，通知其他协作者（除了自己）
     socketio.emit('new_annotation', anno_data, to=f'book_{book_id}', include_self=False, namespace='/api')
     
+    # 将完整的批注信息返回给发起请求的前端
     return jsonify({'success': True, 'annotation': anno_data}), 201
 
 @app.route('/api/books/<int:book_id>/annotations/<int:annotation_id>', methods=['DELETE'])
