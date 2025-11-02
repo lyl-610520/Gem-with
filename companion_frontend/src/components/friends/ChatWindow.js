@@ -78,14 +78,28 @@ function ChatWindow({ currentUser, chatPartner, socket }) {
   // 2. 从 store 中订阅与当前聊天对象相关的消息
   const messages = useFriendChatStore((state) => state.chats[chatPartner.id] || []);
 
+  // 🔥 添加这些调试日志
   useEffect(() => {
-    // 消息滚动到底部
+    console.log('🎨 ChatWindow 渲染了');
+    console.log('👤 当前用户:', currentUser);
+    console.log('💬 聊天对象:', chatPartner);
+    console.log('📦 获取到的消息:', messages);
+    console.log('🔑 聊天对象ID:', chatPartner.id);
+    console.log('📊 完整的 store 状态:', useFriendChatStore.getState().chats);
+  }, [currentUser, chatPartner, messages]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (input.trim() && socket) {
+      console.log('📤 发送消息:', {
+        recipient_id: chatPartner.id,
+        message: input.trim(),
+      });
+      
       socket.emit('private_message', {
         recipient_id: chatPartner.id,
         message: input.trim(),
@@ -98,13 +112,19 @@ function ChatWindow({ currentUser, chatPartner, socket }) {
     <ChatWrapper>
       <ChatHeader>与 {chatPartner.username} 聊天中</ChatHeader>
       <MessageList>
-        {messages.map((msg, index) => (
-          <MessageItem key={index} isMine={msg.from_user_id === currentUser.id}>
-            <MessageBubble isMine={msg.from_user_id === currentUser.id}>
-              {msg.content}
-            </MessageBubble>
-          </MessageItem>
-        ))}
+        {/* 🔥 添加这个调试信息 */}
+        {messages.length === 0 && <div>暂无消息（messages 数组长度: {messages.length}）</div>}
+        
+        {messages.map((msg, index) => {
+          console.log(`渲染消息 ${index}:`, msg); // 调试每条消息
+          return (
+            <MessageItem key={index} isMine={msg.from_user_id === currentUser.id}>
+              <MessageBubble isMine={msg.from_user_id === currentUser.id}>
+                {msg.content}
+              </MessageBubble>
+            </MessageItem>
+          );
+        })}
         <div ref={messagesEndRef} />
       </MessageList>
       <ChatForm onSubmit={handleSubmit}>
