@@ -104,16 +104,29 @@ function Games({ user }) {
         </Table>
       </TableContainer>
 
-      <Dialog open={!!currentGame} onClose={handleGameClose} maxWidth="md">
-        <AnimatePresence>
-          {CurrentGameComponent && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-            >
-              <CurrentGameComponent onClose={handleGameClose} onScore={handleScore} />
-            </motion.div>
+      <Dialog 
+    // VVVV 在这里修改 VVVV
+    fullScreen // <--- 直接改成全屏！
+    open={!!currentGame} 
+    onClose={handleGameClose}
+  >
+    <AnimatePresence>
+      {CurrentGameComponent && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.9 }}
+          style={{ height: '100%', width: '100%' }} // 确保 motion div 也占满全屏
+        >
+          {/* VVVV 在这里修改 VVVV */}
+          <CurrentGameComponent 
+            onClose={handleGameClose} 
+            onScore={handleScore} 
+            user={user}         // <--- 传递 user
+            socket={socket}     // <--- 传递 socket
+          />
+          {/* ^^^^ 添加 user 和 socket 属性 ^^^^ */}
+        </motion.div>
           )}
         </AnimatePresence>
       </Dialog>
