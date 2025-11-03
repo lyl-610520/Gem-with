@@ -24,20 +24,38 @@ const LudoGame = ({ user, socket, onClose }) => {
       updateGameState(gameStateData);
     };
     
-    const onGameStarted = (roomData) => {
-      console.log('EVENT: ludo:game_started', roomData);
-      updateRoom(roomData); // 更新房间状态为 in_progress
-      updateGameState(roomData.game_state);
+    const onRoomUpdate = (roomData) => {
+      console.log('EVENT: ludo:room_update', roomData);
+      updateRoom(roomData);
+      // 如果房间更新信息里包含了游戏状态，也一并更新
+      if (roomData.game_state) {
+        updateGameState(roomData.game_state);
+      }
     };
+    
+    // VVVV 在这里修改 VVVV
+    // 我们不再需要单独的 onGameStarted 监听器，
+    // 因为后端开始游戏后会直接发送 game_state_update 事件。
+    // 我们只需要把 onGameStateUpdate 改得更聪明一点。
 
-    const onError = (errorData) => {
-      alert(`错误: ${errorData.message}`);
+    const onGameStateUpdate = (gameStateData) => {
+      console.log('EVENT: ludo:game_state_update', gameStateData);
+      updateGameState(gameStateData);
+      
+      // [关键修复] 当我们收到游戏状态更新时，
+      // 说明游戏已经开始或正在进行，所以我们要确保房间的 status 是 'in_progress'
+      const currentRoom = useLudoStore.getState().room;
+      if (currentRoom && currentRoom.status !== 'in_progress') {
+          // 创建一个新的 room 对象来更新状态，避免直接修改
+          const updatedRoom = { ...currentRoom, status: 'in_progress' };
+          updateRoom(updatedRoom);
+      }
     };
+    // ^^^^ 修改结束 ^^^^
 
     // 绑定事件
     socket.on('ludo:room_update', onRoomUpdate);
     socket.on('ludo:game_state_update', onGameStateUpdate);
-    socket.on('ludo:game_started', onGameStarted);
     socket.on('ludo:error', onError);
 
     // 组件卸载时，执行清理
