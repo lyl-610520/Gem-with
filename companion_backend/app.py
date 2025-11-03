@@ -2287,16 +2287,27 @@ def handle_ludo_leave_room_logic(room_id, user_id):
         print(f"房间 {room_id} 已空，被解散。")
         return
 
-    # 如果离开的是房主，需要移交房主权限
     if room['host_id'] == user_id:
         # 移交给列表中的下一个玩家
         new_host_id = next(iter(room['players']))
         room['host_id'] = new_host_id
         print(f"房主 {user_id} 离开，已将房主权限移交给 {new_host_id}。")
 
+    # VVVV 在这里修改 VVVV
+    # 构建一个可序列化的房间信息字典
+    room_info_to_send = {
+        'id': room.get('id'),
+        'host_id': room.get('host_id'),
+        'players': room.get('players'),
+        'status': room.get('status'),
+        # 我们不发送 game_instance，只发送 game_state
+        'game_state': room.get('game_instance').get_state() if room.get('game_instance') else None
+    }
+    # ^^^^ 修改结束 ^^^^
+
     # 向房间内所有剩余的客户端广播最新的房间状态
     # 注意：此时离开的玩家已经收不到这个消息了
-    socketio.emit('ludo:room_update', room, to=room_id, namespace='/api')
+    socketio.emit('ludo:room_update', room_info_to_send, to=room_id, namespace='/api') # <--- 使用新的字典
     print(f"已向房间 {room_id} 广播更新。")
 
 
@@ -2366,8 +2377,19 @@ def handle_ludo_accept_invitation(data):
     join_room(room_id)
     
     print(f"玩家 {user.username} 接受邀请，加入了房间 {room_id}")
+
+    # VVVV 在这里修改 VVVV
+    # 构建一个可序列化的房间信息字典
+    room_info_to_send = {
+        'id': room.get('id'),
+        'host_id': room.get('host_id'),
+        'players': room.get('players'),
+        'status': room.get('status'),
+        'game_state': None # 在大厅阶段，游戏状态总是null
+    }
     # 向房间内所有人广播最新的房间状态
-    socketio.emit('ludo:room_update', room, to=room_id, namespace='/api')
+    socketio.emit('ludo:room_update', room_info_to_send, to=room_id, namespace='/api') # <--- 使用新的字典
+    # ^^^^ 修改结束 ^^^^
 
 @socketio.on('ludo:add_ai', namespace='/api')
 def handle_ludo_add_ai(data):
