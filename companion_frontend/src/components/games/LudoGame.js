@@ -4,8 +4,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import { FaPlus } from 'react-icons/fa';
 
 import useLudoStore from '../../stores/ludoStore';
-import LudoLobby from './LudoLobby'; // 我们即将创建
-import LudoBoard from './LudoBoard'; // 我们即将创建
+import LudoLobby from './LudoLobby';
+import LudoBoard from './LudoBoard';
 
 const LudoGame = ({ user, socket, onClose }) => {
   const { inRoom, room, updateRoom, updateGameState, reset } = useLudoStore();
@@ -14,44 +14,35 @@ const LudoGame = ({ user, socket, onClose }) => {
     if (!socket) return;
 
     // --- 核心监听器 ---
-    const onRoomUpdate = (roomData) => {
-      console.log('EVENT: ludo:room_update', roomData);
-      updateRoom(roomData);
-    };
 
-    const onGameStateUpdate = (gameStateData) => {
-      console.log('EVENT: ludo:game_state_update', gameStateData);
-      updateGameState(gameStateData);
-    };
-    
+    // 监听房间结构的变化 (玩家加入/离开, 房主变更)
     const onRoomUpdate = (roomData) => {
       console.log('EVENT: ludo:room_update', roomData);
       updateRoom(roomData);
-      // 如果房间更新信息里包含了游戏状态，也一并更新
+      // 安全措施：如果房间更新里也带了游戏状态，就同步一下
       if (roomData.game_state) {
         updateGameState(roomData.game_state);
       }
     };
     
-    // VVVV 在这里修改 VVVV
-    // 我们不再需要单独的 onGameStarted 监听器，
-    // 因为后端开始游戏后会直接发送 game_state_update 事件。
-    // 我们只需要把 onGameStateUpdate 改得更聪明一点。
-
+    // 监听游戏内部状态的变化 (掷骰子, 移动棋子)
     const onGameStateUpdate = (gameStateData) => {
       console.log('EVENT: ludo:game_state_update', gameStateData);
       updateGameState(gameStateData);
       
       // [关键修复] 当我们收到游戏状态更新时，
-      // 说明游戏已经开始或正在进行，所以我们要确保房间的 status 是 'in_progress'
+      // 意味着游戏已开始或进行中，要确保房间状态同步，这样UI才能从大厅切换到棋盘
       const currentRoom = useLudoStore.getState().room;
       if (currentRoom && currentRoom.status !== 'in_progress') {
-          // 创建一个新的 room 对象来更新状态，避免直接修改
           const updatedRoom = { ...currentRoom, status: 'in_progress' };
           updateRoom(updatedRoom);
       }
     };
-    // ^^^^ 修改结束 ^^^^
+    
+    // 监听从服务器发来的错误信息
+    const onError = (errorData) => {
+      alert(`游戏错误: ${errorData.message}`);
+    };
 
     // 绑定事件
     socket.on('ludo:room_update', onRoomUpdate);
@@ -62,8 +53,7 @@ const LudoGame = ({ user, socket, onClose }) => {
     return () => {
       socket.off('ludo:room_update', onRoomUpdate);
       socket.off('ludo:game_state_update', onGameStateUpdate);
-      socket.off('ludo:game_started', onGameStarted);
-      socket.off('ludo:error', onError);
+      socket.off('ludo:error', onError); // <--- 修正了这里
 
       // 如果玩家还在房间里就关闭了组件，自动发送离开房间的事件
       const currentRoom = useLudoStore.getState().room;
@@ -83,17 +73,18 @@ const LudoGame = ({ user, socket, onClose }) => {
   const renderContent = () => {
     if (!socket) {
       return (
-        <Box textAlign="center">
+        <Box textAlign="center" p={5} display="flex" flexDirection="column" justifyContent="center" alignItems="center" height="100%">
           <CircularProgress />
-          <Typography>正在连接到游戏服务器...</Typography>
+          <Typography mt={2}>正在连接到游戏服务器...</Typography>
         </Box>
       );
     }
 
     if (!inRoom || !room) {
       return (
-        <Box textAlign="center" p={3}>
-          <Typography variant="h5" gutterBottom>欢迎来到飞行棋</Typography>
+        <Box textAlign="center" p={3} display="flex" flexDirection="column" justifyContent="center" alignItems="center" height="100%">
+          <Typography variant="h3" gutterBottom>飞行棋大作战</Typography>
+          <Typography color="text.secondary" mb={4}>邀请好友，或与AI一较高下！</Typography>
           <Button variant="contained" size="large" onClick={handleCreateRoom} startIcon={<FaPlus />}>
             创建新房间
           </Button>
@@ -110,11 +101,10 @@ const LudoGame = ({ user, socket, onClose }) => {
   };
 
   return (
-    // VVVV 修改 Box 的样式以适应全屏 VVVV
     <Box sx={{ 
       height: '100vh', 
       width: '100vw', 
-      bgcolor: 'background.default', // 使用主题背景色
+      bgcolor: 'background.default',
       display: 'flex',
       flexDirection: 'column'
     }}>
@@ -126,7 +116,6 @@ const LudoGame = ({ user, socket, onClose }) => {
        </IconButton>
        {renderContent()}
     </Box>
-    // ^^^^
   );
 };
 
