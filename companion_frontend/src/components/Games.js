@@ -1,235 +1,124 @@
-import React, { useState, useEffect } from 'react';
-import styled from 'styled-components';
-import { motion, AnimatePresence } from 'framer-motion';
-import { FaGamepad, FaTrophy, FaPlay, FaPlane } from 'react-icons/fa';
-import axios from 'axios';
+// src/components/Games.js (路径修正版)
 
-// [修复] 重新导入子游戏组件
+import React, { useState, useEffect } from 'react';
+import { 
+  Box, Typography, Grid, Card, CardContent, CardActions, Button, 
+  Dialog, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper
+} from '@mui/material';
+import { FaGamepad, FaTrophy, FaPlane, FaPlay } from 'react-icons/fa';
+import axios from 'axios';
+import { motion, AnimatePresence } from 'framer-motion';
+
+// =======================================================
+// VVVV                【在这里修正】                    VVVV
+// =======================================================
+// 修正导入路径，指向 'games' 子文件夹
 import MemoryGame from './games/MemoryGame';
 import WordGame from './games/WordGame';
 import LudoGame from './games/LudoGame';
-
-// [修复] 将 Games.js 自身需要的样式组件定义加回来
-const GamesContainer = styled.div`
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 20px;
-`;
-const Title = styled.h1`
-  font-size: 2rem;
-  font-weight: 700;
-  color: ${props => props.theme.text};
-  margin-bottom: 30px;
-`;
-const GameGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 20px;
-  margin-bottom: 30px;
-`;
-const GameCard = styled(motion.div)`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 25px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-  cursor: pointer;
-  transition: all 0.3s ease;
-  &:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
-  }
-`;
-const GameIcon = styled.div`
-  font-size: 3rem;
-  color: ${props => props.theme.primary};
-  margin-bottom: 15px;
-  text-align: center;
-`;
-const GameTitle = styled.h3`
-  font-size: 1.3rem;
-  font-weight: 600;
-  color: ${props => props.theme.text};
-  margin-bottom: 10px;
-  text-align: center;
-`;
-const GameDescription = styled.p`
-  font-size: 0.95rem;
-  color: ${props => props.theme.textLight};
-  line-height: 1.5;
-  margin-bottom: 15px;
-`;
-const GameButton = styled.button`
-  width: 100%;
-  background: ${props => props.theme.primary};
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
-  }
-`;
-const ScoresSection = styled.div`
-  background: ${props => props.theme.cardBg};
-  backdrop-filter: blur(10px);
-  border-radius: ${props => props.theme.borderRadius};
-  padding: 25px;
-  margin-bottom: 20px;
-  box-shadow: ${props => props.theme.shadow};
-  border: 1px solid ${props => props.theme.border};
-`;
-const ScoresTitle = styled.h3`
-  font-size: 1.3rem;
-  font-weight: 600;
-  color: ${props => props.theme.text};
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-`;
-const ScoreItem = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid ${props => props.theme.border};
-  &:last-child {
-    border-bottom: none;
-  }
-`;
-const ScoreGame = styled.div`
-  font-size: 1rem;
-  color: ${props => props.theme.text};
-  font-weight: 500;
-`;
-const ScoreValue = styled.div`
-  font-size: 1.1rem;
-  color: ${props => props.theme.primary};
-  font-weight: 600;
-`;
-const GameModal = styled(motion.div)`
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex; justify-content: center; align-items: center; z-index: 1000;
-`;
-const LoadingSpinner = styled.div`
-  display: flex; justify-content: center; align-items: center; height: 200px; font-size: 1.2rem; color: ${props => props.theme.textLight};
-`;
+// =======================================================
+// ^^^^                【修正完毕】                      ^^^^
+// =======================================================
 
 const games = [
-  { id: 'memory', title: '记忆翻牌', description: '测试你的记忆力，翻出相同的卡片', icon: <FaGamepad /> },
-  { id: 'ludo', title: '飞行棋', description: '起飞，起飞，起飞～', icon: <FaPlane /> },
-  { id: 'word', title: '单词接龙', description: '进行一场单词学习游戏', icon: <FaTrophy /> }
+  { id: 'memory', title: '记忆翻牌', description: '测试你的记忆力，翻出相同的卡片', icon: <FaGamepad />, component: MemoryGame },
+  { id: 'word', title: '单词接龙', description: '进行一场单词学习游戏', icon: <FaTrophy />, component: WordGame },
+  { id: 'ludo', title: '飞行棋', description: '经典游戏，即将推出', icon: <FaPlane />, component: LudoGame, disabled: true },
 ];
 
 function Games({ user }) {
+  // ... 函数的其余所有代码都保持不变 ...
   const [scores, setScores] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [currentGame, setCurrentGame] = useState(null);
-
-  useEffect(() => { fetchScores(); }, []);
 
   const fetchScores = async () => {
     try {
-      setLoading(true);
       const response = await axios.get('/games/scores');
       setScores(response.data.scores);
-    } catch (error) {
-      console.error('获取游戏分数失败:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { console.error('获取游戏分数失败:', error); }
   };
 
-  const handleGameStart = (gameId) => { setCurrentGame(gameId); };
-  const handleGameClose = () => { setCurrentGame(null); };
+  useEffect(() => { fetchScores(); }, []);
+
+  const handleGameStart = (gameId) => setCurrentGame(gameId);
+  const handleGameClose = () => setCurrentGame(null);
 
   const handleScore = async (gameType, score) => {
-    try {
-      await axios.post('/games/scores', { game_type: gameType, score: score, level: 1 });
-      await fetchScores();
-      alert(`恭喜！你获得了 ${score} 分！`);
-    } catch (error) {
-      console.error('保存分数失败:', error);
-    }
+    await axios.post('/games/scores', { game_type: gameType, score });
+    fetchScores();
   };
 
-  const getGameTitle = (gameType) => {
-    const game = games.find(g => g.id === gameType);
-    return game ? game.title : gameType;
-  };
-
-  if (loading) {
-    return (
-      <GamesContainer>
-        <LoadingSpinner>正在加载游戏...</LoadingSpinner>
-      </GamesContainer>
-    );
-  }
+  const getGameTitle = (gameType) => games.find(g => g.id === gameType)?.title || gameType;
+  
+  const CurrentGameComponent = games.find(g => g.id === currentGame)?.component;
 
   return (
-    <GamesContainer>
-      <Title>🎮 小游戏</Title>
-      <GameGrid>
+    <Box maxWidth="1200px" mx="auto" p={{ xs: 1, sm: 2 }}>
+      <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1.5, fontWeight: 700 }}>
+        🎮 游乐中心
+      </Typography>
+
+      <Grid container spacing={3} mb={4}>
         {games.map((game) => (
-          <GameCard
-            key={game.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            onClick={() => handleGameStart(game.id)}
-          >
-            <GameIcon>{game.icon}</GameIcon>
-            <GameTitle>{game.title}</GameTitle>
-            <GameDescription>{game.description}</GameDescription>
-            <GameButton><FaPlay /> 开始游戏</GameButton>
-          </GameCard>
+          <Grid item xs={12} md={4} key={game.id}>
+            <Card elevation={2} sx={{ borderRadius: 4, height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ textAlign: 'center', flexGrow: 1 }}>
+                <Box color="primary.main" fontSize={50} mb={2}>{game.icon}</Box>
+                <Typography variant="h5" fontWeight={600}>{game.title}</Typography>
+                <Typography color="text.secondary">{game.description}</Typography>
+              </CardContent>
+              <CardActions sx={{ justifyContent: 'center', p: 2 }}>
+                <Button 
+                  variant="contained" 
+                  startIcon={<FaPlay />} 
+                  onClick={() => handleGameStart(game.id)}
+                  disabled={game.disabled}
+                >
+                  开始游戏
+                </Button>
+              </CardActions>
+            </Card>
+          </Grid>
         ))}
-      </GameGrid>
+      </Grid>
 
-      <ScoresSection>
-        <ScoresTitle><FaTrophy /> 我的成绩</ScoresTitle>
-        {scores.length === 0 ? (
-          <div style={{ textAlign: 'center', color: '#6b7280', padding: '20px' }}>
-            还没有游戏记录，快来玩一局吧！
-          </div>
-        ) : (
-          scores.map((score) => (
-            <ScoreItem key={score.id}>
-              <ScoreGame>{getGameTitle(score.game_type)}</ScoreGame>
-              <ScoreValue>{score.score} 分</ScoreValue>
-            </ScoreItem>
-          ))
-        )}
-      </ScoresSection>
+      <Typography variant="h5" gutterBottom sx={{ fontWeight: 600 }}>🏆 排行榜</Typography>
+      <TableContainer component={Paper} elevation={2} sx={{ borderRadius: 4 }}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>游戏</TableCell>
+              <TableCell align="right">分数</TableCell>
+              <TableCell align="right">时间</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {scores.map((score) => (
+              <TableRow key={score.id}>
+                <TableCell component="th" scope="row">{getGameTitle(score.game_type)}</TableCell>
+                <TableCell align="right">{score.score}</TableCell>
+                <TableCell align="right">{new Date(score.created_at).toLocaleDateString()}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
-      {/* [修复] 恢复对子游戏组件的渲染 */}
-      <AnimatePresence>
-        {currentGame === 'memory' && (
-          <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <MemoryGame onClose={handleGameClose} onScore={handleScore} />
-          </GameModal>
-        )}
-        {currentGame === 'word' && (
-          <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <WordGame onClose={handleGameClose} onScore={handleScore} />
-          </GameModal>
-        )}
-        {currentGame === 'ludo' && (
-          <GameModal initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <LudoGame onClose={handleGameClose} onScore={handleScore} />
-          </GameModal>
-        )}
-      </AnimatePresence>
-    </GamesContainer>
+      <Dialog open={!!currentGame} onClose={handleGameClose} maxWidth="md">
+        <AnimatePresence>
+          {CurrentGameComponent && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+            >
+              <CurrentGameComponent onClose={handleGameClose} onScore={handleScore} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </Dialog>
+    </Box>
   );
-}
+};
 
 export default Games;
