@@ -1549,10 +1549,7 @@ def get_book_details(book_id):
 @app.route('/api/books/<int:book_id>/annotations', methods=['POST'])
 @jwt_required()
 def add_annotation(book_id):
-    current_user_id = get_jwt_identity()
-    
-    # 【修复】明确转换为整数
-    current_user_id = int(current_user_id)
+    current_user_id = int(get_jwt_identity())
     
     data = request.get_json()
     content = data.get('content')
@@ -1563,12 +1560,11 @@ def add_annotation(book_id):
     if not all([content, cfi]):
         return jsonify({'error': '缺少必要参数(content, cfi)'}), 400
 
-    # 【修复】先查询 User,确保存在
     user = db.session.get(User, current_user_id)
     if not user:
         return jsonify({'error': '用户不存在'}), 404
     
-    # 【修复】验证权限
+    # 权限验证
     book = db.session.get(Book, book_id)
     if not book:
         return jsonify({'error': '书籍不存在'}), 404
@@ -1582,7 +1578,6 @@ def add_annotation(book_id):
     if not is_owner and not is_shared:
         return jsonify({'error': '无权访问此书籍'}), 403
 
-    # 创建批注
     new_annotation = Annotation(
         user_id=current_user_id,
         book_id=book_id,
@@ -1593,26 +1588,23 @@ def add_annotation(book_id):
         is_gemini_annotation=False
     )
     
-    # 【关键】确保 relationship 加载
     new_annotation.user = user
-    
     db.session.add(new_annotation)
     
     try:
         db.session.commit()
-        # 【修复】commit 后需要刷新对象以确保 relationship 可用
         db.session.refresh(new_annotation)
     except Exception as e:
         db.session.rollback()
         print(f"!!! 保存批注失败: {e}")
-        traceback.print_exc()  # 打印完整错误堆栈
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': '数据库错误,保存批注失败'}), 500
     
-    # 构建数据
     anno_data = {
         'id': new_annotation.id,
         'user_id': new_annotation.user_id,
-        'username': user.username,  # 直接使用之前查询的 user 对象
+        'username': user.username,
         'content': new_annotation.content,
         'highlighted_text': new_annotation.highlighted_text,
         'cfi': new_annotation.cfi,
@@ -1621,15 +1613,15 @@ def add_annotation(book_id):
         'created_at': new_annotation.created_at.isoformat() + 'Z'
     }
     
-    # 广播给房间内其他人
+    # 🔧 修复:移除 include_self=False
     socketio.emit(
         'new_annotation', 
         anno_data, 
         to=f'book_{book_id}',
-        include_self=False,
         namespace='/api'
     )
     
+    # 因为上面的 emit 会发给所有人(包括自己),所以不需要单独返回
     return jsonify({'success': True, 'annotation': anno_data}), 201
 
 @app.route('/api/books/<int:book_id>/annotations/<int:annotation_id>', methods=['DELETE'])
@@ -1649,9 +1641,16 @@ def delete_annotation(book_id, annotation_id):
         
     db.session.delete(annotation)
     db.session.commit()
-    # [新增] 广播删除事件
+    
     payload = {'annotation_id': annotation_id, 'book_id': book_id}
-    socketio.emit('annotation_deleted', payload, to=f'book_{book_id}', include_self=False, namespace='/api')
+    
+    # 🔧 修复:移除 include_self=False
+    socketio.emit(
+        'annotation_deleted', 
+        payload, 
+        to=f'book_{book_id}',
+        namespace='/api'
+    )
 
     return jsonify({'success': True, 'message': '批注已删除'})
     
