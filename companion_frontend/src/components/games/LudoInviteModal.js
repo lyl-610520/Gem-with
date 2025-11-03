@@ -16,7 +16,7 @@ const LudoInviteModal = ({ open, onClose, socket, roomId }) => {
       const fetchOnlineFriends = async () => {
         setLoading(true);
         try {
-          const response = await axios.get('/api/friends');
+          const response = await axios.get('/friends');
           const onlineFriends = response.data.filter(f => f.is_online);
           setFriends(onlineFriends);
         } catch (error) {
