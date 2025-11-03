@@ -677,6 +677,8 @@ def get_dashboard_summary():
 
 # 用于存储在线用户的全局字典: { user_id: socket_id }
 online_users = {}
+# [新增] 用于存储飞行棋游戏房间的全局字典
+ludo_rooms = {}
 
 # [新增] 统一的、健壮的状态通知函数
 def notify_friends_status_change(user_id, status):
@@ -730,24 +732,44 @@ def handle_connect():
         traceback.print_exc()
         return False
 
-@socketio.on('disconnect', namespace='/api')  # <--- 添加这个
+@socketio.on('disconnect', namespace='/api')
 def handle_disconnect():
-    try: # [修复] 用 try...except 包裹所有逻辑，防止崩溃
+    """
+    [增强版] 处理用户断开连接，并将其从在线列表和任何游戏房间中移除。
+    """
+    try:
         disconnected_user_id = None
-        for user_id, sid in online_users.items():
-            if sid == request.sid:
+        sid_to_remove = request.sid
+        
+        # 查找断开连接的用户ID
+        for user_id, sid in list(online_users.items()):
+            if sid == sid_to_remove:
                 disconnected_user_id = user_id
                 break
-                
-        if disconnected_user_id in online_users: # 加上更安全的检查
+        
+        if disconnected_user_id:
+            # 1. 从在线用户列表中移除
             del online_users[disconnected_user_id]
             print(f"❌ 用户 {disconnected_user_id} 已下线。")
             
-            # [修复] 使用新的通知函数，发送正确的事件和状态
+            # 2. 通知好友其下线状态
             notify_friends_status_change(disconnected_user_id, 'offline')
+
+            # 3. [核心新增] 检查并处理该用户是否在飞行棋房间中
+            room_to_leave = None
+            for room_id, room_data in list(ludo_rooms.items()):
+                if disconnected_user_id in room_data.get('players', {}):
+                    room_to_leave = room_id
+                    break
             
+            if room_to_leave:
+                print(f"用户 {disconnected_user_id} 正在飞行棋房间 {room_to_leave} 中，正在处理其离开...")
+                handle_ludo_leave_room_logic(room_to_leave, disconnected_user_id)
+
     except Exception as e:
         print(f"!!!!!!!!!! handle_disconnect 发生严重错误: {e}")
+        import traceback
+        traceback.print_exc()
 
 # 当用户打开一本书开始阅读时，让他们加入这本书的房间
 @socketio.on('join_book_room', namespace='/api')
@@ -2229,7 +2251,509 @@ async def word_game_computer_turn():
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         return jsonify({'error': '服务器内部错误'}), 500
+
+
+# app.py (粘贴到文件末尾)
+
+# ==========================================================
+# [全新] 飞行棋 (Ludo) 游戏模块 (WebSocket Events)
+# ==========================================================
+
+import uuid
+
+# --- 辅助函数 ---
+
+def get_user_from_session():
+    """安全地从 session 中获取用户ID和用户信息"""
+    user_id = session.get('user_id')
+    if not user_id:
+        return None, None
+    user = db.session.get(User, user_id)
+    return user_id, user
+
+def handle_ludo_leave_room_logic(room_id, user_id):
+    """处理玩家离开房间的核心逻辑 (可被 disconnect 和 leave_room 事件复用)"""
+    room = ludo_rooms.get(room_id)
+    if not room or user_id not in room['players']:
+        return
+
+    # 从玩家列表中移除
+    leaving_player_info = room['players'].pop(user_id)
+    print(f"玩家 {user_id} ({leaving_player_info.get('username')}) 已从房间 {room_id} 的数据中移除。")
+
+    # 如果房间空了，直接解散
+    if not room['players']:
+        del ludo_rooms[room_id]
+        print(f"房间 {room_id} 已空，被解散。")
+        return
+
+    # 如果离开的是房主，需要移交房主权限
+    if room['host_id'] == user_id:
+        # 移交给列表中的下一个玩家
+        new_host_id = next(iter(room['players']))
+        room['host_id'] = new_host_id
+        print(f"房主 {user_id} 离开，已将房主权限移交给 {new_host_id}。")
+
+    # 向房间内所有剩余的客户端广播最新的房间状态
+    # 注意：此时离开的玩家已经收不到这个消息了
+    socketio.emit('ludo:room_update', room, to=room_id, namespace='/api')
+    print(f"已向房间 {room_id} 广播更新。")
+
+
+# --- 房间管理事件 ---
+
+@socketio.on('ludo:create_room', namespace='/api')
+def handle_ludo_create_room():
+    """玩家请求创建一个新的飞行棋房间"""
+    user_id, user = get_user_from_session()
+    if not user: return
+
+    room_id = uuid.uuid4().hex[:6] # 生成一个6位的唯一ID
+    ludo_rooms[room_id] = {
+        'id': room_id,
+        'host_id': user_id,
+        'players': {
+            user_id: {'id': user_id, 'username': user.username, 'is_ai': False}
+        },
+        'status': 'waiting', # 'waiting' 或 'in_progress'
+        'game_state': None
+    }
+    
+    join_room(room_id)
+    print(f"✅ 用户 {user.username} 创建了新的飞行棋房间: {room_id}")
+    emit('ludo:room_update', ludo_rooms[room_id]) # 只发给创建者
+
+@socketio.on('ludo:invite', namespace='/api')
+def handle_ludo_invite(data):
+    """处理游戏邀请"""
+    inviter_id, inviter = get_user_from_session()
+    if not inviter: return
+
+    invitee_id = data.get('invitee_id')
+    room_id = data.get('room_id')
+    
+    if not all([invitee_id, room_id]): return
+    
+    # 检查被邀请人是否在线
+    invitee_sid = online_users.get(invitee_id)
+    if invitee_sid:
+        payload = {
+            'room_id': room_id,
+            'inviter': {'id': inviter.id, 'username': inviter.username}
+        }
+        emit('ludo:receive_invitation', payload, to=invitee_sid, namespace='/api')
+        print(f"玩家 {inviter.username} 邀请了在线玩家 {invitee_id} 加入房间 {room_id}")
+
+@socketio.on('ludo:accept_invitation', namespace='/api')
+def handle_ludo_accept_invitation(data):
+    """被邀请的玩家接受了邀请"""
+    user_id, user = get_user_from_session()
+    if not user: return
+
+    room_id = data.get('room_id')
+    room = ludo_rooms.get(room_id)
+
+    if not room:
+        emit('ludo:error', {'message': '这个房间已经不存在啦！'})
+        return
+
+    if len(room['players']) >= 4:
+        emit('ludo:error', {'message': '房间已经满员了！'})
+        return
+
+    # 将玩家加入房间
+    room['players'][user_id] = {'id': user_id, 'username': user.username, 'is_ai': False}
+    join_room(room_id)
+    
+    print(f"玩家 {user.username} 接受邀请，加入了房间 {room_id}")
+    # 向房间内所有人广播最新的房间状态
+    socketio.emit('ludo:room_update', room, to=room_id, namespace='/api')
+
+@socketio.on('ludo:add_ai', namespace='/api')
+def handle_ludo_add_ai(data):
+    """房主添加一个AI玩家"""
+    user_id, _ = get_user_from_session()
+    room_id = data.get('room_id')
+    room = ludo_rooms.get(room_id)
+
+    if not room or room['host_id'] != user_id or len(room['players']) >= 4:
+        return
         
+    ai_id = f"ai_{random.randint(100, 999)}"
+    ai_names = ["机器人小棋", "AI棋圣", "智能棋手", "电脑大师"]
+    room['players'][ai_id] = {'id': ai_id, 'username': random.choice(ai_names), 'is_ai': True}
+
+    print(f"房主 {user_id} 在房间 {room_id} 添加了AI: {ai_id}")
+    socketio.emit('ludo:room_update', room, to=room_id, namespace='/api')
+
+@socketio.on('ludo:kick_player', namespace='/api')
+def handle_ludo_kick_player(data):
+    """房主踢人"""
+    host_id, _ = get_user_from_session()
+    room_id = data.get('room_id')
+    player_to_kick_id = data.get('player_id')
+    room = ludo_rooms.get(room_id)
+
+    if not room or room['host_id'] != host_id or player_to_kick_id == host_id:
+        return
+
+    if player_to_kick_id in room['players']:
+        # 从房间数据中移除
+        kicked_player_info = room['players'].pop(player_to_kick_id)
+        
+        # 如果被踢的是真人玩家，将他踢出SocketIO房间并通知他
+        if not kicked_player_info.get('is_ai'):
+            kicked_sid = online_users.get(player_to_kick_id)
+            if kicked_sid:
+                emit('ludo:you_were_kicked', {'room_id': room_id}, to=kicked_sid, namespace='/api')
+                # leave_room(room_id, sid=kicked_sid) # SocketIO的leave_room需要客户端主动触发或在disconnect时处理
+        
+        print(f"房主 {host_id} 从房间 {room_id} 踢出了玩家 {player_to_kick_id}")
+        socketio.emit('ludo:room_update', room, to=room_id, namespace='/api')
+
+@socketio.on('ludo:leave_room', namespace='/api')
+def handle_ludo_leave_room(data):
+    """玩家主动离开房间"""
+    user_id, _ = get_user_from_session()
+    room_id = data.get('room_id')
+    
+    if user_id and room_id:
+        leave_room(room_id)
+        handle_ludo_leave_room_logic(room_id, user_id)
+        
+# --- 游戏核心逻辑事件 ---
+
+@socketio.on('ludo:start_game', namespace='/api')
+def handle_ludo_start_game(data):
+    """房主开始游戏"""
+    user_id, _ = get_user_from_session()
+    room_id = data.get('room_id')
+    room = ludo_rooms.get(room_id)
+
+    if not room or room['host_id'] != user_id or room['status'] != 'waiting':
+        return
+    
+    player_ids = list(room['players'].keys())
+    if not (2 <= len(player_ids) <= 4):
+        emit('ludo:error', {'message': '游戏需要 2-4 名玩家才能开始！'})
+        return
+
+    # 1. 初始化游戏状态
+    colors = ['red', 'green', 'yellow', 'blue']
+    random.shuffle(player_ids) # 随机决定颜色和顺序
+    
+    game_state = {
+        'board': {}, # 存储每个格子的棋子信息
+        'players': {},
+        'current_turn_index': 0,
+        'dice_value': None,
+        'winner': None
+    }
+
+    for i, p_id in enumerate(player_ids):
+        color = colors[i]
+        game_state['players'][p_id] = {
+            'color': color,
+            'pieces': {
+                f'{color}_1': {'pos': 'base', 'index': 1},
+                f'{color}_2': {'pos': 'base', 'index': 2},
+                f'{color}_3': {'pos': 'base', 'index': 3},
+                f'{color}_4': {'pos': 'base', 'index': 4},
+            }
+        }
+
+    # 2. 更新房间状态
+    room['status'] = 'in_progress'
+    room['game_state'] = game_state
+    
+    print(f"房间 {room_id} 的游戏已开始！")
+    # 3. 广播游戏开始事件
+    socketio.emit('ludo:game_started', room, to=room_id, namespace='/api')
+
+# --- Ludo 游戏核心逻辑类 ---
+
+class LudoGame:
+    """
+    一个独立的类，用于管理单个飞行棋游戏房间的所有状态和规则。
+    """
+    BOARD_CONFIG = {
+        'path_length': 52,
+        'home_path_length': 6,
+        'start_positions': {'red': 0, 'green': 13, 'yellow': 26, 'blue': 39},
+        'home_entrances': {'red': 50, 'green': 11, 'yellow': 24, 'blue': 37},
+    }
+
+    def __init__(self, player_ids_map):
+        self.players = {}
+        self.player_order = list(player_ids_map.keys())
+        random.shuffle(self.player_order) # 随机决定游戏顺序
+        
+        self.current_turn_index = 0
+        self.dice_value = None
+        self.valid_moves = []
+        self.winner = None
+        self.last_message = "游戏开始，祝你好运！"
+
+        colors = ['red', 'green', 'yellow', 'blue']
+        for i, player_id in enumerate(self.player_order):
+            color = colors[i]
+            self.players[player_id] = {
+                'id': player_id,
+                'username': player_ids_map[player_id]['username'],
+                'is_ai': player_ids_map[player_id]['is_ai'],
+                'color': color,
+                'pieces': {
+                    f'{color}_{j}': {'pos': 'base', 'id': f'{color}_{j}'} for j in range(1, 5)
+                }
+            }
+    
+    def get_current_player_id(self):
+        return self.player_order[self.current_turn_index]
+
+    def roll_dice(self):
+        self.dice_value = random.randint(1, 6)
+        self.last_message = f"{self.players[self.get_current_player_id()]['username']} 掷出了 {self.dice_value} 点。"
+        return self.dice_value
+        
+    def advance_turn(self):
+        """轮换到下一位玩家，除非当前玩家有奖励回合。"""
+        if self.dice_value != 6:
+            self.current_turn_index = (self.current_turn_index + 1) % len(self.player_order)
+        self.dice_value = None
+        self.valid_moves = []
+
+    def get_valid_moves(self, player_id, dice_value):
+        """核心计算函数：根据骰子点数找出所有可以移动的棋子。"""
+        player = self.players[player_id]
+        color = player['color']
+        moves = []
+
+        for piece_id, piece in player['pieces'].items():
+            # 1. 检查是否可以起飞 (偶数起飞规则)
+            if piece['pos'] == 'base' and dice_value % 2 == 0:
+                start_pos = self.BOARD_CONFIG['start_positions'][color]
+                # 检查起飞点是否有自己的棋子挡路
+                is_blocked = False
+                for other_piece in player['pieces'].values():
+                    if other_piece['pos'] == start_pos:
+                        is_blocked = True
+                        break
+                if not is_blocked:
+                    moves.append({'piece_id': piece_id, 'destination': start_pos, 'type': 'take_off'})
+                continue
+
+            # 2. 检查在普通路径上的棋子
+            if isinstance(piece['pos'], int):
+                current_pos = piece['pos']
+                home_entrance = self.BOARD_CONFIG['home_entrances'][color]
+                start_pos = self.BOARD_CONFIG['start_positions'][color]
+                
+                # 判断棋子是否即将进入家门
+                moved_past_entrance = False
+                if start_pos > home_entrance: # Red color case
+                    if current_pos <= home_entrance and current_pos + dice_value > home_entrance:
+                         moved_past_entrance = True
+                else: # Other colors
+                     if current_pos <= home_entrance < current_pos + dice_value:
+                         moved_past_entrance = True
+
+                if moved_past_entrance:
+                    remaining_steps = dice_value - (home_entrance - current_pos)
+                    if start_pos > home_entrance: # Red fix for wrap-around
+                        remaining_steps = dice_value - (home_entrance - current_pos + self.BOARD_CONFIG['path_length']) % self.BOARD_CONFIG['path_length']
+                    
+                    if remaining_steps <= self.BOARD_CONFIG['home_path_length']:
+                        moves.append({'piece_id': piece_id, 'destination': f'home_{remaining_steps}', 'type': 'move_home'})
+                else:
+                    # 普通移动
+                    destination = (current_pos + dice_value) % self.BOARD_CONFIG['path_length']
+                    moves.append({'piece_id': piece_id, 'destination': destination, 'type': 'move'})
+
+            # 3. 检查在回家路径上的棋子
+            if isinstance(piece['pos'], str) and piece['pos'].startswith('home_'):
+                current_home_step = int(piece['pos'].split('_')[1])
+                destination_step = current_home_step + dice_value
+                if destination_step <= self.BOARD_CONFIG['home_path_length']:
+                    moves.append({'piece_id': piece_id, 'destination': f'home_{destination_step}', 'type': 'move_home'})
+
+        self.valid_moves = moves
+        return moves
+        
+    def make_move(self, player_id, piece_id):
+        """执行一个移动，并处理所有游戏后果（撞机、胜利等）。"""
+        move_to_make = next((m for m in self.valid_moves if m['piece_id'] == piece_id), None)
+        if not move_to_make:
+            # 如果没有合法的移动，直接进入下一回合
+            self.advance_turn()
+            return
+
+        destination = move_to_make['destination']
+        
+        # 撞机检测 (只在普通路径上发生)
+        if isinstance(destination, int):
+            # 起飞点是安全区，不能撞机
+            is_safe_square = destination in self.BOARD_CONFIG['start_positions'].values()
+            
+            if not is_safe_square:
+                for opponent_id, opponent in self.players.items():
+                    if opponent_id == player_id: continue
+                    for opp_piece_id, opp_piece in opponent['pieces'].items():
+                        if opp_piece['pos'] == destination:
+                            opp_piece['pos'] = 'base' # 撞回基地
+                            self.last_message = f"{self.players[player_id]['username']} 的棋子撞回了 {opponent['username']} 的棋子！"
+                            # 撞机也奖励一次额外回合
+                            self.dice_value = 6 # 伪装成6点来获得奖励回合
+
+        # 更新棋子位置
+        self.players[player_id]['pieces'][piece_id]['pos'] = destination
+        
+        # 胜利条件检查
+        player_pieces = self.players[player_id]['pieces']
+        goal_pos = f"home_{self.BOARD_CONFIG['home_path_length']}"
+        if all(p['pos'] == goal_pos for p in player_pieces.values()):
+            self.winner = player_id
+            self.last_message = f"游戏结束！恭喜 {self.players[player_id]['username']} 获得了胜利！"
+        else:
+            self.advance_turn()
+
+    def get_state(self):
+        """返回一个可被JSON序列化的游戏状态字典。"""
+        return {
+            'players': self.players,
+            'player_order': self.player_order,
+            'current_turn_index': self.current_turn_index,
+            'current_player_id': self.get_current_player_id(),
+            'dice_value': self.dice_value,
+            'valid_moves': self.valid_moves,
+            'winner': self.winner,
+            'last_message': self.last_message
+        }
+
+# --- 游戏核心逻辑事件 ---
+
+@socketio.on('ludo:start_game', namespace='/api')
+def handle_ludo_start_game(data):
+    user_id, _ = get_user_from_session()
+    room_id = data.get('room_id')
+    room = ludo_rooms.get(room_id)
+
+    if not room or room['host_id'] != user_id or room['status'] != 'waiting':
+        return
+    
+    if not (2 <= len(room['players']) <= 4):
+        emit('ludo:error', {'message': '游戏需要 2-4 名玩家才能开始！'})
+        return
+
+    # 1. 创建游戏实例
+    game = LudoGame(room['players'])
+    room['game_instance'] = game
+    room['status'] = 'in_progress'
+    
+    print(f"房间 {room_id} 的游戏已开始！")
+    # 2. 广播游戏开始事件，发送初始游戏状态
+    socketio.emit('ludo:game_state_update', game.get_state(), to=room_id, namespace='/api')
+
+    # 3. 如果第一个玩家是AI，自动触发它的回合
+    check_and_trigger_ai_turn(room_id)
+
+
+@socketio.on('ludo:roll_dice', namespace='/api')
+def handle_ludo_roll_dice(data):
+    user_id, _ = get_user_from_session()
+    room_id = data.get('room_id')
+    room = ludo_rooms.get(room_id)
+    game = room.get('game_instance')
+
+    if not game or game.get_current_player_id() != user_id or game.dice_value is not None:
+        return
+
+    dice_value = game.roll_dice()
+    valid_moves = game.get_valid_moves(user_id, dice_value)
+    
+    # 如果掷出点数后没有任何棋子可以移动，则自动跳到下一回合
+    if not valid_moves:
+        socketio.sleep(1) # 增加延迟让前端能看清骰子
+        game.advance_turn()
+        socketio.emit('ludo:game_state_update', game.get_state(), to=room_id, namespace='/api')
+        check_and_trigger_ai_turn(room_id) # 检查下一位是否是AI
+    else:
+        # 否则，正常广播游戏状态，等待玩家选择棋子
+        socketio.emit('ludo:game_state_update', game.get_state(), to=room_id, namespace='/api')
+
+
+@socketio.on('ludo:move_piece', namespace='/api')
+def handle_ludo_move_piece(data):
+    user_id, _ = get_user_from_session()
+    room_id = data.get('room_id')
+    piece_id = data.get('piece_id')
+    room = ludo_rooms.get(room_id)
+    game = room.get('game_instance')
+
+    if not game or game.get_current_player_id() != user_id or not piece_id:
+        return
+
+    game.make_move(user_id, piece_id)
+    
+    socketio.emit('ludo:game_state_update', game.get_state(), to=room_id, namespace='/api')
+    
+    # 检查移动后是否轮到AI
+    if not game.winner:
+        check_and_trigger_ai_turn(room_id)
+
+
+# --- AI 逻辑 ---
+def check_and_trigger_ai_turn(room_id):
+    """检查当前是否轮到AI，如果是，则自动执行AI的回合。"""
+    room = ludo_rooms.get(room_id)
+    if not room: return
+    game = room.get('game_instance')
+    if not game or game.winner: return
+
+    current_player_id = game.get_current_player_id()
+    player_info = game.players.get(current_player_id)
+
+    if player_info and player_info['is_ai']:
+        socketio.start_background_task(run_ai_turn, room_id, current_player_id)
+
+def run_ai_turn(room_id, ai_player_id):
+    """在一个后台线程中执行AI的完整回合，以避免阻塞服务器。"""
+    with app.app_context(): # 需要应用上下文来使用 emit
+        room = ludo_rooms.get(room_id)
+        if not room: return
+        game = room.get('game_instance')
+        if not game or game.winner or game.get_current_player_id() != ai_player_id:
+            return
+
+        print(f"AI {ai_player_id} 的回合开始...")
+        
+        # 模拟AI思考
+        socketio.sleep(random.uniform(1.0, 2.5))
+
+        # 1. AI 掷骰子
+        dice_value = game.roll_dice()
+        valid_moves = game.get_valid_moves(ai_player_id, dice_value)
+        socketio.emit('ludo:game_state_update', game.get_state(), to=room_id, namespace='/api')
+
+        socketio.sleep(1.5)
+
+        # 2. AI 选择移动
+        if valid_moves:
+            # AI策略：简单地从所有合法移动中随机选择一个
+            chosen_move = random.choice(valid_moves)
+            game.make_move(ai_player_id, chosen_move['piece_id'])
+            
+            print(f"AI {ai_player_id} 掷出了 {dice_value} 并移动了 {chosen_move['piece_id']}")
+        else:
+            # 没有可移动的棋子，AI自动结束回合
+            game.advance_turn()
+            print(f"AI {ai_player_id} 掷出了 {dice_value} 但无子可动。")
+
+        # 3. 广播移动后的最终状态
+        socketio.emit('ludo:game_state_update', game.get_state(), to=room_id, namespace='/api')
+
+        # 4. 检查AI是否因为掷6或撞机而获得奖励回合
+        if not game.winner:
+            check_and_trigger_ai_turn(room_id)
 
 # 健康检查
 @app.route('/api/health', methods=['GET'])
