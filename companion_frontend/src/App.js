@@ -22,6 +22,8 @@ import Header from './components/Header';
 import GlobalPlayer from './components/GlobalPlayer';
 import FriendsPage from './components/friends/FriendsPage';
 import useFriendChatStore from './stores/friendChatStore'; // 确保路径正确
+import useLudoStore from './stores/ludoStore';
+import LudoInvitationPopup from './components/games/LudoInvitationPopup'; // 确保路径正确
 
 
 
@@ -60,6 +62,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [socket, setSocket] = useState(null);
+  const { invitation, setInvitation, clearInvitation } = useLudoStore();
   // --- VVVV  请把下面这一整段 useEffect 添加进去 VVVV ---
 
   // VVVV [核心加固区域] VVVV
@@ -126,6 +129,33 @@ useEffect(() => {
         newSocket.on('receive_private_message', handleNewMessage);
       });
 
+    const handleInvitation = (data) => {
+        console.log('✅ 收到飞行棋邀请:', data);
+        setInvitation(data); // 使用从 useLudoStore 获取的 action
+      };
+      
+      const handleKicked = (data) => {
+        alert("你已被房主移出飞行棋房间。");
+        // 当被踢时，重置 ludo store 的状态
+        useLudoStore.getState().reset();
+      };
+      
+      // ^^^^^^ 添加结束 ^^^^^^
+
+      newSocket.on('connect', () => {
+        console.log(`✅ 成功连接到 ${socketUrl}！`);
+        setSocket(newSocket);
+        
+        newSocket.on('receive_private_message', handleNewMessage);
+        
+        // VVVVVV 在 connect 成功后，绑定新的事件监听 VVVVVV
+        
+        newSocket.on('ludo:receive_invitation', handleInvitation);
+        newSocket.on('ludo:you_were_kicked', handleKicked);
+        
+        // ^^^^^^ 绑定结束 ^^^^^^
+      });
+
     // 3. (推荐) 添加其他生命周期事件的监听
     newSocket.on('disconnect', (reason) => {
       console.log(`❌ WebSocket 连接已断开: ${reason}`);
@@ -138,11 +168,13 @@ useEffect(() => {
     return () => {
       console.log("正在断开 WebSocket 连接...");
       newSocket.off('receive_private_message', handleNewMessage); // <--- 关键！移除监听
+      newSocket.off('ludo:receive_invitation', handleInvitation);
+      newSocket.off('ludo:you_were_kicked', handleKicked);
       newSocket.disconnect();
       setSocket(null); // 登出或组件卸载时，清理 socket state
     };
   }
-}, [user]); // 这个 effect 只依赖于 user 的登录/登出状态
+}, [user, setInvitation]); // 这个 effect 只依赖于 user 的登录/登出状态
 
 // ^^^^^^ 替换到这里结束 ^^^^^^
 
@@ -161,6 +193,23 @@ useEffect(() => {
   const handleThemeChange = (newTheme, newColor = null) => {
     setThemeName(newTheme);
     if (newColor) { setCustomColor(newColor); }
+  };
+
+  // --- [新增] 处理接受/拒绝邀请的函数 ---
+  const handleAcceptInvite = (roomId) => {
+    if (socket) {
+      socket.emit('ludo:accept_invitation', { room_id: roomId });
+      // 清空邀请弹窗
+      clearInvitation();
+      // 注意：这里我们不需要强制跳转页面。
+      // 后端会在接受邀请后广播 'ludo:room_update' 事件，
+      // 如果用户此时正好在 Games 页面，LudoGame 组件会监听到并自动进入房间。
+      // 这是一个更解耦、更优雅的设计。
+    }
+  };
+
+  const handleDeclineInvite = () => {
+    clearInvitation();
   };
 
   const toggleSidebar = () => { setSidebarOpen(!sidebarOpen); };
@@ -250,6 +299,12 @@ useEffect(() => {
           )}
         </Router>
       </Box>
+      {/* [新增] 渲染全局邀请弹窗 */}
+      <LudoInvitationPopup 
+        invitation={invitation}
+        onAccept={handleAcceptInvite}
+        onDecline={handleDeclineInvite}
+      />
       <div id="youtube-iframe-placeholder" style={{ display: 'none' }}></div>
     </ThemeProvider>
   );
