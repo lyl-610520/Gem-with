@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Paper, Typography, Button, Chip, Grid, Dialog, DialogTitle, DialogContent, DialogContentText } from '@mui/material';
+import { Box, Paper, Typography, Button, Chip, Grid, Dialog, DialogTitle, DialogContent, DialogContentText, Avatar } from '@mui/material';
 import { FaUser, FaCrown, FaDice } from 'react-icons/fa';
 import useLudoStore from '../../stores/ludoStore';
 import { getPieceGridPosition, getCellColor } from './ludoBoardUtils';
