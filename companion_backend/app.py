@@ -2390,6 +2390,9 @@ def handle_ludo_accept_invitation(data):
     # 向房间内所有人广播最新的房间状态
     socketio.emit('ludo:room_update', room_info_to_send, to=room_id, namespace='/api') # <--- 使用新的字典
     # ^^^^ 修改结束 ^^^^
+    # 2. [核心新增] 单独向刚刚加入的玩家发送一个“加入成功”事件，并附上房间信息
+    #    这个事件将成为前端跳转页面的“扳机”
+    emit('ludo:join_success', room_info_to_send
 
 @socketio.on('ludo:add_ai', namespace='/api')
 def handle_ludo_add_ai(data):
