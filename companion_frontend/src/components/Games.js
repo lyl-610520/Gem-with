@@ -23,7 +23,7 @@ import LudoGame from './games/LudoGame';
 const games = [
   { id: 'memory', title: '记忆翻牌', description: '测试你的记忆力，翻出相同的卡片', icon: <FaGamepad />, component: MemoryGame },
   { id: 'word', title: '单词接龙', description: '进行一场单词学习游戏', icon: <FaTrophy />, component: WordGame },
-  { id: 'ludo', title: '飞行棋', description: '经典游戏，即将推出', icon: <FaPlane />, component: LudoGame },
+  { id: 'ludo', title: '飞行棋', description: '起飞，起飞，起飞～', icon: <FaPlane />, component: LudoGame },
 ];
 
 function Games({ user }) {
