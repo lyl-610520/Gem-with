@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import MemoryGame from './games/MemoryGame';
 import WordGame from './games/WordGame';
 import LudoGame from './games/LudoGame';
+import LudoGame from './games/LudoGame'; // <--- 添加这个新的 import
 // =======================================================
 // ^^^^                【修正完毕】                      ^^^^
 // =======================================================
@@ -23,7 +24,7 @@ import LudoGame from './games/LudoGame';
 const games = [
   { id: 'memory', title: '记忆翻牌', description: '测试你的记忆力，翻出相同的卡片', icon: <FaGamepad />, component: MemoryGame },
   { id: 'word', title: '单词接龙', description: '进行一场单词学习游戏', icon: <FaTrophy />, component: WordGame },
-  { id: 'ludo', title: '飞行棋', description: '经典游戏，即将推出', icon: <FaPlane />, component: LudoGame, disabled: true },
+  { id: 'ludo', title: '飞行棋', description: '经典游戏，即将推出', icon: <FaPlane />, component: LudoGame },
 ];
 
 function Games({ user }) {
