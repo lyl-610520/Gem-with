@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { Box, Button, Typography, CircularProgress } from '@mui/material';
+import { Box, Button, Typography, CircularProgress, IconButton } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import { FaPlus } from 'react-icons/fa';
 
 import useLudoStore from '../../stores/ludoStore';
@@ -91,10 +92,23 @@ const LudoGame = ({ user, socket, onClose }) => {
   };
 
   return (
-    <Box sx={{ bgcolor: 'background.paper', borderRadius: 4, minWidth: { xs: '90vw', sm: '80vw', md: 800 }, minHeight: 500 }}>
-       <Button onClick={onClose} sx={{position: 'absolute', top: 8, right: 8}}>关闭</Button>
+    // VVVV 修改 Box 的样式以适应全屏 VVVV
+    <Box sx={{ 
+      height: '100vh', 
+      width: '100vw', 
+      bgcolor: 'background.default', // 使用主题背景色
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
+       <IconButton 
+         onClick={onClose} 
+         sx={{position: 'absolute', top: 16, right: 16, zIndex: 1300, bgcolor: 'rgba(0,0,0,0.2)', '&:hover': {bgcolor: 'rgba(0,0,0,0.4)'} }}
+       >
+         <CloseIcon sx={{color: 'white'}} />
+       </IconButton>
        {renderContent()}
     </Box>
+    // ^^^^
   );
 };
 
