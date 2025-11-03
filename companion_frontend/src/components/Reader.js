@@ -96,32 +96,42 @@ function Reader({ user, socket }) {
     }
     return "";
   }, []);
-  
   const fetchBookDetails = useCallback(async () => {
-    if (!bookId) return;
-    try {
-      const response = await axios.get(`/books/${bookId}`);
-      const loadedAnnotations = response.data.annotations || [];
+  if (!bookId) return;
+  try {
+    const response = await axios.get(`/books/${bookId}`);
+    const loadedAnnotations = response.data.annotations || [];
+    
+    if (viewerRef.current) {
+      setBookTitle(response.data.title);
+      setAnnotations(loadedAnnotations);
       
-      if (viewerRef.current) {
-        setBookTitle(response.data.title);
-        setAnnotations(loadedAnnotations);
+      if (renditionRef.current && renditionRef.current.getContents()) {
+        // 🔧 修复:先移除所有高亮
+        loadedAnnotations.forEach(anno => {
+          if (anno.cfi) {
+            try {
+              renditionRef.current.annotations.remove(anno.cfi, "highlight");
+            } catch (e) {
+              // 忽略不存在的批注
+            }
+          }
+        });
         
-        if (renditionRef.current && renditionRef.current.getContents()) {
-          renditionRef.current.annotations.removeall();
-          loadedAnnotations.forEach(anno => drawHighlight(anno));
-        }
+        // 然后重新绘制
+        loadedAnnotations.forEach(anno => drawHighlight(anno));
       }
-    } catch (err) {
-      console.error("获取书籍详情失败:", err);
-      if (err.response && err.response.status === 403) {
-        setError("你没有权限阅读这本书。");
-      } else {
-        setError("无法加载书籍详情和批注。");
-      }
-      setIsLoading(false);
     }
-  }, [bookId, drawHighlight]);
+  } catch (err) {
+    console.error("获取书籍详情失败:", err);
+    if (err.response && err.response.status === 403) {
+      setError("你没有权限阅读这本书。");
+    } else {
+      setError("无法加载书籍详情和批注。");
+    }
+    setIsLoading(false);
+  }
+}, [bookId, drawHighlight]);
 
   useEffect(() => {
     if (!socket || !bookId) return;
