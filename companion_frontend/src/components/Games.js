@@ -26,7 +26,7 @@ const games = [
   { id: 'ludo', title: '飞行棋', description: '起飞，起飞，起飞～', icon: <FaPlane />, component: LudoGame },
 ];
 
-function Games({ user }) {
+function Games({ user, socket }) {
   // ... 函数的其余所有代码都保持不变 ...
   const [scores, setScores] = useState([]);
   const [currentGame, setCurrentGame] = useState(null);
