@@ -3,7 +3,7 @@ import React from 'react';
 import { Box, Paper, Typography, Button, Chip, Grid, Dialog, DialogTitle, DialogContent, DialogContentText, Avatar } from '@mui/material';
 import { FaUser, FaCrown, FaDice } from 'react-icons/fa';
 import useLudoStore from '../../stores/ludoStore';
-import { getPieceGridPosition, getCellColor } from './ludoBoardUtils';
+import { getPieceGridPosition, getCellColor, PATH_COORDINATES } from './ludoBoardUtils';
 import Piece from './Piece';
 import Dice from './Dice';
 import { motion } from 'framer-motion';
