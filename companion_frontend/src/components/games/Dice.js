@@ -1,22 +1,23 @@
+// src/components/games/Dice.js
 import React from 'react';
-import { Box } from '@mui/material';
-import { FaDiceOne, FaDiceTwo, FaDiceThree, FaDiceFour, FaDiceFive, FaDiceSix } from 'react-icons/fa';
 import { motion } from 'framer-motion';
+import { FaDiceOne, FaDiceTwo, FaDiceThree, FaDiceFour, FaDiceFive, FaDiceSix } from 'react-icons/fa';
 
-const diceIcons = [FaDiceOne, FaDiceTwo, FaDiceThree, FaDiceFour, FaDiceFive, FaDiceSix];
+const icons = [FaDiceOne, FaDiceTwo, FaDiceThree, FaDiceFour, FaDiceFive, FaDiceSix];
 
 const Dice = ({ value }) => {
   if (!value) return null;
-  const Icon = diceIcons[value - 1];
+  const Icon = icons[value - 1];
 
   return (
     <motion.div
-      key={value + Date.now()} // Force re-render for animation
-      initial={{ scale: 0.5, rotate: -180, opacity: 0 }}
-      animate={{ scale: 1, rotate: 0, opacity: 1 }}
-      transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+      key={value}
+      initial={{ rotateX: -180, scale: 0 }}
+      animate={{ rotateX: 0, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 15 }}
+      style={{ display: 'inline-block' }}
     >
-      <Icon size={50} color="primary" />
+      <Icon size={56} color="#fff" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }} />
     </motion.div>
   );
 };
