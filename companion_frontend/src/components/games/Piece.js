@@ -1,15 +1,16 @@
+// src/components/games/Piece.js
 import React from 'react';
 import { Box } from '@mui/material';
 import { motion } from 'framer-motion';
 
-const Piece = ({ playerColor, gridPos, isMovable, onClick }) => {
-  const colorMap = {
-    red: '#d32f2f',
-    green: '#388e3c',
-    yellow: '#fbc02d',
-    blue: '#1976d2',
-  };
+const GRADIENT = {
+  red:    'linear-gradient(135deg, #ef5350, #d32f2f)',
+  green:  'linear-gradient(135deg, #66bb6a, #388e3c)',
+  yellow: 'linear-gradient(135deg, #ffca28, #f9a825)',
+  blue:   'linear-gradient(135deg, #42a5f5, #1976d2)',
+};
 
+const Piece = ({ playerColor, gridPos, isMovable, onClick }) => {
   return (
     <Box
       sx={{
@@ -18,27 +19,23 @@ const Piece = ({ playerColor, gridPos, isMovable, onClick }) => {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        zIndex: 2,
+        zIndex: 10,
       }}
     >
       <motion.div
-        whileHover={{ scale: isMovable ? 1.2 : 1 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 10 }}
+        layoutId={`piece-${playerColor}`}   // 同一颜色棋子共享 id，实现平滑移动
         onClick={onClick}
+        whileHover={isMovable ? { scale: 1.3 } : {}}
+        animate={isMovable ? { boxShadow: '0 0 20px rgba(255,255,255,0.8)' } : {}}
+        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
         style={{
-          width: '70%',
-          height: '70%',
+          width: '68%',
+          height: '68%',
           borderRadius: '50%',
-          backgroundColor: colorMap[playerColor],
+          background: GRADIENT[playerColor],
           cursor: isMovable ? 'pointer' : 'default',
-          border: '2px solid white',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.4)',
-          filter: isMovable ? 'brightness(1.2)' : 'brightness(1)',
-          animation: isMovable ? 'glow 1.5s infinite alternate' : 'none',
-          '@keyframes glow': {
-            'from': { boxShadow: '0 0 5px #fff, 0 0 10px #fff, 0 0 15px #007bff' },
-            'to': { boxShadow: '0 0 10px #fff, 0 0 20px #007bff, 0 0 30px #007bff' }
-          }
+          border: '3px solid #fff',
+          boxShadow: '0 3px 8px rgba(0,0,0,0.4)',
         }}
       />
     </Box>
