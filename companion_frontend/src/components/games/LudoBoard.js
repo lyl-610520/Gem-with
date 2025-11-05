@@ -7,21 +7,21 @@ import { getPiecePosition } from './ludoBoardUtils';
 import Piece from './Piece';
 import Dice from './Dice';
 
+const CELL_SIZE = 40;
+const PADDING = 20;
+const COLORS = {
+    red: { main: '#ffb3ba', light: '#ffe4e6' },
+    green: { main: '#baffc9', light: '#e8ffe8' },
+    yellow: { main: '#ffffba', light: '#fffef0' },
+    blue: { main: '#bae1ff', light: '#e0f2ff' },
+    path: { main: '#ffffff', safe: '#fef3c7' },
+    border: '#e2e8f0',
+};
+
 // ===================================================================
 // BoardBackground: 外包写的精美SVG棋盘背景 (我们直接嵌入)
 // ===================================================================
 const BoardBackground = () => {
-    const CELL_SIZE = 40;
-    const PADDING = 20;
-    const COLORS = {
-        red: { main: '#ffb3ba', light: '#ffe4e6' },
-        green: { main: '#baffc9', light: '#e8ffe8' },
-        yellow: { main: '#ffffba', light: '#fffef0' },
-        blue: { main: '#bae1ff', light: '#e0f2ff' },
-        path: { main: '#ffffff', safe: '#fef3c7' },
-        border: '#e2e8f0',
-    };
-
     const mainPath = [
         ...Array.from({ length: 5 }, (_, i) => ({ x: i, y: 6 })), 
         ...Array.from({ length: 5 }, (_, i) => ({ x: 6, y: 5 - i })),
