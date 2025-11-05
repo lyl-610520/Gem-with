@@ -1,44 +1,37 @@
 // src/components/games/Piece.js
 import React from 'react';
-import { Box } from '@mui/material';
 import { motion } from 'framer-motion';
 
-const GRADIENT = {
-  red:    'linear-gradient(135deg, #ef5350, #d32f2f)',
-  green:  'linear-gradient(135deg, #66bb6a, #388e3c)',
-  yellow: 'linear-gradient(135deg, #ffca28, #f9a825)',
-  blue:   'linear-gradient(135deg, #42a5f5, #1976d2)',
-};
+const Piece = ({ playerColor, position, isMovable, onClick }) => {
+  const colors = {
+    red: '#ff8a80',
+    green: '#b9f6ca',
+    yellow: '#ffff8d',
+    blue: '#82b1ff',
+  };
 
-const Piece = ({ playerColor, gridPos, isMovable, onClick }) => {
   return (
-    <Box
-      sx={{
-        gridRow: gridPos.r,
-        gridColumn: gridPos.c,
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 10,
-      }}
+    <motion.g // 使用 <g> 元素组合，方便未来扩展
+      // 核心动画：当 x, y 改变时，自动产生弹簧动画
+      animate={{ x: position.x, y: position.y }}
+      initial={false} // 首次渲染时不执行动画
+      transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+      onClick={onClick}
+      style={{ cursor: isMovable ? 'pointer' : 'default' }}
     >
-      <motion.div
-        layoutId={`piece-${playerColor}`}   // 同一颜色棋子共享 id，实现平滑移动
-        onClick={onClick}
-        whileHover={isMovable ? { scale: 1.3 } : {}}
-        animate={isMovable ? { boxShadow: '0 0 20px rgba(255,255,255,0.8)' } : {}}
-        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-        style={{
-          width: '68%',
-          height: '68%',
-          borderRadius: '50%',
-          background: GRADIENT[playerColor],
-          cursor: isMovable ? 'pointer' : 'default',
-          border: '3px solid #fff',
-          boxShadow: '0 3px 8px rgba(0,0,0,0.4)',
-        }}
+      <motion.circle
+        r="16" // 棋子半径
+        fill={colors[playerColor]}
+        stroke="rgba(0,0,0,0.2)"
+        strokeWidth="2"
+        // 可移动时的放大和发光效果
+        whileHover={{ scale: isMovable ? 1.25 : 1.0 }}
+        animate={{ scale: isMovable ? [1, 1.1, 1] : 1 }}
+        transition={{ duration: 1, repeat: Infinity }}
       />
-    </Box>
+      {/* 棋子的高光，增加立体感 */}
+      <circle r="6" fill="rgba(255,255,255,0.5)" cx="-4" cy="-4" />
+    </motion.g>
   );
 };
 
