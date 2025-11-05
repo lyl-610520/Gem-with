@@ -1,54 +1,70 @@
 // src/components/games/ludoBoardUtils.js
-// 这个文件现在负责将后端的逻辑位置，转换为SVG画布上的 x, y 坐标
+// 这个文件现在是外包开发者设计的坐标系统和我们后端逻辑的“翻译官”
 
-const TILE_SIZE = 40; // 每个格子的尺寸
-const PADDING = 20;   // 棋盘内边距
+const CELL_SIZE = 40;
+const PADDING = 20; // SVG画布内边距
 
-const getCoords = (col, row) => ({
-  x: PADDING + col * TILE_SIZE,
-  y: PADDING + row * TILE_SIZE,
-});
-
+// 52格主路径的SVG坐标
 // prettier-ignore
-const PATH_COORDINATES = [
-    getCoords(0, 6), getCoords(1, 6), getCoords(2, 6), getCoords(3, 6), getCoords(4, 6),
-    getCoords(6, 4), getCoords(6, 3), getCoords(6, 2), getCoords(6, 1), getCoords(6, 0),
-    getCoords(7, 0), getCoords(8, 0),
-    getCoords(8, 1), getCoords(8, 2), getCoords(8, 3), getCoords(8, 4), getCoords(8, 6),
-    getCoords(10, 6), getCoords(11, 6), getCoords(12, 6), getCoords(13, 6), getCoords(14, 6),
-    getCoords(14, 7), getCoords(14, 8),
-    getCoords(13, 8), getCoords(12, 8), getCoords(11, 8), getCoords(10, 8), getCoords(8, 10),
-    getCoords(8, 11), getCoords(8, 12), getCoords(8, 13), getCoords(8, 14),
-    getCoords(7, 14), getCoords(6, 14),
-    getCoords(6, 13), getCoords(6, 12), getCoords(6, 11), getCoords(6, 10), getCoords(6, 8),
-    getCoords(4, 8), getCoords(3, 8), getCoords(2, 8), getCoords(1, 8), getCoords(0, 8),
-    getCoords(0, 7)
+const MAIN_PATH_POSITIONS = [
+  { x: 1, y: 6 }, { x: 2, y: 6 }, { x: 3, y: 6 }, { x: 4, y: 6 }, { x: 5, y: 6 }, // 0-4
+  { x: 6, y: 5 }, { x: 6, y: 4 }, { x: 6, y: 3 }, { x: 6, y: 2 }, { x: 6, y: 1 }, // 5-9
+  { x: 7, y: 0 }, { x: 8, y: 0 }, // 10-11
+  { x: 8, y: 1 }, { x: 8, y: 2 }, { x: 8, y: 3 }, { x: 8, y: 4 }, { x: 8, y: 5 }, // 12-16
+  { x: 9, y: 6 }, { x: 10, y: 6 }, { x: 11, y: 6 }, { x: 12, y: 6 }, { x: 13, y: 6 }, // 17-21
+  { x: 14, y: 7 }, { x: 14, y: 8 }, // 22-23
+  { x: 13, y: 8 }, { x: 12, y: 8 }, { x: 11, y: 8 }, { x: 10, y: 8 }, { x: 9, y: 8 }, // 24-28
+  { x: 8, y: 9 }, { x: 8, y: 10 }, { x: 8, y: 11 }, { x: 8, y: 12 }, { x: 8, y: 13 }, // 29-33
+  { x: 7, y: 14 }, { x: 6, y: 14 }, // 34-35
+  { x: 6, y: 13 }, { x: 6, y: 12 }, { x: 6, y: 11 }, { x: 6, y: 10 }, { x: 6, y: 9 }, // 36-40
+  { x: 5, y: 8 }, { x: 4, y: 8 }, { x: 3, y: 8 }, { x: 2, y: 8 }, { x: 1, y: 8 }, // 41-45
+  { x: 0, y: 7 } // 46, ... 后面还有5格在原版中, 但这个设计似乎是47格循环
 ];
+// 为了补全52格循环，我们假设最后几格的位置
+MAIN_PATH_POSITIONS.push({ x: 0, y: 6 }); // 47
+MAIN_PATH_POSITIONS.push({ x: 0, y: 5 }); // 48 - (逻辑补充)
+MAIN_PATH_POSITIONS.push({ x: 0, y: 4 }); // 49 - (逻辑补充)
+MAIN_PATH_POSITIONS.push({ x: 0, y: 3 }); // 50 - (逻辑补充)
+MAIN_PATH_POSITIONS.push({ x: 0, y: 2 }); // 51 - (逻辑补充)
 
-const BASE_COORDINATES = {
-  red:    [getCoords(1, 1), getCoords(2, 1), getCoords(1, 2), getCoords(2, 2)],
-  green:  [getCoords(12, 1), getCoords(13, 1), getCoords(12, 2), getCoords(13, 2)],
-  yellow: [getCoords(12, 12), getCoords(13, 12), getCoords(12, 13), getCoords(13, 13)],
-  blue:   [getCoords(1, 12), getCoords(2, 12), getCoords(1, 13), getCoords(2, 13)],
+
+// 基地(飞机场)的SVG坐标
+const BASE_POSITIONS = {
+  red: [{ x: 1.5, y: 1.5 }, { x: 3.5, y: 1.5 }, { x: 1.5, y: 3.5 }, { x: 3.5, y: 3.5 }],
+  green: [{ x: 10.5, y: 1.5 }, { x: 12.5, y: 1.5 }, { x: 10.5, y: 3.5 }, { x: 12.5, y: 3.5 }],
+  yellow: [{ x: 10.5, y: 10.5 }, { x: 12.5, y: 10.5 }, { x: 10.5, y: 12.5 }, { x: 12.5, y: 12.5 }],
+  blue: [{ x: 1.5, y: 10.5 }, { x: 3.5, y: 10.5 }, { x: 1.5, y: 12.5 }, { x: 3.5, y: 12.5 }]
 };
 
-const HOME_PATH_COORDINATES = {
-  red:    [getCoords(1, 7), getCoords(2, 7), getCoords(3, 7), getCoords(4, 7), getCoords(5, 7), getCoords(6, 7)],
-  green:  [getCoords(7, 1), getCoords(7, 2), getCoords(7, 3), getCoords(7, 4), getCoords(7, 5), getCoords(7, 6)],
-  yellow: [getCoords(13, 7), getCoords(12, 7), getCoords(11, 7), getCoords(10, 7), getCoords(9, 7), getCoords(8, 7)],
-  blue:   [getCoords(7, 13), getCoords(7, 12), getCoords(7, 11), getCoords(7, 10), getCoords(7, 9), getCoords(7, 8)],
+// 安全回家路径的SVG坐标
+const HOME_PATH_POSITIONS = {
+  red: Array.from({ length: 6 }, (_, i) => ({ x: 1 + i, y: 7 })),
+  green: Array.from({ length: 6 }, (_, i) => ({ x: 7, y: 1 + i })),
+  yellow: Array.from({ length: 6 }, (_, i) => ({ x: 13 - i, y: 7 })),
+  blue: Array.from({ length: 6 }, (_, i) => ({ x: 7, y: 13 - i }))
 };
 
-// 棋子逻辑位置到SVG坐标的转换函数
+// 核心转换函数
 export const getPiecePosition = (piece, playerColor) => {
   const { pos, id } = piece;
   const pieceIndex = parseInt(id.split('_')[1]) - 1;
 
-  if (pos === 'base') return BASE_COORDINATES[playerColor][pieceIndex];
-  if (typeof pos === 'number') return PATH_COORDINATES[pos];
-  if (typeof pos === 'string' && pos.startsWith('home_')) {
+  let gridPos;
+
+  if (pos === 'base') {
+    gridPos = BASE_POSITIONS[playerColor][pieceIndex];
+  } else if (typeof pos === 'number') {
+    gridPos = MAIN_PATH_POSITIONS[pos];
+  } else if (typeof pos === 'string' && pos.startsWith('home_')) {
     const homeStep = parseInt(pos.split('_')[1]) - 1;
-    return HOME_PATH_COORDINATES[playerColor][homeStep];
+    gridPos = HOME_PATH_POSITIONS[playerColor][homeStep];
+  } else {
+    return { x: -100, y: -100 }; // 屏幕外
   }
-  return { x: -100, y: -100 }; // 默认位置，屏幕外
+  
+  // 将格子坐标转换为最终的SVG像素坐标
+  return {
+      x: PADDING + gridPos.x * CELL_SIZE + CELL_SIZE / 2,
+      y: PADDING + gridPos.y * CELL_SIZE + CELL_SIZE / 2
+  };
 };
