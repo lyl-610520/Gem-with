@@ -1,77 +1,54 @@
 // src/components/games/ludoBoardUtils.js
+// 这个文件现在负责将后端的逻辑位置，转换为SVG画布上的 x, y 坐标
+
+const TILE_SIZE = 40; // 每个格子的尺寸
+const PADDING = 20;   // 棋盘内边距
+
+const getCoords = (col, row) => ({
+  x: PADDING + col * TILE_SIZE,
+  y: PADDING + row * TILE_SIZE,
+});
+
 // prettier-ignore
-export const PATH_COORDINATES = [
-  // 红 → 绿 → 黄 → 蓝（逆时针）
-  {r:7,c:2},{r:7,c:3},{r:7,c:4},{r:7,c:5},{r:7,c:6},
-  {r:6,c:7},{r:5,c:7},{r:4,c:7},{r:3,c:7},{r:2,c:7},
-  {r:2,c:8},{r:2,c:9},
-  {r:2,c:10},{r:3,c:10},{r:4,c:10},{r:5,c:10},{r:6,c:10},
-  {r:7,c:11},{r:7,c:12},{r:7,c:13},{r:7,c:14},{r:7,c:15},
-  {r:8,c:15},{r:9,c:15},
-  {r:10,c:15},{r:10,c:14},{r:10,c:13},{r:10,c:12},{r:10,c:11},
-  {r:11,c:10},{r:12,c:10},{r:13,c:10},{r:14,c:10},{r:15,c:10},
-  {r:15,c:9},{r:15,c:8},
-  {r:15,c:7},{r:14,c:7},{r:13,c:7},{r:12,c:7},{r:11,c:7},
-  {r:10,c:6},{r:10,c:5},{r:10,c:4},{r:10,c:3},{r:10,c:2},
-  {r:9,c:2},{r:8,c:2},
+const PATH_COORDINATES = [
+    getCoords(0, 6), getCoords(1, 6), getCoords(2, 6), getCoords(3, 6), getCoords(4, 6),
+    getCoords(6, 4), getCoords(6, 3), getCoords(6, 2), getCoords(6, 1), getCoords(6, 0),
+    getCoords(7, 0), getCoords(8, 0),
+    getCoords(8, 1), getCoords(8, 2), getCoords(8, 3), getCoords(8, 4), getCoords(8, 6),
+    getCoords(10, 6), getCoords(11, 6), getCoords(12, 6), getCoords(13, 6), getCoords(14, 6),
+    getCoords(14, 7), getCoords(14, 8),
+    getCoords(13, 8), getCoords(12, 8), getCoords(11, 8), getCoords(10, 8), getCoords(8, 10),
+    getCoords(8, 11), getCoords(8, 12), getCoords(8, 13), getCoords(8, 14),
+    getCoords(7, 14), getCoords(6, 14),
+    getCoords(6, 13), getCoords(6, 12), getCoords(6, 11), getCoords(6, 10), getCoords(6, 8),
+    getCoords(4, 8), getCoords(3, 8), getCoords(2, 8), getCoords(1, 8), getCoords(0, 8),
+    getCoords(0, 7)
 ];
 
-export const BASE_COORDINATES = {
-  red:    [{r:2,c:2},{r:3,c:2},{r:2,c:3},{r:3,c:3}],
-  green:  [{r:2,c:12},{r:3,c:12},{r:2,c:13},{r:3,c:13}],
-  yellow: [{r:12,c:12},{r:13,c:12},{r:12,c:13},{r:13,c:13}],
-  blue:   [{r:12,c:2},{r:13,c:2},{r:12,c:3},{r:13,c:3}],
+const BASE_COORDINATES = {
+  red:    [getCoords(1, 1), getCoords(2, 1), getCoords(1, 2), getCoords(2, 2)],
+  green:  [getCoords(12, 1), getCoords(13, 1), getCoords(12, 2), getCoords(13, 2)],
+  yellow: [getCoords(12, 12), getCoords(13, 12), getCoords(12, 13), getCoords(13, 13)],
+  blue:   [getCoords(1, 12), getCoords(2, 12), getCoords(1, 13), getCoords(2, 13)],
 };
 
-export const HOME_PATH_COORDINATES = {
-  red:    [{r:8,c:3},{r:8,c:4},{r:8,c:5},{r:8,c:6},{r:8,c:7},{r:8,c:8}],
-  green:  [{r:3,c:9},{r:4,c:9},{r:5,c:9},{r:6,c:9},{r:7,c:9},{r:8,c:9}],
-  yellow: [{r:9,c:14},{r:9,c:13},{r:9,c:12},{r:9,c:11},{r:9,c:10},{r:9,c:9}],
-  blue:   [{r:14,c:8},{r:13,c:8},{r:12,c:8},{r:11,c:8},{r:10,c:8},{r:9,c:8}],
+const HOME_PATH_COORDINATES = {
+  red:    [getCoords(1, 7), getCoords(2, 7), getCoords(3, 7), getCoords(4, 7), getCoords(5, 7), getCoords(6, 7)],
+  green:  [getCoords(7, 1), getCoords(7, 2), getCoords(7, 3), getCoords(7, 4), getCoords(7, 5), getCoords(7, 6)],
+  yellow: [getCoords(13, 7), getCoords(12, 7), getCoords(11, 7), getCoords(10, 7), getCoords(9, 7), getCoords(8, 7)],
+  blue:   [getCoords(7, 13), getCoords(7, 12), getCoords(7, 11), getCoords(7, 10), getCoords(7, 9), getCoords(7, 8)],
 };
 
-export const START_POSITIONS = { red:0, green:13, yellow:26, blue:39 };
-
-/** 棋子位置 → grid 坐标 */
-export const getPieceGridPosition = (piece, playerColor) => {
+// 棋子逻辑位置到SVG坐标的转换函数
+export const getPiecePosition = (piece, playerColor) => {
   const { pos, id } = piece;
-  const idx = parseInt(id.split('_')[1]) - 1;
+  const pieceIndex = parseInt(id.split('_')[1]) - 1;
 
-  if (pos === 'base') return BASE_COORDINATES[playerColor][idx];
+  if (pos === 'base') return BASE_COORDINATES[playerColor][pieceIndex];
   if (typeof pos === 'number') return PATH_COORDINATES[pos];
   if (typeof pos === 'string' && pos.startsWith('home_')) {
-    const step = parseInt(pos.split('_')[1]) - 1;
-    return HOME_PATH_COORDINATES[playerColor][step];
+    const homeStep = parseInt(pos.split('_')[1]) - 1;
+    return HOME_PATH_COORDINATES[playerColor][homeStep];
   }
-  return { r: 0, c: 0 };
-};
-
-/** 格子背景色（更饱满的 Material 色） */
-export const getCellColor = (r, c) => {
-  // 四大基地
-  if (r >= 1 && r <= 6 && c >= 1 && c <= 6) return '#ef5350';   // red
-  if (r >= 1 && r <= 6 && c >= 10 && c <= 15) return '#66bb6a'; // green
-  if (r >= 10 && r <= 15 && c >= 10 && c <= 15) return '#ffca28'; // yellow
-  if (r >= 10 && r <= 15 && c >= 1 && c <= 6) return '#42a5f5'; // blue
-
-  // 中心 X
-  if (r >= 7 && r <= 9 && c >= 7 && c <= 9) return '#ab47bc';
-
-  // 回家路径（稍深）
-  for (const col in HOME_PATH_COORDINATES) {
-    if (HOME_PATH_COORDINATES[col].some(p => p.r === r && p.c === c))
-      return {red:'#e53935',green:'#43a047',yellow:'#ffb300',blue:'#1e88e5'}[col];
-  }
-
-  // 主跑道（白色底）
-  if (PATH_COORDINATES.some(p => p.r === r && p.c === c)) {
-    // 起飞点高亮
-    for (const col in START_POSITIONS) {
-      const s = PATH_COORDINATES[START_POSITIONS[col]];
-      if (s.r === r && s.c === c) return {red:'#e53935',green:'#43a047',yellow:'#ffb300',blue:'#1e88e5'}[col];
-    }
-    return '#ffffff';
-  }
-
-  return 'transparent';
+  return { x: -100, y: -100 }; // 默认位置，屏幕外
 };
