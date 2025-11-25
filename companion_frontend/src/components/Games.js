@@ -23,7 +23,7 @@ import LudoGame from './games/LudoGame';
 const games = [
   { id: 'memory', title: '记忆翻牌', description: '测试你的记忆力，翻出相同的卡片', icon: <FaGamepad />, component: MemoryGame },
   { id: 'word', title: '单词接龙', description: '进行一场单词学习游戏', icon: <FaTrophy />, component: WordGame },
-  { id: 'ludo', title: '飞行棋', description: '起飞，起飞，起飞～', icon: <FaPlane />, component: LudoGame },
+  { id: 'ludo', title: '飞行棋', description: '起飞，起飞，起飞～（仅框架）', icon: <FaPlane />, component: LudoGame },
 ];
 
 function Games({ user, socket }) {
@@ -105,28 +105,74 @@ function Games({ user, socket }) {
       </TableContainer>
 
       <Dialog 
-    // VVVV 在这里修改 VVVV
-    fullScreen // <--- 直接改成全屏！
-    open={!!currentGame} 
-    onClose={handleGameClose}
-  >
-    <AnimatePresence>
-      {CurrentGameComponent && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.9 }}
-          style={{ height: '100%', width: '100%' }} // 确保 motion div 也占满全屏
-        >
-          {/* VVVV 在这里修改 VVVV */}
-          <CurrentGameComponent 
-            onClose={handleGameClose} 
-            onScore={handleScore} 
-            user={user}         // <--- 传递 user
-            socket={socket}     // <--- 传递 socket
-          />
-          {/* ^^^^ 添加 user 和 socket 属性 ^^^^ */}
-        </motion.div>
+        fullScreen 
+        open={!!currentGame} 
+        onClose={handleGameClose}
+        PaperProps={{
+          style: { 
+            backgroundColor: '#f5f7fa', // 给游戏背景一个护眼的淡灰色
+            backgroundImage: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)' // 或者微渐变
+          }
+        }}
+      >
+        <AnimatePresence>
+          {CurrentGameComponent && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              style={{ height: '100vh', display: 'flex', flexDirection: 'column' }} // 让 motion.div 占满全屏并垂直排列
+            >
+              {/* 1. 顶部导航栏：给一个明确的关闭按钮区域 */}
+              <Box sx={{ 
+                p: 2, 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                backgroundColor: 'rgba(255,255,255,0.8)',
+                backdropFilter: 'blur(10px)',
+                boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
+                zIndex: 10
+              }}>
+                 <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#333' }}>
+                    {getGameTitle(currentGame)}
+                 </Typography>
+                 <Button variant="outlined" color="error" onClick={handleGameClose}>
+                    退出游戏
+                 </Button>
+              </Box>
+
+              {/* 2. 游戏舞台容器：解决所有布局问题 */}
+              <Box sx={{ 
+                flex: 1,                // 占据剩余高度
+                width: '100%',
+                overflowY: 'auto',      // 【关键】垂直滚动（解决飞行棋截断）
+                overflowX: 'hidden',    // 禁止横向溢出
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',   // 【关键】水平居中（解决iPad左上角问题）
+                justifyContent: 'flex-start', // 内容从顶部开始，不够高时也不会强制拉伸
+                pt: 4,                  // 顶部留白
+                pb: 10,                 // 底部留白（防止被手机小黑条遮挡）
+                px: 2                   // 左右留白
+              }}>
+                {/* 3. 游戏内容限制器：防止游戏在宽屏上变得无限宽 */}
+                <Box sx={{
+                  width: '100%',
+                  maxWidth: '800px', // 限制最大宽度，让游戏界面更紧凑
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center'
+                }}>
+                  <CurrentGameComponent 
+                    onClose={handleGameClose} 
+                    onScore={handleScore} 
+                    user={user} 
+                    socket={socket}
+                  />
+                </Box>
+              </Box>
+            </motion.div>
           )}
         </AnimatePresence>
       </Dialog>
